@@ -1,0 +1,51 @@
+{
+  "name": "rotorops-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RotorOps Manager desktop app with the MSFS 2024 bridge built in.",
+  "main": "main.js",
+  "scripts": {
+    "build-app": "node build-app.mjs",
+    "icon": "node make-icon.mjs",
+    "bundle-bridge": "node make-icon.mjs && node build-bridge.mjs",
+    "start": "npm run bundle-bridge && electron .",
+    "package-for-friends": "node package-for-friends.mjs",
+    "dist": "npm run build-app && npm run bundle-bridge && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.2"
+  },
+  "build": {
+    "appId": "dev.rotorops.desktop",
+    "productName": "RotorOps",
+    "icon": "icon.png",
+    "files": [
+      "main.js",
+      "icon.png",
+      "preload.js",
+      "dist/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../.output",
+        "to": ".output"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "RotorOps"
+    }
+  }
+}

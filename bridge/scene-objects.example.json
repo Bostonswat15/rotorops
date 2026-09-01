@@ -1,0 +1,132 @@
+{
+  "roles": {
+    "medevac": {
+      "pool": "ground",
+      "titles": [
+        "EDPro_Person_Laying_down_008",
+        "MMHAmbulance",
+        "Truck Utility Europe Medic Box"
+      ],
+      "count": 3,
+      "spreadNm": 0.02
+    },
+    "logistics": {
+      "pool": "ground",
+      "titles": [
+        "MMH_DoublePallet",
+        "MMH_SinglePallet",
+        "mmh_SlingLoads",
+        "Microsoft_Truck_Container"
+      ],
+      "count": 4,
+      "spreadNm": 0.05
+    },
+    "construction": {
+      "pool": "ground",
+      "titles": [
+        "mmh_SlingLoads",
+        "MMH_DoublePallet",
+        "Microsoft_Truck_Crane_Small"
+      ],
+      "count": 3,
+      "spreadNm": 0.04
+    },
+    "patrol": {
+      "pool": "ground",
+      "titles": [
+        "Microsoft_Truck_NA_White",
+        "Car Bush Utility"
+      ],
+      "count": 5,
+      "spreadNm": 0.8
+    },
+    "firefighting": {
+      "pool": "ground",
+      "titles": [
+        "MMHFireTruck",
+        "MMH_Fire",
+        "Microsoft_Truck_Fire_Medium_Red",
+        "Car Bush Firefighting"
+      ],
+      "count": 3,
+      "spreadNm": 0.3
+    }
+  },
+  "scenes": {
+    "vessel": {
+      "pool": "boat",
+      "titles": [
+        "Microsoft_Ships_Corpesca1_12_Sink",
+        "Microsoft_Ships_CaribbeanBlue_7_Sink",
+        "Microsoft_Ships_HermannMarwede_8"
+      ],
+      "count": 1,
+      "spreadNm": 0
+    },
+    "riverbank": {
+      "pool": "boat",
+      "titles": [
+        "EDPro_EmergencyRaft_001_dup30"
+      ],
+      "count": 1,
+      "spreadNm": 0
+    },
+    "cliff": {
+      "pool": "ground",
+      "titles": [
+        "mmh_hikerRescue",
+        "EDPro_Person_Sitting_down_002"
+      ],
+      "count": 1,
+      "spreadNm": 0
+    },
+    "ridgeline": {
+      "pool": "ground",
+      "titles": [
+        "mmh_hikerRescue",
+        "EDPro_Person_Sitting_down_002"
+      ],
+      "count": 2,
+      "spreadNm": 0.02
+    },
+    "beach": {
+      "pool": "ground",
+      "titles": [
+        "EDPro_Person_Laying_down_003",
+        "EDPro_EmergencyRaft_001_dup30"
+      ],
+      "count": 2,
+      "spreadNm": 0.02
+    },
+    "forest": {
+      "pool": "ground",
+      "titles": [
+        "EDPro_Person_Laying_down_013",
+        "Car Bush Utility"
+      ],
+      "count": 2,
+      "spreadNm": 0.03
+    },
+    "highway": {
+      "pool": "ground",
+      "titles": [
+        "Car NorthAm 02",
+        "MMHAmbulance",
+        "EDPro_Person_Laying_down_008",
+        "SUV NorthAm 02"
+      ],
+      "count": 4,
+      "spreadNm": 0.02
+    },
+    "oil_rig": {
+      "pool": "boat",
+      "titles": [
+        "PlatformSupply",
+        "Microsoft_Ships_PlatformSupplyVessel_5",
+        "Microsoft_Ships_PlatformSupplyVessel_4"
+      ],
+      "count": 1,
+      "spreadNm": 0
+    }
+  }
+}

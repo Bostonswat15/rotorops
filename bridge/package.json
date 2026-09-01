@@ -1,0 +1,28 @@
+{
+  "name": "rotorops-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Connects Microsoft Flight Simulator 2024 to RotorOps Manager via SimConnect.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "pair": "node --experimental-strip-types src/index.ts pair",
+    "start": "node --experimental-strip-types src/index.ts run",
+    "probe": "node --experimental-strip-types src/index.ts probe",
+    "spawn-test": "node --experimental-strip-types src/index.ts spawn-test",
+    "sling": "node --experimental-strip-types src/index.ts sling",
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "node-simconnect": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "^5.9.3"
+  }
+}

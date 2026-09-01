@@ -1,0 +1,105 @@
+name: Build RotorOps
+
+# Tag a commit to cut a release:
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# Also runnable by hand from the Actions tab, which just builds without
+# publishing -- useful for checking a change compiles before tagging.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # The Supabase URL and publishable key are baked into the build, so CI
+      # needs them too. They're public by design -- the key ships in the client
+      # bundle regardless -- but keeping them in repo secrets avoids putting the
+      # project reference in a public repo.
+      - name: Write .env from secrets
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          SUPABASE_PROJECT_ID="${{ secrets.SUPABASE_PROJECT_ID }}"
+          SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
+          SUPABASE_PUBLISHABLE_KEY="${{ secrets.SUPABASE_PUBLISHABLE_KEY }}"
+          VITE_SUPABASE_PROJECT_ID="${{ secrets.SUPABASE_PROJECT_ID }}"
+          VITE_SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
+          VITE_SUPABASE_PUBLISHABLE_KEY="${{ secrets.SUPABASE_PUBLISHABLE_KEY }}"
+          EOF
+
+      - name: Install dependencies
+        run: |
+          bun install
+          npm --prefix bridge install
+          npm --prefix desktop install
+
+      - name: Typecheck
+        run: |
+          npx tsc --noEmit
+          npm --prefix bridge run typecheck
+
+      # The web app must be built with the node-server preset -- the project's
+      # default targets Cloudflare Workers, which produces a Worker module the
+      # desktop app cannot run.
+      - name: Build web app
+        run: node desktop/build-app.mjs
+
+      - name: Build standalone bridge exe
+        run: npm --prefix bridge run build
+
+      - name: Bundle bridge for the desktop app
+        run: npm --prefix desktop run bundle-bridge
+
+      # A GitHub Windows runner has the symlink privilege a normal desktop
+      # account lacks, so electron-builder can unpack its signing toolchain and
+      # the NSIS installer actually builds here.
+      - name: Build installer
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win nsis --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rotorops-windows
+          path: |
+            desktop/dist/*.exe
+            bridge/dist/rotorops-bridge.exe
+          if-no-files-found: warn
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop/dist/*.exe
+            bridge/dist/rotorops-bridge.exe
+          generate_release_notes: true
+          body: |
+            ## Installing
+
+            Download **RotorOps Setup**, run it, and sign in.
+
+            To join someone's company, choose **Join with a code** on the setup
+            screen and enter the invite code they generated from their Crew page.
+
+            Requires Microsoft Flight Simulator 2024 for flight tracking. The app
+            works without it, but nothing will log itself.
+
+            `rotorops-bridge.exe` is the standalone telemetry bridge — only
+            needed if you want to use the web app in a browser instead of the
+            desktop app.

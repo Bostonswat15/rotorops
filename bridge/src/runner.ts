@@ -197,9 +197,13 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     const kinds = new Set(
       (m.objectives as Objective[]).map((o) => (o as { kind: string }).kind),
     );
+    // Deliberately not a warning any more. The stock MSFS 2024 H125 Cargo flies
+    // a visible rope and still reports zero cables, so "no sling cables" does
+    // not mean "no sling" -- and the objective now falls back to the weight the
+    // load puts on the airframe, which works either way.
     if (kinds.has('sling') && lastSnapshot && numOf(lastSnapshot.numSlingCables) === 0) {
-      warn(`"${m.title}" needs a sling, but this aircraft reports no sling cables.`);
-      director?.say('WARNING: this aircraft has no sling — the load cannot be hooked.', 12);
+      log(`"${m.title}" needs a sling. This aircraft reports no sling cables, so the`);
+      log('load will be judged by the weight it puts on the airframe instead.');
     }
     if (kinds.has('hoist') && lastSnapshot && lastSnapshot.hoistDeployed === undefined) {
       warn(`"${m.title}" needs a hoist, but this aircraft reports no hoist.`);

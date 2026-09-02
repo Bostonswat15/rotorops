@@ -292,6 +292,8 @@ async function cmdSling(mode?: string) {
   let last = '';
   let gotData = false;
   let announced = false;
+  let baseWeight: number | null = null;
+  let warnedNoSling = false;
   sim.on('snapshot', (s) => {
     gotData = true;
     if (!announced) {
@@ -304,20 +306,43 @@ async function cmdSling(mode?: string) {
     const pickup = n(s.slingHookPickup);
     const hoist = n(s.hoistDeployed);
     const broken = n(s.slingCableBroken);
+    const cableLen = n(s.slingCableLength);
+    const station = n(s.slingPayloadStation);
+
+    // Weight matters as much as the sling vars here. Plenty of add-on
+    // helicopters model their own hook and rope without declaring a sling to
+    // the sim, so the native vars stay at zero however well you fly. If the
+    // load still shows up as weight on the airframe, that is something an
+    // objective can be keyed off instead.
+    const weight = n(s.payload);
+    if (baseWeight === null && weight !== null) baseWeight = weight;
+    const delta = weight !== null && baseWeight !== null ? weight - baseWeight : null;
 
     const line =
       `cables=${cables ?? '-'}  attached=${attached ?? '-'}  ` +
       `pickupMode=${pickup ?? '-'}  hoist=${hoist === null ? '-' : hoist.toFixed(0) + '%'}  ` +
-      `broken=${broken ?? '-'}  agl=${Math.round(n(s.agl) ?? 0)}ft`;
+      `broken=${broken ?? '-'}  ` +
+      `cableLen=${cableLen === null ? '-' : cableLen.toFixed(1) + 'ft'}  ` +
+      `station=${station ?? '-'}  agl=${Math.round(n(s.agl) ?? 0)}ft  ` +
+      `weight=${weight === null ? '-' : Math.round(weight) + 'lb'}` +
+      `${delta !== null && Math.abs(delta) >= 5 ? ` (${delta > 0 ? '+' : ''}${Math.round(delta)} lb)` : ''}`;
 
     // Only print on change, so the console stays readable in a long hover.
     if (line !== last) {
       last = line;
       console.log(`  ${line}`);
-      if (cables === 0) {
-        console.log('    ^ this aircraft reports no sling cables — it has no sling');
+      if (cables === 0 && !warnedNoSling) {
+        warnedNoSling = true;
+        console.log('    ^ NUM SLING CABLES is 0. Watch cableLen and weight while you');
+        console.log('      hook a load: either moving means there is a signal to use.');
       }
-      if (attached === 1) console.log('    ^ LOAD ATTACHED');
+      if (cableLen !== null && cableLen > 0.5) {
+        console.log(`    ^ CABLE IS OUT (${cableLen.toFixed(1)} ft) — the native sling is live`);
+      }
+      if (attached === 1) console.log('    ^ LOAD ATTACHED (native sling)');
+      if (delta !== null && Math.abs(delta) >= 20) {
+        console.log(`    ^ WEIGHT CHANGED by ${Math.round(delta)} lb since start`);
+      }
     }
   });
 

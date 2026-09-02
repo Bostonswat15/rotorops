@@ -41,7 +41,19 @@ export type Objective =
       near_search?: boolean;
     }
   | { id: string; kind: 'hoist'; label: string; min_deployed_pct: number }
-  | { id: string; kind: 'sling'; label: string }
+  | {
+      id: string; kind: 'sling'; label: string;
+      /**
+       * Weight that counts as a load on the hook.
+       *
+       * The native sling vars are the preferred evidence, but the stock MSFS
+       * 2024 H125 Cargo flies a visible rope and reports none of them -- zero
+       * cables, zero cable length, and SLING_PICKUP_RELEASE does nothing. A
+       * load is still weight on the airframe whoever built the hook, so weight
+       * is the fallback that works across every helicopter.
+       */
+      min_delta_lb?: number;
+    }
   /** Put the underslung load down where it was asked for. */
   | { id: string; kind: 'sling_release'; label: string; lat: number; lon: number; radius_nm: number }
   | { id: string; kind: 'payload'; label: string; min_delta_lb: number }
@@ -78,6 +90,8 @@ export class ObjectiveTracker {
   private hint: string | null = null;
   /** Something has been on the hook this contract. */
   private slungOnce = false;
+  /** Airframe weight when the hook-up started, for the weight fallback. */
+  private slingBase: number | null = null;
 
   /** Where the casualty really is, resolved by the bridge, never by the server. */
   private searchTarget: LatLon | null = null;
@@ -103,6 +117,7 @@ export class ObjectiveTracker {
     this.basePayload = null;
     this.hint = null;
     this.slungOnce = false;
+    this.slingBase = null;
     this.searchTarget = searchTarget ?? null;
     this.contactMs = 0;
     this.foundAt = null;
@@ -310,17 +325,32 @@ export class ObjectiveTracker {
       }
 
       case 'sling': {
-        if (num(s.slingObjectAttached) === 1) {
+        // First reading once this objective is live is the empty baseline.
+        if (this.slingBase === null) this.slingBase = payload;
+        const gained = payload - this.slingBase;
+        const need = o.min_delta_lb ?? 200;
+
+        // Native sling if the aircraft has one, weight if it does not. You do
+        // not hook a load at 120 kts, so the weight path is gated on working
+        // flight -- otherwise loading passengers mid-cruise would tick it.
+        const onTheHook = num(s.slingObjectAttached) === 1;
+        const working = agl <= 300 && gs <= 40;
+
+        if (onTheHook || (working && gained >= need)) {
           this.slungOnce = true;
           this.done.add(o.id);
           completed.push(o.id);
+          break;
+        }
+
+        if (gained >= need && !working) {
+          this.hint = 'slow down and get low to take the load';
+        } else if (gained > 20) {
+          this.hint = `${Math.round(gained)}/${need} lb on the hook`;
+        } else if (num(s.slingHookPickup) === 1) {
+          this.hint = 'hook is down — position over the load';
         } else {
-          this.hint =
-            s.slingObjectAttached === undefined
-              ? 'this aircraft reports no sling'
-              : num(s.slingHookPickup) === 1
-                ? 'hook is down — position over the load'
-                : 'lower the hook into pickup mode';
+          this.hint = 'get the hook onto the load';
         }
         break;
       }
@@ -328,16 +358,22 @@ export class ObjectiveTracker {
       case 'sling_release': {
         // Only counts as placed once something was actually carried and then
         // let go -- arriving empty-handed shouldn't tick a delivery.
-        const attached = num(s.slingObjectAttached) === 1;
         const d = distanceNm(lat, lon, o.lat, o.lon);
+        // Still carrying, by whichever signal picked the load up: the native
+        // var if the aircraft has one, otherwise the weight it added.
+        const carrying =
+          num(s.slingObjectAttached) === 1 ||
+          (this.slingBase !== null && payload - this.slingBase > 20);
+
         if (!this.slungOnce) {
           this.hint = 'nothing on the hook';
-        } else if (attached) {
+        } else if (carrying) {
           this.hint = d <= o.radius_nm ? 'release the load' : `${d.toFixed(1)} nm to the drop`;
         } else if (d <= o.radius_nm) {
           this.done.add(o.id);
           completed.push(o.id);
           this.slungOnce = false;
+          this.slingBase = null;
         } else {
           this.hint = `load released ${d.toFixed(1)} nm off the mark`;
         }

@@ -76,6 +76,12 @@ export const OPTIONAL_DATA: Datum[] = [
   { key: 'slingObjectAttached', name: 'SLING OBJECT ATTACHED', unit: 'Bool', type: 'i32' },
   { key: 'slingHookPickup', name: 'SLING HOOK IN PICKUP MODE', unit: 'Bool', type: 'i32' },
   { key: 'numSlingCables', name: 'NUM SLING CABLES', unit: 'Number', type: 'i32' },
+  // The stock MSFS 2024 H125 Cargo flies with a visible rope but reports zero
+  // cables, so NUM SLING CABLES is not a reliable gate on its own. These two
+  // say whether a cable is actually out and which station it is working from,
+  // which is the difference between "no sling fitted" and "sling fitted, idle".
+  { key: 'slingCableLength', name: 'SLING CABLE EXTENDED LENGTH:1', unit: 'feet', type: 'f64' },
+  { key: 'slingPayloadStation', name: 'SLING ACTIVE PAYLOAD STATION', unit: 'Number', type: 'i32' },
   // Engine health. There is no overtorque SimVar in 2024 -- damage percent is
   // the closest thing the sim exposes.
   { key: 'engineFailed', name: 'ENG FAILED:1', unit: 'Bool', type: 'i32' },

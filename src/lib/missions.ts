@@ -97,8 +97,14 @@ export type Objective =
     }
   /** Winch out and back. */
   | { id: string; kind: "hoist"; label: string; min_deployed_pct: number }
-  /** Hook up an underslung load. */
-  | { id: string; kind: "sling"; label: string }
+  /**
+   * Hook up an underslung load.
+   *
+   * `min_delta_lb` is the weight that counts as a load, used when the aircraft
+   * exposes no native sling -- which includes the stock MSFS 2024 H125 Cargo,
+   * rope and all.
+   */
+  | { id: string; kind: "sling"; label: string; min_delta_lb?: number }
   /** Set the load down where it was asked for. */
   | { id: string; kind: "sling_release"; label: string; lat: number; lon: number; radius_nm: number }
   /** Weight comes aboard -- a casualty, a crew, cargo. */
@@ -1019,7 +1025,11 @@ export function generateSceneMission(
         });
         break;
       case "sling_attach":
-        objectives.push({ id: "sling", kind: "sling", label: "Hook up the underslung load" });
+        objectives.push({
+          id: "sling", kind: "sling",
+          label: "Hook up the underslung load",
+          min_delta_lb: Math.max(200, Math.round(t.min_payload * 0.15)),
+        });
         break;
       case "sling_release":
         objectives.push({

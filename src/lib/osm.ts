@@ -239,7 +239,7 @@ export async function findWater(centre: LatLon, radiusNm = 60): Promise<WaterFea
       `(way["natural"="water"](${b});` +
       `way["waterway"="river"](${b});` +
       `way["natural"="beach"](${b}););` +
-      `out geom 250;`,
+      `out geom 800;`,
     // Broad area lookups against the public instance measure 15-20s. This runs
     // once per base and the result is cached, so a generous budget is cheaper
     // than aborting and leaving the base's water unknown.

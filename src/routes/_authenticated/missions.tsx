@@ -22,10 +22,10 @@ import {
 import { useCompanyRole } from "@/hooks/use-company";
 import {
   SCENE_TEMPLATES, SCENE_LABELS, generateSceneMission, generatePowerlinePatrol,
-  waterAvailability, sceneIsFlyable, summariseWater, parseWaterSites,
-  type SceneType, type WaterSites,
+  siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
+  type SceneType, type PlacementSites,
 } from "@/lib/missions";
-import { findAerodromes, findWater } from "@/lib/osm";
+import { findAerodromes, findSites } from "@/lib/osm";
 
 export const Route = createFileRoute("/_authenticated/missions")({
   head: () => ({ meta: [{ title: "Mission Board — RotorOps" }] }),
@@ -71,36 +71,38 @@ function MissionsPage() {
     const base = locatedBase;
 
     let rows: any[];
-    let droppedForWater = 0;
+    let droppedForSites = 0;
     if (base) {
-      // What water is actually near this base? Without asking, the board offered
-      // vessel and beach work from landlocked fields.
+      // What is actually around this base -- water to ditch a boat in, roads to
+      // close, hospitals to deliver to. Without asking, the board offered vessel
+      // work from landlocked fields and put motorway pile-ups in paddocks.
       //
-      // The Overpass lookup is a 15-20 second area query, so it runs once per
-      // base and is cached on the row. Everyone in the company benefits from
-      // whoever generated first.
-      // `water_scanned_at`, not the contents, decides whether we've looked: a
+      // The Overpass lookup runs to the best part of a minute, so it happens
+      // once per base and is cached on the row. Everyone in the company
+      // benefits from whoever generated first.
+      //
+      // `sites_scanned_at`, not the contents, decides whether we've looked: a
       // base with genuinely no water caches an empty result, and that is an
       // answer worth keeping.
-      let water: WaterSites | null = base.water_scanned_at
-        ? parseWaterSites(base.water_sites)
+      let sites: PlacementSites | null = base.sites_scanned_at
+        ? parsePlacementSites(base.placement_sites)
         : null;
-      if (!water) {
-        const scanning = toast.loading("Scanning the area for water — this takes a moment.");
+      if (!sites) {
+        const scanning = toast.loading("Scanning the area — roads, water and hospitals. This takes a moment.");
         try {
-          const raw = await findWater(
+          const raw = await findSites(
             { lat: Number(base.latitude), lon: Number(base.longitude) },
             50,
           );
           if (raw) {
-            water = summariseWater(
+            sites = summariseSites(
               raw,
               { lat: Number(base.latitude), lon: Number(base.longitude) },
               50,
             );
-            const { error: wErr } = await supabase.rpc("set_base_water", {
+            const { error: wErr } = await supabase.rpc("set_base_sites", {
               _base_id: base.id,
-              _sites: water as unknown as never,
+              _sites: sites as unknown as never,
             });
             // A failed cache write is not a failed generation -- the sites are
             // already in hand for this batch, we just pay for them again next
@@ -113,7 +115,7 @@ function MissionsPage() {
           toast.dismiss(scanning);
         }
       }
-      const avail = waterAvailability(water);
+      const avail = siteAvailability(sites);
 
       const certified = SCENE_TEMPLATES.filter((t) =>
         companyHasCerts(company.certifications, t.required_certs),
@@ -123,10 +125,10 @@ function MissionsPage() {
       }
 
       const pool = certified.filter((t) => sceneIsFlyable(t.scene_type, avail));
-      droppedForWater = certified.length - pool.length;
+      droppedForSites = certified.length - pool.length;
       if (pool.length === 0) {
         return toast.error(
-          "Every contract you're certified for needs water, and there's none near this base.",
+          "Every contract you're certified for needs water or a road, and there's neither near this base.",
         );
       }
 
@@ -157,7 +159,7 @@ function MissionsPage() {
         lon: Number(base.longitude),
         icao: base.icao,
         airports,
-        water,
+        sites,
       };
 
       rows = Array.from({ length: 6 }, () => {
@@ -198,9 +200,9 @@ function MissionsPage() {
       if (withField < rows.length) {
         notes.push(`${withField} of 6 have a nearest field — no airfield data near the rest`);
       }
-      if (droppedForWater > 0) {
+      if (droppedForSites > 0) {
         notes.push(
-          `${droppedForWater} water contract type${droppedForWater === 1 ? "" : "s"} withheld — no suitable water near this base`,
+          `${droppedForSites} contract type${droppedForSites === 1 ? "" : "s"} withheld — no suitable water or road near this base`,
         );
       }
       toast.success(

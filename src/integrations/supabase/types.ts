@@ -140,8 +140,8 @@ export type Database = {
           longitude: number | null
           nearby_airports: Json
           airports_updated_at: string | null
-          water_sites: Json | null
-          water_scanned_at: string | null
+          placement_sites: Json | null
+          sites_scanned_at: string | null
           id: string
           is_primary: boolean
           name: string
@@ -155,8 +155,8 @@ export type Database = {
           longitude?: number | null
           nearby_airports?: Json
           airports_updated_at?: string | null
-          water_sites?: Json | null
-          water_scanned_at?: string | null
+          placement_sites?: Json | null
+          sites_scanned_at?: string | null
           id?: string
           is_primary?: boolean
           name: string
@@ -170,8 +170,8 @@ export type Database = {
           longitude?: number | null
           nearby_airports?: Json
           airports_updated_at?: string | null
-          water_sites?: Json | null
-          water_scanned_at?: string | null
+          placement_sites?: Json | null
+          sites_scanned_at?: string | null
           id?: string
           is_primary?: boolean
           name?: string
@@ -716,7 +716,7 @@ export type Database = {
         Returns: undefined
       }
       set_active_company: { Args: { _company_id: string }; Returns: undefined }
-      set_base_water: { Args: { _base_id: string; _sites: Json }; Returns: string }
+      set_base_sites: { Args: { _base_id: string; _sites: Json }; Returns: string }
       mission_objectives_met: { Args: { _mission_id: string }; Returns: boolean }
       aircraft_sale_value: { Args: { _aircraft_id: string }; Returns: number }
       sell_aircraft: { Args: { _aircraft_id: string }; Returns: Json }

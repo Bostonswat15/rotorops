@@ -28,6 +28,10 @@ export type PowerLine = {
 /** Degrees of latitude per nautical mile. */
 const DEG_PER_NM = 1 / 60;
 
+/** Hospital names that are not an emergency receiving facility. */
+const NON_ACUTE =
+  /rehab|psychiatr|behavio|veterinar|animal|nursing|hospice|dental|chiroprac|podiatr|convalesc|long[- ]term/i;
+
 function bbox(centre: LatLon, radiusNm: number) {
   const dLat = radiusNm * DEG_PER_NM;
   // Longitude degrees shrink towards the poles.
@@ -172,27 +176,35 @@ export function samplePath(points: LatLon[], count: number): LatLon[] {
 }
 
 // ---------------------------------------------------------------------------
-// Water
+// Placement sites
 // ---------------------------------------------------------------------------
 
 /**
- * The water near a base, as MSFS sees it.
+ * The ground around a base, as MSFS sees it.
  *
- * Without this the app has no idea whether a base is coastal, so it happily
- * generated "vessel in distress" contracts in the middle of Kansas. MSFS builds
- * its coastlines, lakes and rivers from the same OSM data queried here, so
- * water found here is water you can actually ditch a boat in.
+ * Everything a contract needs to be put somewhere real. Without it the app had
+ * no idea whether a base was coastal, so it cheerfully generated "vessel in
+ * distress" in the middle of Kansas; and it had no idea where a road was, so a
+ * motorway pile-up landed in a paddock two miles from an airfield.
+ *
+ * MSFS builds its coastlines, water, roads and buildings from the same OSM data
+ * queried here, so a road found here is a road you can actually put a
+ * helicopter down on.
  *
  * Returns null when Overpass could not be reached -- see `overpass` above for
- * why that is not the same as "no water".
+ * why that is not the same as "nothing here".
  */
-export type WaterFeatures = {
+export type SiteFeatures = {
   /** Coastline ways in OSM order. By convention land is left, water is right. */
   coastline: LatLon[][];
   /** Closed water polygons, as centre plus half-diagonal in nm. */
   lakes: { centre: LatLon; radiusNm: number; ring: LatLon[] }[];
   rivers: LatLon[][];
   beaches: LatLon[][];
+  /** Motorway, trunk and primary carriageways -- somewhere to put a crash. */
+  roads: { ref: string | null; geometry: LatLon[] }[];
+  /** Somewhere to take the casualty that isn't your own hangar. */
+  hospitals: { lat: number; lon: number; name: string; emergency: boolean }[];
 };
 
 /** Bounding circle of a polyline: centre, and half its diagonal in nm. */
@@ -224,7 +236,7 @@ export function bearingBetween(a: LatLon, b: LatLon) {
   return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
 }
 
-export async function findWater(centre: LatLon, radiusNm = 60): Promise<WaterFeatures | null> {
+export async function findSites(centre: LatLon, radiusNm = 60): Promise<SiteFeatures | null> {
   const b = bbox(centre, radiusNm);
   // One union query per contract batch. `natural=water` catches lakes and
   // reservoirs; rivers are queried separately because they are line features
@@ -239,7 +251,18 @@ export async function findWater(centre: LatLon, radiusNm = 60): Promise<WaterFea
       `(way["natural"="water"](${b});` +
       `way["waterway"="river"](${b});` +
       `way["natural"="beach"](${b}););` +
-      `out geom 800;`,
+      `out geom 800;` +
+      // Roads a helicopter can be closed onto, and hospitals to deliver to.
+      // Both get their own budget for the same reason coastline does.
+      //
+      // Two passes, because a cap plus Overpass's id ordering is not the same
+      // as "the nearest roads". Asked once over the whole box, the 400 that
+      // came back were all 30+ nm away in Boston while the trunk road running
+      // past the airfield was cut. The tight pass guarantees the near field.
+      `way["highway"~"^(motorway|trunk|primary)$"](around:${Math.round(radiusNm * 0.3 * 1852)},${centre.lat},${centre.lon});out geom 250;` +
+      `way["highway"~"^(motorway|trunk|primary)$"](${b});out geom 400;` +
+      `(way["amenity"="hospital"](${b});node["amenity"="hospital"](${b}););` +
+      `out center 80;`,
     // Broad area lookups against the public instance measure 15-20s. This runs
     // once per base and the result is cached, so a generous budget is cheaper
     // than aborting and leaving the base's water unknown.
@@ -247,14 +270,39 @@ export async function findWater(centre: LatLon, radiusNm = 60): Promise<WaterFea
   );
   if (elements === null) return null;
 
-  const out: WaterFeatures = { coastline: [], lakes: [], rivers: [], beaches: [] };
+  const out: SiteFeatures = {
+    coastline: [], lakes: [], rivers: [], beaches: [], roads: [], hospitals: [],
+  };
+
+  const seenRoads = new Set<number>();
 
   for (const e of elements) {
-    if (!Array.isArray(e.geometry) || e.geometry.length < 2) continue;
-    const ring: LatLon[] = e.geometry.map((g: any) => ({ lat: g.lat, lon: g.lon }));
     const t = e.tags ?? {};
 
-    if (t.natural === "coastline") {
+    // Hospitals arrive as a node or as a way with `out center`, so they are
+    // handled before the geometry requirement below.
+    if (t.amenity === "hospital") {
+      const lat = e.lat ?? e.center?.lat;
+      const lon = e.lon ?? e.center?.lon;
+      const name: string = t.name ?? "the receiving hospital";
+      // OSM tags rehab units, psychiatric hospitals and long-term care the same
+      // way it tags a trauma centre. None of them take a helicopter casualty,
+      // and "deliver to Hebrew Rehabilitation Center" reads as a bug.
+      const acute = !NON_ACUTE.test(name) && t.emergency !== "no";
+      if (typeof lat === "number" && typeof lon === "number" && acute) {
+        out.hospitals.push({ lat, lon, name, emergency: t.emergency === "yes" });
+      }
+      continue;
+    }
+
+    if (!Array.isArray(e.geometry) || e.geometry.length < 2) continue;
+    const ring: LatLon[] = e.geometry.map((g: any) => ({ lat: g.lat, lon: g.lon }));
+
+    if (t.highway) {
+      if (seenRoads.has(e.id)) continue;
+      seenRoads.add(e.id);
+      out.roads.push({ ref: t.ref ?? t.name ?? null, geometry: ring });
+    } else if (t.natural === "coastline") {
       out.coastline.push(ring);
     } else if (t.natural === "beach") {
       out.beaches.push(ring);

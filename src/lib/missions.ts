@@ -23,7 +23,7 @@
 import type { AircraftTag } from "./game-data";
 import {
   findPowerLines, pathLengthNm, samplePath, bearingBetween,
-  type WaterFeatures,
+  type SiteFeatures,
 } from "./osm";
 
 export type SceneType =
@@ -233,13 +233,16 @@ export function nearestAirport(
  *   shore  -- a waterline to stand on: a mapped beach, or the coast itself.
  *   river  -- flowing water.
  */
-export const SCENE_WATER_NEED: Partial<
-  Record<SceneType, "sea" | "open" | "shore" | "river">
+export const SCENE_SITE_NEED: Partial<
+  Record<SceneType, "sea" | "open" | "shore" | "river" | "road">
 > = {
   vessel: "open",
   oil_rig: "sea",
   beach: "shore",
   riverbank: "river",
+  // A closed carriageway needs a carriageway. Before this, "police have closed
+  // the road for you" put you in a paddock two miles from an airfield.
+  highway: "road",
 };
 
 /**
@@ -249,7 +252,7 @@ export const SCENE_WATER_NEED: Partial<
  * second area query, and the water near an airfield does not move. Points are
  * [lat, lon] pairs to keep the cached JSON small.
  */
-export type WaterSites = {
+export type PlacementSites = {
   /** Out to sea, perpendicular to the coast, at a spread of distances. */
   offshore: [number, number][];
   /** Inside a lake large enough to matter. */
@@ -258,9 +261,15 @@ export type WaterSites = {
   shore: [number, number][];
   /** On a river centreline. */
   river: [number, number][];
+  /** On a real motorway, trunk road or primary carriageway. */
+  road: [number, number][];
+  /** Somewhere to hand the casualty over that isn't your own hangar. */
+  hospital: { lat: number; lon: number; name: string; emergency: boolean }[];
 };
 
-export type WaterAvailability = { sea: boolean; open: boolean; shore: boolean; river: boolean };
+export type SiteAvailability = {
+  sea: boolean; open: boolean; shore: boolean; river: boolean; road: boolean;
+};
 
 /**
  * Half-diagonal below which a lake is not open water.
@@ -383,12 +392,14 @@ function nearestCoast(p: Pt, coastline: Pt[][]) {
  * degrees always points out to sea. That convention is what makes this reliable
  * rather than a guess -- there is no need to know which way the continent faces.
  */
-export function summariseWater(
-  w: WaterFeatures,
+export function summariseSites(
+  w: SiteFeatures,
   centre: { lat: number; lon: number },
   radiusNm: number,
-): WaterSites {
-  const sites: WaterSites = { offshore: [], lake: [], shore: [], river: [] };
+): PlacementSites {
+  const sites: PlacementSites = {
+    offshore: [], lake: [], shore: [], river: [], road: [], hospital: [],
+  };
   // Raw coast is a fallback for beach scenes, not an equal: a mapped beach is
   // sand, a coastline node might be a cliff or a dock.
   const coastShore: [number, number][] = [];
@@ -459,11 +470,37 @@ export function summariseWater(
   if (sites.shore.length === 0) sites.shore = coastShore;
   for (const way of w.rivers) for (const p of stride(way, 6)) sites.river.push(asSite(p));
 
+  // Somewhere on an actual carriageway. Sampling by node rather than by
+  // distance is fine here: a road that bends a lot is exactly where a crash
+  // scene reads well, and every node is still tarmac.
+  for (const way of w.roads) for (const p of stride(way.geometry, 5)) sites.road.push(asSite(p));
+
+  for (const h of w.hospitals) {
+    sites.hospital.push({
+      lat: Number(h.lat.toFixed(5)),
+      lon: Number(h.lon.toFixed(5)),
+      name: h.name.slice(0, 80),
+      emergency: h.emergency,
+    });
+  }
+
   return {
     offshore: stride(sites.offshore, 150),
     lake: stride(sites.lake, 150),
     shore: stride(sites.shore, 150),
     river: stride(sites.river, 150),
+    // Sorted by distance from base before thinning, so the cache covers the
+    // whole 0-50 nm band evenly. A plain stride kept whichever ways Overpass
+    // happened to return first, which put every crash 30 nm away in Boston.
+    road: stride(
+      sites.road.sort(
+        (a, b) =>
+          distanceNm(centre.lat, centre.lon, a[0], a[1]) -
+          distanceNm(centre.lat, centre.lon, b[0], b[1]),
+      ),
+      250,
+    ),
+    hospital: stride(sites.hospital, 60),
   };
 }
 
@@ -471,13 +508,13 @@ export function summariseWater(
  * Read a cached `water_sites` blob back, tolerating anything malformed.
  *
  * An all-empty result is a real answer -- "we looked, there is no water here" --
- * so it is returned as an empty WaterSites rather than null. Only the shape
+ * so it is returned as an empty PlacementSites rather than null. Only the shape
  * being wrong yields null. Whether a base has been scanned at all is recorded
  * separately in `water_scanned_at`; conflating the two would make a waterless
  * base rescan on every batch and, whenever a rescan was rate-limited, quietly
  * put the vessels back in the wheat.
  */
-export function parseWaterSites(raw: unknown): WaterSites | null {
+export function parsePlacementSites(raw: unknown): PlacementSites | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const arr = (k: string): [number, number][] =>
@@ -487,19 +524,35 @@ export function parseWaterSites(raw: unknown): WaterSites | null {
           Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]),
       )
       .map((p) => [Number(p[0]), Number(p[1])]);
+  const hospital = (Array.isArray(o.hospital) ? (o.hospital as unknown[]) : [])
+    .filter(
+      (h): h is { lat: number; lon: number; name?: string; emergency?: boolean } =>
+        !!h && typeof h === "object" &&
+        Number.isFinite((h as { lat: number }).lat) &&
+        Number.isFinite((h as { lon: number }).lon),
+    )
+    .map((h) => ({
+      lat: Number(h.lat),
+      lon: Number(h.lon),
+      name: String(h.name ?? "hospital"),
+      emergency: (h as { emergency?: boolean }).emergency === true,
+    }));
+
   return {
     offshore: arr("offshore"), lake: arr("lake"),
-    shore: arr("shore"), river: arr("river"),
+    shore: arr("shore"), river: arr("river"), road: arr("road"),
+    hospital,
   };
 }
 
-export function waterAvailability(s: WaterSites | null): WaterAvailability | null {
+export function siteAvailability(s: PlacementSites | null): SiteAvailability | null {
   if (!s) return null;
   return {
     sea: s.offshore.length > 0,
     open: s.offshore.length > 0 || s.lake.length > 0,
     shore: s.shore.length > 0,
     river: s.river.length > 0,
+    road: s.road.length > 0,
   };
 }
 
@@ -511,16 +564,42 @@ export function waterAvailability(s: WaterSites | null): WaterAvailability | nul
  * so an unknown answer lets everything through and placement falls back to the
  * old bearing guess.
  */
-export function sceneIsFlyable(type: SceneType, avail: WaterAvailability | null): boolean {
-  const need = SCENE_WATER_NEED[type];
+export function sceneIsFlyable(type: SceneType, avail: SiteAvailability | null): boolean {
+  const need = SCENE_SITE_NEED[type];
   if (!need || !avail) return true;
   return avail[need];
 }
 
-function sitesFor(need: "sea" | "open" | "shore" | "river", s: WaterSites) {
+/** Nearest hospital to a point -- where a casualty would actually be taken. */
+export function nearestHospital(
+  lat: number,
+  lon: number,
+  sites: PlacementSites | null | undefined,
+): { lat: number; lon: number; name: string; distance_nm: number } | null {
+  if (!sites?.hospital?.length) return null;
+  // A hospital OSM says has an emergency department wins over a nearer one that
+  // does not -- a crash victim goes to a trauma centre, not to whatever is
+  // closest. Among equals, distance decides.
+  const withEd = sites.hospital.filter((h) => h.emergency);
+  const pool = withEd.length > 0 ? withEd : sites.hospital;
+
+  let best = pool[0];
+  let bestNm = Infinity;
+  for (const h of pool) {
+    const d = distanceNm(lat, lon, h.lat, h.lon);
+    if (d < bestNm) {
+      bestNm = d;
+      best = h;
+    }
+  }
+  return { ...best, distance_nm: Number(bestNm.toFixed(1)) };
+}
+
+function sitesFor(need: "sea" | "open" | "shore" | "river" | "road", s: PlacementSites) {
   if (need === "sea") return s.offshore;
   if (need === "open") return [...s.offshore, ...s.lake];
   if (need === "shore") return s.shore;
+  if (need === "road") return s.road;
   return s.river;
 }
 
@@ -537,12 +616,12 @@ function sitesFor(need: "sea" | "open" | "shore" | "river", s: WaterSites) {
  */
 function placeScene(
   type: SceneType,
-  base: { lat: number; lon: number; airports?: Airport[]; water?: WaterSites | null },
+  base: { lat: number; lon: number; airports?: Airport[]; sites?: PlacementSites | null },
   rangeNm: number,
 ) {
-  const need = SCENE_WATER_NEED[type];
-  if (need && base.water) {
-    const cands = sitesFor(need, base.water);
+  const need = SCENE_SITE_NEED[type];
+  if (need && base.sites) {
+    const cands = sitesFor(need, base.sites);
     if (cands.length > 0) {
       // Closest to the distance the template asked for, with enough spread that
       // six contracts don't all stack on one headland.
@@ -671,7 +750,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
   {
     role: "medevac",
     title: "Highway RTC",
-    brief: "Multi-vehicle collision. Police have closed {scene} for you — land on the carriageway, wires either side.",
+    brief: "Multi-vehicle collision. Police have closed {scene} for you — put it down on the carriageway itself, wires either side.",
     scene_type: "highway",
     required_tags: ["medevac"], required_certs: ["medevac"],
     min_payload: 600, base_payout: 9500, scene_range: [8, 40],
@@ -711,6 +790,51 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     difficulty: 2, weather_factor: 2,
     steps: ["reach_scene", "land_scene", "take_on_load", "deliver"],
     hover_agl: 200, hover_seconds: 10,
+  },
+
+  {
+    role: "medevac",
+    title: "Rollover — Rural Road",
+    brief: "Single vehicle off the road and onto its roof at {scene}. One critical, one walking. Wires and trees both sides, so look before you commit.",
+    scene_type: "highway",
+    required_tags: ["medevac"], required_certs: ["medevac"],
+    min_payload: 700, base_payout: 10400, scene_range: [10, 45],
+    difficulty: 4, weather_factor: 3,
+    steps: ["reach_scene", "hover_scene", "land_scene", "take_on_load", "deliver"],
+    hover_agl: 180, hover_seconds: 20,
+  },
+  {
+    role: "medevac",
+    title: "Motorway Pile-up",
+    brief: "Six vehicles, fog, carriageway shut in both directions at {scene}. Two for you, the rest are going by road. Expect company overhead.",
+    scene_type: "highway",
+    required_tags: ["medevac"], required_certs: ["medevac"],
+    min_payload: 900, base_payout: 13200, scene_range: [12, 50],
+    difficulty: 4, weather_factor: 4,
+    steps: ["reach_scene", "hover_scene", "land_scene", "take_on_load", "deliver"],
+    hover_agl: 200, hover_seconds: 18,
+  },
+  {
+    role: "medevac",
+    title: "Paediatric Transfer",
+    brief: "Incubator team and a baby, moving to a specialist unit. Departure from {scene}. Smooth hands — this is the gentlest flying you will do all week.",
+    scene_type: "rooftop",
+    required_tags: ["medevac"], required_certs: ["medevac"],
+    min_payload: 800, base_payout: 9800, scene_range: [15, 55],
+    difficulty: 3, weather_factor: 2,
+    steps: ["reach_scene", "land_scene", "take_on_load", "deliver"],
+    hover_agl: 200, hover_seconds: 12,
+  },
+  {
+    role: "medevac",
+    title: "Farm Machinery Entrapment",
+    brief: "Arm caught in a baler. Fire crews cutting him free now; LZ is {scene}. He will be in poor shape when they get him out.",
+    scene_type: "field",
+    required_tags: ["medevac"], required_certs: ["medevac"],
+    min_payload: 600, base_payout: 9200, scene_range: [12, 50],
+    difficulty: 3, weather_factor: 2,
+    steps: ["reach_scene", "hover_scene", "land_scene", "take_on_load", "deliver"],
+    hover_agl: 200, hover_seconds: 15,
   },
 
   // --- Offshore ------------------------------------------------------------
@@ -838,7 +962,7 @@ export function generateSceneMission(
   base: {
     lat: number; lon: number; icao: string | null;
     airports?: Airport[];
-    water?: WaterSites | null;
+    sites?: PlacementSites | null;
   },
 ) {
   const [lo, hi] = t.scene_range;
@@ -850,6 +974,9 @@ export function generateSceneMission(
   const sceneName = pick(SITE_NAMES[t.scene_type] ?? [SCENE_LABELS[t.scene_type]]);
   const flavour = pick(SCENE_FLAVOUR[t.scene_type]);
 
+  // Where the casualty is actually taken. Nearest facility to the scene, which
+  // is how it works in life; falls back to base when OSM knows of none.
+  const hospital = nearestHospital(scene.lat, scene.lon, base.sites);
   const hoverAgl = t.hover_agl ?? 150;
   const hoverSecs = t.hover_seconds ?? 25;
   const objectives: Objective[] = [];
@@ -921,11 +1048,21 @@ export function generateSceneMission(
         break;
       }
       case "deliver":
-        objectives.push({
-          id: "deliver", kind: "land",
-          label: "Land at the receiving field",
-          icao: base.icao, radius_nm: 1.5,
-        });
+        if (hospital) {
+          // Helicopters put down in the car park, on the lawn, on the pad --
+          // whatever is there. Half a mile of latitude covers all of it.
+          objectives.push({
+            id: "deliver", kind: "land_off",
+            label: `Deliver to ${hospital.name}`,
+            lat: hospital.lat, lon: hospital.lon, radius_nm: 0.4,
+          });
+        } else {
+          objectives.push({
+            id: "deliver", kind: "land",
+            label: "Land at the receiving field",
+            icao: base.icao, radius_nm: 1.5,
+          });
+        }
         break;
       case "return_base":
         objectives.push({

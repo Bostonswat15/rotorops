@@ -8,14 +8,23 @@
  * them to a hospital.
  *
  * Scenes are generated relative to the company's base, so they work wherever in
- * the world you operate. The type drives the briefing and the equipment the
- * contract demands; it is not a terrain guarantee, because nothing here can see
- * the terrain. A "beach" scene near an inland base will be a field with a story
- * attached -- pick bases near the coast for coastal work.
+ * the world you operate. Placement uses two real-world hints, because nothing
+ * here can read the sim's terrain directly:
+ *
+ *   - airports, from the sim's own facility cache, stand in for solid ground
+ *   - OSM coastlines, lakes and rivers -- the same data MSFS renders water
+ *     from -- stand in for water
+ *
+ * A base with no water near it is not offered water contracts at all, and one
+ * that is coastal gets its vessels placed on actual sea rather than on a bearing
+ * that merely looked empty.
  */
 
 import type { AircraftTag } from "./game-data";
-import { findPowerLines, pathLengthNm, samplePath } from "./osm";
+import {
+  findPowerLines, pathLengthNm, samplePath, bearingBetween,
+  type WaterFeatures,
+} from "./osm";
 
 export type SceneType =
   | "vessel"
@@ -184,27 +193,342 @@ export function nearestAirport(
   return best ? { icao: best.icao, distance_nm: Number(bestNm.toFixed(1)) } : null;
 }
 
-/** Scenes that must be over water. Everything else needs dry ground. */
-const WATER_SCENES: SceneType[] = ["vessel", "oil_rig"];
+// ---------------------------------------------------------------------------
+// Water
+// ---------------------------------------------------------------------------
+
+/**
+ * What kind of water each scene needs, if any.
+ *
+ *   sea    -- genuine coastline. An oil platform does not belong on a reservoir.
+ *   open   -- coastline, or a lake big enough to lose a boat on.
+ *   shore  -- a waterline to stand on: a mapped beach, or the coast itself.
+ *   river  -- flowing water.
+ */
+export const SCENE_WATER_NEED: Partial<
+  Record<SceneType, "sea" | "open" | "shore" | "river">
+> = {
+  vessel: "open",
+  oil_rig: "sea",
+  beach: "shore",
+  riverbank: "river",
+};
+
+/**
+ * Usable water positions near a base, reduced from OSM geometry.
+ *
+ * Stored on the base rather than recomputed: the Overpass lookup is a 15-20
+ * second area query, and the water near an airfield does not move. Points are
+ * [lat, lon] pairs to keep the cached JSON small.
+ */
+export type WaterSites = {
+  /** Out to sea, perpendicular to the coast, at a spread of distances. */
+  offshore: [number, number][];
+  /** Inside a lake large enough to matter. */
+  lake: [number, number][];
+  /** On a mapped beach, or on the coastline itself. */
+  shore: [number, number][];
+  /** On a river centreline. */
+  river: [number, number][];
+};
+
+export type WaterAvailability = { sea: boolean; open: boolean; shore: boolean; river: boolean };
+
+/**
+ * Half-diagonal below which a lake is not open water.
+ *
+ * 2 nm -- roughly 4 nm across -- deliberately excludes the ordinary reservoir.
+ * A stricken cargo ship on a Kansas irrigation lake reads as a bug, and the
+ * briefings for vessel work talk about foredecks and yachts.
+ */
+const LAKE_MIN_NM = 2.0;
+
+/** Every nth element, so one long way cannot crowd out all the others. */
+function stride<T>(xs: T[], want: number): T[] {
+  if (xs.length <= want) return xs;
+  const step = Math.ceil(xs.length / want);
+  return xs.filter((_, i) => i % step === 0);
+}
+
+const asSite = (p: { lat: number; lon: number }): [number, number] => [
+  Number(p.lat.toFixed(5)),
+  Number(p.lon.toFixed(5)),
+];
+
+type Pt = { lat: number; lon: number };
+
+/** Do segments a-b and c-d properly cross? Treated as flat; fine at these scales. */
+function segmentsCross(a: Pt, b: Pt, c: Pt, d: Pt) {
+  const side = (p: Pt, q: Pt, r: Pt) =>
+    (r.lon - p.lon) * (q.lat - p.lat) - (r.lat - p.lat) * (q.lon - p.lon);
+  const d1 = side(c, d, a);
+  const d2 = side(c, d, b);
+  const d3 = side(a, b, c);
+  const d4 = side(a, b, d);
+  return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
+}
+
+/**
+ * Does the run from shore out to `to` cross a coastline on the way?
+ *
+ * Stepping perpendicular to the coast is only sound while the water stays open.
+ * On the inner shore of a bay, or across a narrow peninsula, 20 nm "seaward"
+ * can step clean over the land and put a stricken yacht in somebody's garden.
+ * A crossing means we left the water, so the candidate is discarded.
+ */
+function crossesCoast(from: Pt, to: Pt, coastline: Pt[][]) {
+  const loLat = Math.min(from.lat, to.lat), hiLat = Math.max(from.lat, to.lat);
+  const loLon = Math.min(from.lon, to.lon), hiLon = Math.max(from.lon, to.lon);
+
+  for (const way of coastline) {
+    for (let i = 0; i + 1 < way.length; i++) {
+      const p = way[i];
+      const q = way[i + 1];
+      // Cheap reject before the real test: most segments are nowhere near.
+      if (Math.min(p.lat, q.lat) > hiLat || Math.max(p.lat, q.lat) < loLat) continue;
+      if (Math.min(p.lon, q.lon) > hiLon || Math.max(p.lon, q.lon) < loLon) continue;
+      if (segmentsCross(from, to, p, q)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The coastline segment nearest this point: which side it falls on, and how
+ * far away it is.
+ *
+ * OSM draws coastline with the land on its left, so for any segment the water
+ * lies to its right. Finding the closest segment to a candidate and checking
+ * which side it falls on is a purely local test -- unlike tracing a ray back to
+ * shore, it does not care whether the rest of the world's coastline made it
+ * into the query.
+ *
+ * That matters because stepping perpendicular from one shore is not enough on
+ * its own: measured against Cape Cod it put vessels in Fall River, Warwick and
+ * Swansea, because the coastline that would have revealed the crossing had been
+ * clipped away. The nearest segment to those points is the shore they walked
+ * over, and they sit on its landward side.
+ *
+ * Longitude is scaled by cos(latitude) so "nearest" is a real distance. The
+ * side test needs no such correction: scaling one axis by a positive constant
+ * cannot change the sign of the cross product.
+ */
+function nearestCoast(p: Pt, coastline: Pt[][]) {
+  const kx = Math.cos((p.lat * Math.PI) / 180);
+  let bestD2 = Infinity;
+  let bestSide = 0;
+
+  for (const way of coastline) {
+    for (let i = 0; i + 1 < way.length; i++) {
+      // Both ends relative to the candidate, so the candidate sits at the origin.
+      const ax = (way[i].lon - p.lon) * kx;
+      const ay = way[i].lat - p.lat;
+      const bx = (way[i + 1].lon - p.lon) * kx;
+      const by = way[i + 1].lat - p.lat;
+
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+      const cx = ax + t * dx;
+      const cy = ay + t * dy;
+      const d2 = cx * cx + cy * cy;
+
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        // Sign of (b-a) x (p-a). Negative means p is to the right: the water.
+        bestSide = ax * dy - ay * dx;
+      }
+    }
+  }
+
+  if (bestD2 === Infinity) return null;
+  // bestD2 is in squared degrees of latitude; 60 nm to the degree.
+  return { waterSide: bestSide < 0, distNm: Math.sqrt(bestD2) * 60 };
+}
+
+/**
+ * Reduce raw OSM water to the handful of positions a contract can actually use.
+ *
+ * The offshore points are the interesting part. OSM draws coastline with the
+ * land on its left and the water on its right, so a segment's bearing plus 90
+ * degrees always points out to sea. That convention is what makes this reliable
+ * rather than a guess -- there is no need to know which way the continent faces.
+ */
+export function summariseWater(
+  w: WaterFeatures,
+  centre: { lat: number; lon: number },
+  radiusNm: number,
+): WaterSites {
+  const sites: WaterSites = { offshore: [], lake: [], shore: [], river: [] };
+  // Raw coast is a fallback for beach scenes, not an equal: a mapped beach is
+  // sand, a coastline node might be a cliff or a dock.
+  const coastShore: [number, number][] = [];
+  // Overpass clips geometry to the bounding box, so anything beyond it is
+  // unverifiable. Keep a margin inside the edge rather than trusting it exactly.
+  const verifiable = radiusNm * 0.85;
+
+  for (const way of w.coastline) {
+    const step = Math.max(1, Math.ceil((way.length - 1) / 6));
+    for (let i = 0; i + 1 < way.length; i += step) {
+      const a = way[i];
+      const b = way[i + 1];
+      if (a.lat === b.lat && a.lon === b.lon) continue;
+      const seaward = (bearingBetween(a, b) + 90) % 360;
+      // Start the ray just clear of the shore so the origin's own segment does
+      // not register as a crossing.
+      const wet = offsetPosition(a.lat, a.lon, 0.25, seaward);
+      // A spread of distances so a yacht 3 nm out and a platform 12 nm out both
+      // have somewhere to be. Stop at the first offset that leaves the water:
+      // everything further along the same bearing is over land too.
+      //
+      // These stay short deliberately. The crossing test is only as good as the
+      // coastline we were given, and that is clipped to the query box and capped
+      // in element count -- a 30 nm step outruns it and lands in Massachusetts.
+      // Nothing starts closer in than 3 nm either: stepping 1.5 nm off a shore
+      // point on an inlet as convoluted as Cohasset's simply crosses it.
+      for (const off of [3, 6, 9, 12]) {
+        const p = offsetPosition(a.lat, a.lon, off, seaward);
+        // Outside the queried area there is no coastline to check against, so
+        // the candidate cannot be trusted however clean the ray looks.
+        if (distanceNm(centre.lat, centre.lon, p.lat, p.lon) > verifiable) break;
+        if (crossesCoast(wet, p, w.coastline)) break;
+        const near = nearestCoast(p, w.coastline);
+        if (near) {
+          // Belt and braces: the ray can look clean when the coastline that
+          // would have blocked it is simply missing from the query.
+          if (!near.waterSide) break;
+          // A point placed `off` nm straight out to sea should be roughly that
+          // far from the nearest shore. Much closer means we are up an inlet or
+          // have stepped over a spit, whatever the side test says.
+          //
+          // Held tight at 80%: a concave bay legitimately puts some other shore
+          // nearer than `off`, so this does discard good candidates -- but there
+          // are 150 of them and only a handful are needed, and the alternative
+          // is a stricken yacht in a Cohasset furniture shop.
+          if (near.distNm < off * 0.8) break;
+        }
+        sites.offshore.push(asSite(p));
+      }
+    }
+    for (const p of stride(way, 6)) coastShore.push(asSite(p));
+  }
+
+  for (const l of w.lakes) {
+    if (l.radiusNm < LAKE_MIN_NM) continue;
+    for (let i = 0; i < 3; i++) {
+      sites.lake.push(
+        asSite(offsetPosition(
+          l.centre.lat, l.centre.lon,
+          l.radiusNm * 0.45 * Math.random(), Math.random() * 360,
+        )),
+      );
+    }
+  }
+
+  // A lake shoreline is not a beach. Only somewhere OSM actually tagged as one.
+  for (const way of w.beaches) for (const p of stride(way, 6)) sites.shore.push(asSite(p));
+  if (sites.shore.length === 0) sites.shore = coastShore;
+  for (const way of w.rivers) for (const p of stride(way, 6)) sites.river.push(asSite(p));
+
+  return {
+    offshore: stride(sites.offshore, 150),
+    lake: stride(sites.lake, 150),
+    shore: stride(sites.shore, 150),
+    river: stride(sites.river, 150),
+  };
+}
+
+/**
+ * Read a cached `water_sites` blob back, tolerating anything malformed.
+ *
+ * An all-empty result is a real answer -- "we looked, there is no water here" --
+ * so it is returned as an empty WaterSites rather than null. Only the shape
+ * being wrong yields null. Whether a base has been scanned at all is recorded
+ * separately in `water_scanned_at`; conflating the two would make a waterless
+ * base rescan on every batch and, whenever a rescan was rate-limited, quietly
+ * put the vessels back in the wheat.
+ */
+export function parseWaterSites(raw: unknown): WaterSites | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const arr = (k: string): [number, number][] =>
+    (Array.isArray(o[k]) ? (o[k] as unknown[]) : [])
+      .filter(
+        (p): p is [number, number] =>
+          Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]),
+      )
+      .map((p) => [Number(p[0]), Number(p[1])]);
+  return {
+    offshore: arr("offshore"), lake: arr("lake"),
+    shore: arr("shore"), river: arr("river"),
+  };
+}
+
+export function waterAvailability(s: WaterSites | null): WaterAvailability | null {
+  if (!s) return null;
+  return {
+    sea: s.offshore.length > 0,
+    open: s.offshore.length > 0 || s.lake.length > 0,
+    shore: s.shore.length > 0,
+    river: s.river.length > 0,
+  };
+}
+
+/**
+ * Can this scene type honestly be flown from this base?
+ *
+ * A null availability means the water is unknown -- never scanned, or Overpass
+ * did not answer. Half the mission board is not worth losing to a network blip,
+ * so an unknown answer lets everything through and placement falls back to the
+ * old bearing guess.
+ */
+export function sceneIsFlyable(type: SceneType, avail: WaterAvailability | null): boolean {
+  const need = SCENE_WATER_NEED[type];
+  if (!need || !avail) return true;
+  return avail[need];
+}
+
+function sitesFor(need: "sea" | "open" | "shore" | "river", s: WaterSites) {
+  if (need === "sea") return s.offshore;
+  if (need === "open") return [...s.offshore, ...s.lake];
+  if (need === "shore") return s.shore;
+  return s.river;
+}
+
 
 /**
  * Choose where a scene sits.
  *
- * Nothing here can see terrain, so airports stand in for it: an airport is
- * always on land, and the sim's facility cache gives us a scatter of them
- * around the base. Land scenes are placed a short hop from one of those, which
- * keeps them on ground you can actually land on. Water scenes take the opposite
- * hint and head down the emptiest bearing, which from a coastal base is the sea.
+ * Land scenes anchor to airports: an airport is always on ground you can land
+ * on, and the sim's facility cache gives us a scatter of them around the base.
  *
- * With no airport data at all this degrades to the old random bearing -- which
- * is what put a field in the ocean, so the app asks the bridge for airports
- * before generating.
+ * Water scenes anchor to actual OSM water. Before that they took the "emptiest
+ * bearing" from base on the theory that empty means sea -- which inland just
+ * means empty farmland, and is why a vessel could end up in a wheat field.
  */
 function placeScene(
   type: SceneType,
-  base: { lat: number; lon: number; airports?: Airport[] },
+  base: { lat: number; lon: number; airports?: Airport[]; water?: WaterSites | null },
   rangeNm: number,
 ) {
+  const need = SCENE_WATER_NEED[type];
+  if (need && base.water) {
+    const cands = sitesFor(need, base.water);
+    if (cands.length > 0) {
+      // Closest to the distance the template asked for, with enough spread that
+      // six contracts don't all stack on one headland.
+      const ranked = cands
+        .map(([lat, lon]) => ({
+          lat, lon,
+          off: Math.abs(distanceNm(base.lat, base.lon, lat, lon) - rangeNm),
+        }))
+        .sort((a, b) => a.off - b.off);
+      const p = pick(ranked.slice(0, Math.min(10, ranked.length)));
+      return { lat: p.lat, lon: p.lon };
+    }
+  }
+
   const airports = (base.airports ?? []).filter(
     (a) => Number.isFinite(a.lat) && Number.isFinite(a.lon),
   );
@@ -213,8 +537,9 @@ function placeScene(
     return offsetPosition(base.lat, base.lon, rangeNm, Math.random() * 360);
   }
 
-  if (WATER_SCENES.includes(type)) {
-    // Sweep bearings and take the one with least airport activity out to range.
+  if (need) {
+    // No water data. Fall back to the old heuristic rather than refusing to
+    // place the scene at all.
     let bestBearing = Math.random() * 360;
     let fewest = Infinity;
     for (let b = 0; b < 360; b += 15) {
@@ -362,7 +687,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     brief: "Six workers out, six back. Deck is {scene} — confirm the deck is clear before committing.",
     scene_type: "oil_rig",
     required_tags: ["offshore"], required_certs: ["offshore"],
-    min_payload: 1400, base_payout: 13500, scene_range: [35, 110],
+    min_payload: 1400, base_payout: 13500, scene_range: [20, 42],
     difficulty: 3, weather_factor: 4,
     steps: ["reach_scene", "land_scene", "take_on_load", "return_base"],
     hover_agl: 200, hover_seconds: 15,
@@ -373,7 +698,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     brief: "Crush injury on {scene}. Weather is marginal and deteriorating.",
     scene_type: "oil_rig",
     required_tags: ["offshore", "medevac"], required_certs: ["offshore", "medevac"],
-    min_payload: 800, base_payout: 18000, scene_range: [40, 120],
+    min_payload: 800, base_payout: 18000, scene_range: [25, 42],
     difficulty: 5, weather_factor: 5,
     steps: ["reach_scene", "land_scene", "take_on_load", "deliver"],
     hover_agl: 180, hover_seconds: 20,
@@ -477,11 +802,18 @@ const SITE_NAMES: Partial<Record<SceneType, string[]>> = {
 export function generateSceneMission(
   t: SceneMissionTemplate,
   reputation: number,
-  base: { lat: number; lon: number; icao: string | null; airports?: Airport[] },
+  base: {
+    lat: number; lon: number; icao: string | null;
+    airports?: Airport[];
+    water?: WaterSites | null;
+  },
 ) {
   const [lo, hi] = t.scene_range;
   const rangeNm = lo + Math.random() * (hi - lo);
   const scene = placeScene(t.scene_type, base, rangeNm);
+  // Anchoring to real water or a real airfield moves the site off the requested
+  // range, so bill the distance actually flown rather than the one asked for.
+  const actualNm = distanceNm(base.lat, base.lon, scene.lat, scene.lon);
   const sceneName = pick(SITE_NAMES[t.scene_type] ?? [SCENE_LABELS[t.scene_type]]);
   const flavour = pick(SCENE_FLAVOUR[t.scene_type]);
 
@@ -565,7 +897,7 @@ export function generateSceneMission(
     min_payload: t.min_payload,
     payout: Math.round(t.base_payout * variance * (1 + reputation / 200)),
     // Out and back, so the economy charges roughly the right flight time.
-    distance_nm: Math.round(rangeNm * 2),
+    distance_nm: Math.max(2, Math.round(actualNm * 2)),
     difficulty: t.difficulty,
     weather_factor: t.weather_factor,
     origin: base.icao,

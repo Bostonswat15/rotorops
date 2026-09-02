@@ -37,9 +37,17 @@ function bbox(centre: LatLon, radiusNm: number) {
     .join(",");
 }
 
-async function overpass(query: string): Promise<any[]> {
+/**
+ * Run a query, returning null if Overpass could not be reached.
+ *
+ * The null/empty distinction matters: an empty result is Overpass telling us
+ * there is genuinely nothing there, while null means we never got an answer.
+ * Callers that gate content on absence -- "there is no water near this base" --
+ * must not treat a timeout as proof of a desert.
+ */
+async function overpass(query: string, timeoutMs = TIMEOUT_MS): Promise<any[] | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(OVERPASS, {
       method: "POST",
@@ -47,12 +55,12 @@ async function overpass(query: string): Promise<any[]> {
       body: "data=" + encodeURIComponent(query),
       signal: controller.signal,
     });
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     const json = await res.json();
     return Array.isArray(json?.elements) ? json.elements : [];
   } catch {
-    // Offline, rate-limited, or slow -- the caller falls back to synthetic sites.
-    return [];
+    // Offline, rate-limited, or slow.
+    return null;
   } finally {
     clearTimeout(timer);
   }
@@ -65,9 +73,9 @@ async function overpass(query: string): Promise<any[]> {
  * doubles back on itself.
  */
 export async function findPowerLines(centre: LatLon, radiusNm = 40): Promise<PowerLine[]> {
-  const elements = await overpass(
+  const elements = (await overpass(
     `[out:json][timeout:20];way["power"="line"](${bbox(centre, radiusNm)});out geom 40;`,
-  );
+  )) ?? [];
 
   return elements
     .filter((e) => Array.isArray(e.geometry) && e.geometry.length >= 4)
@@ -96,9 +104,9 @@ export type Aerodrome = { icao: string; lat: number; lon: number };
  */
 export async function findAerodromes(centre: LatLon, radiusNm = 60): Promise<Aerodrome[]> {
   const b = bbox(centre, radiusNm);
-  const elements = await overpass(
+  const elements = (await overpass(
     `[out:json][timeout:20];(node["aeroway"="aerodrome"](${b});way["aeroway"="aerodrome"](${b}););out center 120;`,
-  );
+  )) ?? [];
 
   return elements
     .map((e) => {
@@ -160,5 +168,106 @@ export function samplePath(points: LatLon[], count: number): LatLon[] {
   }
 
   out.push(points[points.length - 1]);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Water
+// ---------------------------------------------------------------------------
+
+/**
+ * The water near a base, as MSFS sees it.
+ *
+ * Without this the app has no idea whether a base is coastal, so it happily
+ * generated "vessel in distress" contracts in the middle of Kansas. MSFS builds
+ * its coastlines, lakes and rivers from the same OSM data queried here, so
+ * water found here is water you can actually ditch a boat in.
+ *
+ * Returns null when Overpass could not be reached -- see `overpass` above for
+ * why that is not the same as "no water".
+ */
+export type WaterFeatures = {
+  /** Coastline ways in OSM order. By convention land is left, water is right. */
+  coastline: LatLon[][];
+  /** Closed water polygons, as centre plus half-diagonal in nm. */
+  lakes: { centre: LatLon; radiusNm: number; ring: LatLon[] }[];
+  rivers: LatLon[][];
+  beaches: LatLon[][];
+};
+
+/** Bounding circle of a polyline: centre, and half its diagonal in nm. */
+function extentOf(points: LatLon[]) {
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const p of points) {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lon < minLon) minLon = p.lon;
+    if (p.lon > maxLon) maxLon = p.lon;
+  }
+  return {
+    centre: { lat: (minLat + maxLat) / 2, lon: (minLon + maxLon) / 2 },
+    radiusNm: nmBetween({ lat: minLat, lon: minLon }, { lat: maxLat, lon: maxLon }) / 2,
+  };
+}
+
+const isClosed = (p: LatLon[]) =>
+  p.length > 3 && p[0].lat === p[p.length - 1].lat && p[0].lon === p[p.length - 1].lon;
+
+/** Initial bearing from a to b, in degrees. */
+export function bearingBetween(a: LatLon, b: LatLon) {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLon = rad(b.lon - a.lon);
+  const y = Math.sin(dLon) * Math.cos(rad(b.lat));
+  const x =
+    Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) -
+    Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(dLon);
+  return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
+}
+
+export async function findWater(centre: LatLon, radiusNm = 60): Promise<WaterFeatures | null> {
+  const b = bbox(centre, radiusNm);
+  // One union query per contract batch. `natural=water` catches lakes and
+  // reservoirs; rivers are queried separately because they are line features
+  // and a riverbank scene wants the centreline, not a polygon.
+  // Two `out` statements, one query. Coastline gets its own budget because it
+  // is what every offshore placement is checked against, and a single shared
+  // cap let 118 river ways crowd it out -- which is how vessels ended up in
+  // Fall River.
+  const elements = await overpass(
+    `[out:json][timeout:60];` +
+      `way["natural"="coastline"](${b});out geom 3000;` +
+      `(way["natural"="water"](${b});` +
+      `way["waterway"="river"](${b});` +
+      `way["natural"="beach"](${b}););` +
+      `out geom 250;`,
+    // Broad area lookups against the public instance measure 15-20s. This runs
+    // once per base and the result is cached, so a generous budget is cheaper
+    // than aborting and leaving the base's water unknown.
+    60_000,
+  );
+  if (elements === null) return null;
+
+  const out: WaterFeatures = { coastline: [], lakes: [], rivers: [], beaches: [] };
+
+  for (const e of elements) {
+    if (!Array.isArray(e.geometry) || e.geometry.length < 2) continue;
+    const ring: LatLon[] = e.geometry.map((g: any) => ({ lat: g.lat, lon: g.lon }));
+    const t = e.tags ?? {};
+
+    if (t.natural === "coastline") {
+      out.coastline.push(ring);
+    } else if (t.natural === "beach") {
+      out.beaches.push(ring);
+    } else if (t.waterway === "river") {
+      out.rivers.push(ring);
+    } else if (t.natural === "water") {
+      // Only closed ways: a lake mapped as a multipolygon arrives here as
+      // disconnected fragments, and the centroid of a fragment is not water.
+      if (!isClosed(ring)) continue;
+      const { centre: c, radiusNm: r } = extentOf(ring);
+      if (r >= 0.15) out.lakes.push({ centre: c, radiusNm: r, ring });
+    }
+  }
+
   return out;
 }

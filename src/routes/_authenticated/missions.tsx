@@ -22,9 +22,10 @@ import {
 import { useCompanyRole } from "@/hooks/use-company";
 import {
   SCENE_TEMPLATES, SCENE_LABELS, generateSceneMission, generatePowerlinePatrol,
-  type SceneType,
+  waterAvailability, sceneIsFlyable, summariseWater, parseWaterSites,
+  type SceneType, type WaterSites,
 } from "@/lib/missions";
-import { findAerodromes } from "@/lib/osm";
+import { findAerodromes, findWater } from "@/lib/osm";
 
 export const Route = createFileRoute("/_authenticated/missions")({
   head: () => ({ meta: [{ title: "Mission Board — RotorOps" }] }),
@@ -70,11 +71,64 @@ function MissionsPage() {
     const base = locatedBase;
 
     let rows: any[];
+    let droppedForWater = 0;
     if (base) {
-      const pool = SCENE_TEMPLATES.filter((t) =>
+      // What water is actually near this base? Without asking, the board offered
+      // vessel and beach work from landlocked fields.
+      //
+      // The Overpass lookup is a 15-20 second area query, so it runs once per
+      // base and is cached on the row. Everyone in the company benefits from
+      // whoever generated first.
+      // `water_scanned_at`, not the contents, decides whether we've looked: a
+      // base with genuinely no water caches an empty result, and that is an
+      // answer worth keeping.
+      let water: WaterSites | null = base.water_scanned_at
+        ? parseWaterSites(base.water_sites)
+        : null;
+      if (!water) {
+        const scanning = toast.loading("Scanning the area for water — this takes a moment.");
+        try {
+          const raw = await findWater(
+            { lat: Number(base.latitude), lon: Number(base.longitude) },
+            50,
+          );
+          if (raw) {
+            water = summariseWater(
+              raw,
+              { lat: Number(base.latitude), lon: Number(base.longitude) },
+              50,
+            );
+            const { error: wErr } = await supabase.rpc("set_base_water", {
+              _base_id: base.id,
+              _sites: water as unknown as never,
+            });
+            // A failed cache write is not a failed generation -- the sites are
+            // already in hand for this batch, we just pay for them again next
+            // time.
+            if (!wErr) qc.invalidateQueries({ queryKey: ["bases"] });
+          }
+        } catch {
+          // Leave it null: unknown, not absent. Everything stays on the board.
+        } finally {
+          toast.dismiss(scanning);
+        }
+      }
+      const avail = waterAvailability(water);
+
+      const certified = SCENE_TEMPLATES.filter((t) =>
         companyHasCerts(company.certifications, t.required_certs),
       );
-      if (pool.length === 0) return toast.error("No contracts match your certifications yet.");
+      if (certified.length === 0) {
+        return toast.error("No contracts match your certifications yet.");
+      }
+
+      const pool = certified.filter((t) => sceneIsFlyable(t.scene_type, avail));
+      droppedForWater = certified.length - pool.length;
+      if (pool.length === 0) {
+        return toast.error(
+          "Every contract you're certified for needs water, and there's none near this base.",
+        );
+      }
 
       // Airfields come from two places: the sim's facility cache (reported by
       // the bridge) and OSM. Either alone can be empty -- the cache before the
@@ -103,6 +157,7 @@ function MissionsPage() {
         lon: Number(base.longitude),
         icao: base.icao,
         airports,
+        water,
       };
 
       rows = Array.from({ length: 6 }, () => {
@@ -139,10 +194,19 @@ function MissionsPage() {
       toast.success("Generated 6 contracts. Run the sim bridge once to unlock scene missions.");
     } else {
       const withField = rows.filter((r) => r.nearest_airport_icao).length;
+      const notes: string[] = [];
+      if (withField < rows.length) {
+        notes.push(`${withField} of 6 have a nearest field — no airfield data near the rest`);
+      }
+      if (droppedForWater > 0) {
+        notes.push(
+          `${droppedForWater} water contract type${droppedForWater === 1 ? "" : "s"} withheld — no suitable water near this base`,
+        );
+      }
       toast.success(
-        withField === rows.length
+        notes.length === 0
           ? "Generated 6 scene contracts."
-          : `Generated 6 scene contracts. ${withField} have a nearest field — no airfield data found near the rest.`,
+          : `Generated 6 scene contracts. ${notes.join(". ")}.`,
       );
     }
     qc.invalidateQueries({ queryKey: ["missions"] });

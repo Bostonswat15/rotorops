@@ -10,6 +10,7 @@ import { SimSession, distanceNm } from './telemetry.ts';
 import { FlightTracker, type Telemetry } from './flight.ts';
 import { ObjectiveTracker, type Objective, type ObjectiveProgress } from './objectives.ts';
 import { SceneDirector, setSceneOverrides, type SceneType, type SceneOverrides } from './scene-actors.ts';
+import { bearingTo, clockPosition, resolveSearchTarget, type LatLon } from './search.ts';
 import {
   fetchState, submitFlight, matchAircraft, setBasePosition, setBaseAirports, completeObjective,
   type BridgeState, type BridgeAircraft, type BridgeMission, type ResolveResult,
@@ -36,7 +37,14 @@ export type BridgeEvent =
   // to transcribe a mod's exact TITLE string by hand.
   | { type: 'sim-aircraft'; simTitle: string; matchedId: string | null; matchedName: string | null }
   // Live objective state for the contract being flown.
-  | { type: 'objectives'; missionId: string; missionTitle: string; objectives: ObjectiveProgress[] }
+  | {
+      type: 'objectives';
+      missionId: string;
+      missionTitle: string;
+      objectives: ObjectiveProgress[];
+      /** Set once a SAR casualty has been sighted; null while still searching. */
+      sighted?: { lat: number; lon: number } | null;
+    }
   | { type: 'objective-done'; missionId: string; objectiveId: string; label: string }
   | { type: 'objectives-complete'; missionId: string; missionTitle: string }
   // Raw position, emitted whenever the sim reports one -- engines running or
@@ -148,6 +156,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
   let director: SceneDirector | null = null;
   /** Weight of whoever we picked up, so it can be unloaded on delivery. */
   let casualtyLb = 0;
+  /** Where the SAR casualty really is. Derived here; never sent to the server. */
+  let searchTarget: LatLon | null = null;
   /** Most recent telemetry, for capability checks when a contract arms. */
   let lastSnapshot: Record<string, number | string> | null = null;
   const numOf = (v: unknown) =>
@@ -180,7 +190,6 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     const alreadyDone = Object.entries(m.objectives_state ?? {})
       .filter(([, v]) => v?.done)
       .map(([k]) => k);
-    objectives.load(m.objectives as Objective[], alreadyDone);
     log(`Contract "${m.title}": ${m.objectives.length} objectives armed.`);
 
     // Warn now rather than after a 40 nm transit: plenty of helicopters have no
@@ -197,20 +206,38 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       director?.say('WARNING: this aircraft has no hoist — the casualty cannot be winched.', 12);
     }
 
+    // A search contract hides the casualty: the server holds only the datum, and
+    // the real position is derived here from the contract id. Deriving rather
+    // than storing means it survives a bridge restart without the web app ever
+    // being told the answer.
+    const spec = (m.objectives as Objective[]).find((o) => o.kind === 'search');
+    searchTarget =
+      spec && spec.kind === 'search' ? resolveSearchTarget(m.id, spec) : null;
+
+    objectives.load(m.objectives as Objective[], alreadyDone, searchTarget);
+
     // Put the job in the world, and brief the pilot inside the sim.
     if (director && m.scene_lat != null && m.scene_lon != null) {
       director.clear();
       casualtyLb = 0;
       director.setCasualtyWeight(0);
+      // Objects go where the casualty actually is, not at the datum -- the sim
+      // stops drawing a person-sized object a few hundred metres out, so this
+      // is what makes the search a real visual search.
+      const at = searchTarget ?? { lat: Number(m.scene_lat), lon: Number(m.scene_lon) };
       const placed = director.stage({
-        lat: Number(m.scene_lat),
-        lon: Number(m.scene_lon),
+        lat: at.lat,
+        lon: at.lon,
         type: (m.scene_type ?? 'field') as SceneType,
         role: m.role,
       });
       director.say(
-        `RotorOps — ${m.title}. Target: ${m.scene_name ?? 'scene'}.` +
-          (placed > 0 ? ` ${placed} object(s) on scene.` : ''),
+        spec && spec.kind === 'search'
+          ? `RotorOps — ${m.title}. Search datum ${m.scene_name ?? 'set'}, ` +
+              `radius ${spec.radius_nm} nm. ` +
+              (spec.beacon ? 'Beacon active — home on the signal.' : 'No beacon — visual search.')
+          : `RotorOps — ${m.title}. Target: ${m.scene_name ?? 'scene'}.` +
+              (placed > 0 ? ` ${placed} object(s) on scene.` : ''),
         12,
       );
     }
@@ -219,6 +246,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       missionId: m.id,
       missionTitle: m.title,
       objectives: objectives.snapshotProgress(),
+      sighted: objectives.sighted,
     });
   }
 
@@ -233,7 +261,17 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
       // Make it land in the sim as well as the app.
       if (director) {
-        director.say(`✓ ${label}`, 6);
+        const found = objectives.sighted;
+        if (found && searchTarget && id === 'search') {
+          // Call it the way a crew would: clock position off the nose, and how
+          // far. The pilot still has to get eyes on and set up the hoist.
+          const brg = bearingTo({ lat: n(s.lat), lon: n(s.lon) }, found);
+          const rel = clockPosition(brg, n(s.heading));
+          director.say(`SURVIVOR SIGHTED — ${rel}. Set up for the recovery.`, 12);
+          log(`Casualty sighted at ${found.lat.toFixed(5)}, ${found.lon.toFixed(5)}.`);
+        } else {
+          director.say(`✓ ${label}`, 6);
+        }
 
         // Winching someone up, or loading them aboard, is real weight from here
         // on -- you fly the rest of the job heavier than you arrived.
@@ -264,6 +302,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       missionId: objectiveMission.id,
       missionTitle: objectiveMission.title,
       objectives: objectives.snapshotProgress(),
+      sighted: objectives.sighted,
     });
 
     if (justDone.length && objectives.allComplete) {

@@ -75,8 +75,26 @@ const SCENE_FLAVOUR: Record<SceneType, string[]> = {
 export type Objective =
   /** Get within `radius_nm` of a point. */
   | { id: string; kind: "reach"; label: string; lat: number; lon: number; radius_nm: number }
+  /**
+   * Find a casualty somewhere inside a search area.
+   *
+   * Carries the datum and radius only -- deliberately. The real position is
+   * derived by the sim bridge from the contract id and never reaches the
+   * server, so there is nothing here for the map to give away.
+   */
+  | {
+      id: string; kind: "search"; label: string;
+      datum_lat: number; datum_lon: number; radius_nm: number;
+      /** An ELT/EPIRB/PLB to home on. Without one it is an eyes-only search. */
+      beacon: boolean;
+    }
   /** Hold a low, slow hover -- the hard part of most rotary work. */
-  | { id: string; kind: "hover"; label: string; max_agl_ft: number; max_gs_kts: number; hold_seconds: number }
+  | {
+      id: string; kind: "hover"; label: string;
+      max_agl_ft: number; max_gs_kts: number; hold_seconds: number;
+      /** Hold it over the casualty the search turned up, not just anywhere. */
+      near_search?: boolean;
+    }
   /** Winch out and back. */
   | { id: string; kind: "hoist"; label: string; min_deployed_pct: number }
   /** Hook up an underslung load. */
@@ -86,7 +104,12 @@ export type Objective =
   /** Weight comes aboard -- a casualty, a crew, cargo. */
   | { id: string; kind: "payload"; label: string; min_delta_lb: number }
   /** Put the skids down away from an airport. */
-  | { id: string; kind: "land_off"; label: string; lat: number; lon: number; radius_nm: number }
+  | {
+      id: string; kind: "land_off"; label: string;
+      lat: number; lon: number; radius_nm: number;
+      /** Put it down by the casualty the search turned up, not at the datum. */
+      near_search?: boolean;
+    }
   /** Land back at a named field. */
   | { id: string; kind: "land"; label: string; icao: string | null; radius_nm: number }
   /** Pass over a point at low level -- inspection work along a route. */
@@ -96,6 +119,7 @@ export type ObjectiveKind = Objective["kind"];
 
 /** Abstract steps a template asks for; coordinates are filled in at generation. */
 export type Step =
+  | "search_scene"
   | "reach_scene"
   | "hover_scene"
   | "hoist_recover"
@@ -124,6 +148,10 @@ export type SceneMissionTemplate = {
   /** Hover tolerances, tightened for hard scenes. */
   hover_agl?: number;
   hover_seconds?: number;
+  /** How big an area a `search_scene` step covers, in nautical miles. */
+  search_radius_nm?: number;
+  /** Whether the casualty carries a beacon worth homing on. */
+  beacon?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -581,56 +609,61 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
   {
     role: "sar",
     title: "Vessel in Distress",
-    brief: "Crew member with serious injuries aboard {scene}. Hoist required — the deck is too small to land on.",
+    brief: "Crew member with serious injuries aboard {scene}. EPIRB is transmitting but the vessel has been drifting — hoist required, the deck is too small to land on.",
     scene_type: "vessel",
     required_tags: ["sar"], required_certs: ["hoist", "sar"],
-    min_payload: 600, base_payout: 14000, scene_range: [18, 55],
+    min_payload: 600, base_payout: 16500, scene_range: [18, 55],
+    search_radius_nm: 2.5, beacon: true,
     difficulty: 4, weather_factor: 3,
-    steps: ["reach_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
+    steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
     hover_agl: 120, hover_seconds: 30,
   },
   {
     role: "sar",
     title: "Cliff Rescue",
-    brief: "Climber stranded on {scene}. No landing area — winch the casualty off and get them to hospital.",
+    brief: "Climber overdue on {scene}. Last seen somewhere along the face — no beacon, so you are looking with your eyes. No landing area either.",
     scene_type: "cliff",
     required_tags: ["sar"], required_certs: ["hoist", "sar"],
-    min_payload: 500, base_payout: 12500, scene_range: [10, 35],
+    min_payload: 500, base_payout: 15500, scene_range: [10, 35],
+    search_radius_nm: 1.2, beacon: false,
     difficulty: 5, weather_factor: 3,
-    steps: ["reach_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
+    steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
     hover_agl: 90, hover_seconds: 35,
   },
   {
     role: "sar",
     title: "Beach Extraction",
-    brief: "Swimmer pulled from the surf, unconscious at {scene}. Land if you can, hoist if you can't.",
+    brief: "Swimmer swept along the coast from {scene} and not yet located. Search the shoreline, then land if you can and hoist if you cannot.",
     scene_type: "beach",
     required_tags: ["sar"], required_certs: ["sar"],
-    min_payload: 500, base_payout: 8600, scene_range: [8, 30],
+    min_payload: 500, base_payout: 11000, scene_range: [8, 30],
+    search_radius_nm: 1.5, beacon: false,
     difficulty: 3, weather_factor: 2,
-    steps: ["reach_scene", "hover_scene", "land_scene", "take_on_load", "deliver"],
+    steps: ["search_scene", "hover_scene", "land_scene", "take_on_load", "deliver"],
     hover_agl: 150, hover_seconds: 20,
   },
   {
     role: "sar",
     title: "Ridgeline Recovery",
-    brief: "Two hikers benighted on {scene}. High density altitude — watch your power margin.",
+    brief: "Two hikers benighted somewhere on {scene}. PLB activated — home on it. High density altitude, watch your power margin.",
     scene_type: "ridgeline",
     required_tags: ["sar"], required_certs: ["hoist", "sar"],
-    min_payload: 800, base_payout: 16500, scene_range: [15, 45],
+    min_payload: 800, base_payout: 19000, scene_range: [15, 45],
+    search_radius_nm: 2, beacon: true,
     difficulty: 5, weather_factor: 4,
-    steps: ["reach_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
+    steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
     hover_agl: 100, hover_seconds: 40,
   },
   {
     role: "sar",
     title: "Swiftwater Rescue",
-    brief: "Vehicle swept into the river; occupant clinging to {scene}. Rising water — time matters.",
+    brief: "Vehicle swept into the river below {scene}; occupant carried downstream. Rising water — work the river line and find them fast.",
     scene_type: "riverbank",
     required_tags: ["sar"], required_certs: ["hoist", "sar"],
-    min_payload: 400, base_payout: 11000, scene_range: [6, 25],
+    min_payload: 400, base_payout: 13500, scene_range: [6, 25],
+    search_radius_nm: 1.5, beacon: false,
     difficulty: 4, weather_factor: 3,
-    steps: ["reach_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
+    steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
     hover_agl: 80, hover_seconds: 30,
   },
 
@@ -823,6 +856,15 @@ export function generateSceneMission(
 
   for (const step of t.steps) {
     switch (step) {
+      case "search_scene":
+        objectives.push({
+          id: "search", kind: "search",
+          label: `Search ${sceneName} — ${t.search_radius_nm ?? 3} nm radius`,
+          datum_lat: scene.lat, datum_lon: scene.lon,
+          radius_nm: t.search_radius_nm ?? 3,
+          beacon: t.beacon ?? false,
+        });
+        break;
       case "reach_scene":
         objectives.push({
           id: "reach", kind: "reach",
@@ -830,13 +872,18 @@ export function generateSceneMission(
           lat: scene.lat, lon: scene.lon, radius_nm: 0.6,
         });
         break;
-      case "hover_scene":
+      case "hover_scene": {
+        const overCasualty = t.steps.includes("search_scene");
         objectives.push({
           id: "hover", kind: "hover",
-          label: `Hold a hover below ${hoverAgl} ft AGL for ${hoverSecs}s`,
+          label: overCasualty
+            ? `Hold a hover over the casualty below ${hoverAgl} ft AGL for ${hoverSecs}s`
+            : `Hold a hover below ${hoverAgl} ft AGL for ${hoverSecs}s`,
           max_agl_ft: hoverAgl, max_gs_kts: 15, hold_seconds: hoverSecs,
+          ...(overCasualty ? { near_search: true } : {}),
         });
         break;
+      }
       case "hoist_recover":
         objectives.push({
           id: "hoist", kind: "hoist",
@@ -861,13 +908,18 @@ export function generateSceneMission(
           min_delta_lb: Math.max(150, Math.round(t.min_payload * 0.3)),
         });
         break;
-      case "land_scene":
+      case "land_scene": {
+        const atCasualty = t.steps.includes("search_scene");
         objectives.push({
           id: "land_scene", kind: "land_off",
-          label: `Put the skids down at ${sceneName}`,
+          label: atCasualty
+            ? "Put the skids down by the casualty"
+            : `Put the skids down at ${sceneName}`,
           lat: scene.lat, lon: scene.lon, radius_nm: 0.5,
+          ...(atCasualty ? { near_search: true } : {}),
         });
         break;
+      }
       case "deliver":
         objectives.push({
           id: "deliver", kind: "land",
@@ -910,6 +962,28 @@ export function generateSceneMission(
     nearest_airport_nm: nearest?.distance_nm ?? null,
     objectives: objectives as unknown as Record<string, unknown>[],
   };
+}
+
+/**
+ * The search area a contract tasks, if it is a search at all.
+ *
+ * This is everything the app is allowed to know: a datum and a radius. Where
+ * the casualty actually is lives only in the sim bridge, which is why finding
+ * them means flying the pattern rather than reading it off the map.
+ */
+export function searchAreaOf(
+  objectives: unknown,
+): { lat: number; lon: number; radiusNm: number } | null {
+  if (!Array.isArray(objectives)) return null;
+  for (const o of objectives) {
+    if (o && typeof o === "object" && (o as { kind?: string }).kind === "search") {
+      const s = o as { datum_lat: number; datum_lon: number; radius_nm: number };
+      if (Number.isFinite(s.datum_lat) && Number.isFinite(s.datum_lon)) {
+        return { lat: s.datum_lat, lon: s.datum_lon, radiusNm: Number(s.radius_nm) || 3 };
+      }
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

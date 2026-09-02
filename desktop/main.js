@@ -247,6 +247,9 @@ function onBridgeEvent(event) {
       missionId: event.missionId,
       missionTitle: event.missionTitle,
       items: event.objectives,
+      // Null until a SAR casualty is actually spotted. The bridge is the only
+      // thing that knows where they are, so this is the first the app hears.
+      sighted: event.sighted ?? null,
     } });
   }
   if (event.type === 'sim-aircraft') {

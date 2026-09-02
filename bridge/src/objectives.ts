@@ -11,16 +11,46 @@
  */
 
 import { distanceNm } from './telemetry.ts';
+import {
+  CoverageGrid, DETECT_HOLD_MS, bearingTo, clockPosition, compass,
+  detectionRangeNm, nmBetween, type LatLon,
+} from './search.ts';
 
 export type Objective =
   | { id: string; kind: 'reach'; label: string; lat: number; lon: number; radius_nm: number }
-  | { id: string; kind: 'hover'; label: string; max_agl_ft: number; max_gs_kts: number; hold_seconds: number }
+  /**
+   * Find the casualty inside a search area.
+   *
+   * Carries the datum and radius only. The true position is resolved by the
+   * bridge and handed to the tracker separately, so nothing the server or the
+   * web app holds can give it away.
+   */
+  | {
+      id: string; kind: 'search'; label: string;
+      datum_lat: number; datum_lon: number; radius_nm: number;
+      beacon?: boolean;
+    }
+  | {
+      id: string; kind: 'hover'; label: string;
+      max_agl_ft: number; max_gs_kts: number; hold_seconds: number;
+      /**
+       * Hold it over the casualty, not merely somewhere. The position comes
+       * from the resolved search target, so the requirement can be enforced
+       * without the contract ever naming the spot.
+       */
+      near_search?: boolean;
+    }
   | { id: string; kind: 'hoist'; label: string; min_deployed_pct: number }
   | { id: string; kind: 'sling'; label: string }
   /** Put the underslung load down where it was asked for. */
   | { id: string; kind: 'sling_release'; label: string; lat: number; lon: number; radius_nm: number }
   | { id: string; kind: 'payload'; label: string; min_delta_lb: number }
-  | { id: string; kind: 'land_off'; label: string; lat: number; lon: number; radius_nm: number }
+  | {
+      id: string; kind: 'land_off'; label: string;
+      lat: number; lon: number; radius_nm: number;
+      /** Put it down by the casualty the search turned up, not at the datum. */
+      near_search?: boolean;
+    }
   | { id: string; kind: 'land'; label: string; icao: string | null; radius_nm: number }
   /** Pass over a point at low level -- route inspection work. */
   | { id: string; kind: 'overfly'; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number };
@@ -49,6 +79,13 @@ export class ObjectiveTracker {
   /** Something has been on the hook this contract. */
   private slungOnce = false;
 
+  /** Where the casualty really is, resolved by the bridge, never by the server. */
+  private searchTarget: LatLon | null = null;
+  private coverage: CoverageGrid | null = null;
+  private contactMs = 0;
+  /** Raised the moment the casualty is sighted, for the radio call and the map. */
+  private foundAt: LatLon | null = null;
+
   /** Resolve an ICAO to a position; supplied by the sim's facility cache. */
   private readonly locateIcao: (icao: string) => { lat: number; lon: number } | null;
 
@@ -58,7 +95,7 @@ export class ObjectiveTracker {
     this.locateIcao = locateIcao;
   }
 
-  load(objectives: Objective[], alreadyDone: string[]) {
+  load(objectives: Objective[], alreadyDone: string[], searchTarget?: LatLon | null) {
     this.objectives = objectives ?? [];
     this.done = new Set(alreadyDone ?? []);
     this.hoverHeldMs = 0;
@@ -66,6 +103,24 @@ export class ObjectiveTracker {
     this.basePayload = null;
     this.hint = null;
     this.slungOnce = false;
+    this.searchTarget = searchTarget ?? null;
+    this.contactMs = 0;
+    this.foundAt = null;
+
+    const spec = this.objectives.find((o) => o.kind === 'search');
+    this.coverage =
+      spec && spec.kind === 'search'
+        ? new CoverageGrid({ lat: spec.datum_lat, lon: spec.datum_lon }, spec.radius_nm)
+        : null;
+
+    // Resuming a contract whose search was already ticked off: the casualty is
+    // found, so the map and the hoist run should behave as though it just was.
+    if (spec && this.done.has(spec.id)) this.foundAt = this.searchTarget;
+  }
+
+  /** The casualty's position, once sighted. Null while the search is still on. */
+  get sighted(): LatLon | null {
+    return this.foundAt;
   }
 
   get isLoaded() {
@@ -87,12 +142,15 @@ export class ObjectiveTracker {
       id: o.id,
       label: o.label,
       done: this.done.has(o.id),
-      progress:
-        o.kind === 'hover' && o.id === current?.id
-          ? Math.min(1, this.hoverHeldMs / (o.hold_seconds * 1000))
-          : this.done.has(o.id)
-            ? 1
-            : 0,
+      progress: this.done.has(o.id)
+        ? 1
+        : o.id !== current?.id
+          ? 0
+          : o.kind === 'hover'
+            ? Math.min(1, this.hoverHeldMs / (o.hold_seconds * 1000))
+            : o.kind === 'search'
+              ? (this.coverage?.fraction ?? 0)
+              : 0,
       hint: o.id === current?.id ? this.hint : null,
     }));
   }
@@ -100,9 +158,12 @@ export class ObjectiveTracker {
   /**
    * Feed a telemetry sample. Returns objective ids completed by this sample,
    * so the caller can persist them.
+   *
+   * `now` exists so the timed objectives -- a held hover, sustained visual
+   * contact -- can be driven by a synthetic clock in tests. Production callers
+   * leave it alone.
    */
-  update(s: Snap): string[] {
-    const now = Date.now();
+  update(s: Snap, now: number = Date.now()): string[] {
     const dt = this.lastTick === null ? 0 : now - this.lastTick;
     this.lastTick = now;
 
@@ -132,6 +193,61 @@ export class ObjectiveTracker {
         break;
       }
 
+      case 'search': {
+        // Nothing to search for if the bridge could not resolve a target;
+        // treat it as found rather than stranding the contract.
+        if (!this.searchTarget) {
+          this.done.add(o.id);
+          completed.push(o.id);
+          break;
+        }
+
+        const here = { lat, lon };
+        const range = detectionRangeNm(agl, gs);
+        const d = nmBetween(here, this.searchTarget);
+
+        if (range > 0) this.coverage?.mark(lat, lon, range);
+        const swept = Math.round((this.coverage?.fraction ?? 0) * 100);
+
+        if (range > 0 && d <= range) {
+          // Hold contact briefly: clipping the corner of the area at 110 kts
+          // is not a sighting.
+          this.contactMs += dt;
+          if (this.contactMs >= DETECT_HOLD_MS) {
+            this.foundAt = this.searchTarget;
+            this.done.add(o.id);
+            completed.push(o.id);
+          } else {
+            this.hint = 'contact — hold your line';
+          }
+          break;
+        }
+
+        this.contactMs = 0;
+
+        if (range === 0) {
+          // Say which limit is the problem; "search harder" helps nobody.
+          this.hint =
+            agl > 1500
+              ? `${swept}% swept — descend below 1500 ft AGL to search`
+              : gs > 110
+                ? `${swept}% swept — slow below 110 kts to search`
+                : `${swept}% swept — get airborne over the area`;
+          break;
+        }
+
+        // A beacon is the difference between a directed search and a grid
+        // sweep, so it homes -- but only once you are close enough for the
+        // signal to be worth anything.
+        if (o.beacon && d <= range * 6) {
+          const brg = bearingTo(here, this.searchTarget);
+          this.hint = `${swept}% swept — signal ${compass(brg)}, ${d.toFixed(1)} nm`;
+        } else {
+          this.hint = `${swept}% swept — no contact`;
+        }
+        break;
+      }
+
       case 'overfly': {
         // Inspection work: being overhead isn't enough, you have to be low.
         const d = distanceNm(lat, lon, o.lat, o.lon);
@@ -148,6 +264,15 @@ export class ObjectiveTracker {
       }
 
       case 'hover': {
+        // A hover bound to the casualty has to be over the casualty.
+        if (o.near_search && this.searchTarget) {
+          const d = nmBetween({ lat, lon }, this.searchTarget);
+          if (d > 0.25) {
+            this.hoverHeldMs = 0;
+            this.hint = `${(d * 2025).toFixed(0)} yds from the casualty`;
+            break;
+          }
+        }
         const steady = !onGround && agl > 0 && agl <= o.max_agl_ft && gs <= o.max_gs_kts;
         if (steady) {
           this.hoverHeldMs += dt;
@@ -234,7 +359,13 @@ export class ObjectiveTracker {
       }
 
       case 'land_off': {
-        const d = distanceNm(lat, lon, o.lat, o.lon);
+        // After a search the mark is the casualty, not the datum they drifted
+        // from -- which may be miles away by the time you find them.
+        const site =
+          o.near_search && this.searchTarget
+            ? this.searchTarget
+            : { lat: o.lat, lon: o.lon };
+        const d = distanceNm(lat, lon, site.lat, site.lon);
         if (onGround && d <= o.radius_nm) {
           this.done.add(o.id);
           completed.push(o.id);

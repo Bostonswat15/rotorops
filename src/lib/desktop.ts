@@ -14,6 +14,8 @@ export type BridgeStatus = {
     missionId: string;
     missionTitle: string;
     items: { id: string; label: string; done: boolean; progress: number; hint: string | null }[];
+    /** Where the SAR casualty turned out to be, once sighted. */
+    sighted?: { lat: number; lon: number } | null;
   } | null;
   /** Latest position, present whenever the sim is connected. */
   position: {

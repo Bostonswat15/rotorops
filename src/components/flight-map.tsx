@@ -31,6 +31,15 @@ export type FlightMapProps = {
   aircraft: MapPosition | null;
   /** Where the job is. */
   scene?: { lat: number; lon: number; label?: string } | null;
+  /**
+   * A SAR search area: the datum and how far the casualty might have got.
+   *
+   * Only the circle is drawn, because only the circle is known -- the real
+   * position lives in the sim bridge and is never sent here.
+   */
+  search?: { lat: number; lon: number; radiusNm: number } | null;
+  /** The casualty, once the search has actually turned them up. */
+  sighted?: { lat: number; lon: number } | null;
   /** Home field. */
   base?: { lat: number; lon: number; label?: string } | null;
   /** Breadcrumb of where the aircraft has been this flight. */
@@ -46,12 +55,16 @@ export type FlightMapProps = {
  * background, so the display degrades to a usable tactical plot rather than a
  * blank panel.
  */
-export function FlightMap({ aircraft, scene, base, track = [], className }: FlightMapProps) {
+export function FlightMap({
+  aircraft, scene, search, sighted, base, track = [], className,
+}: FlightMapProps) {
   const holder = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
   const layers = useRef<{
     aircraft?: L.Marker;
     scene?: L.CircleMarker;
+    search?: L.Circle;
+    sighted?: L.CircleMarker;
     base?: L.CircleMarker;
     track?: L.Polyline;
     legTo?: L.Polyline;
@@ -136,6 +149,28 @@ export function FlightMap({ aircraft, scene, base, track = [], className }: Flig
       }
     }
 
+    // The tasked area. Radius is real distance, so it scales with the map and
+    // you can judge a search pattern against it.
+    if (search) {
+      const pos: [number, number] = [search.lat, search.lon];
+      if (!layers.current.search) {
+        layers.current.search = L.circle(pos, {
+          radius: search.radiusNm * 1852,
+          color: "#f5a623",
+          weight: 2,
+          dashArray: "6 6",
+          fillColor: "#f5a623",
+          fillOpacity: 0.06,
+        }).addTo(m);
+      } else {
+        layers.current.search.setLatLng(pos);
+        layers.current.search.setRadius(search.radiusNm * 1852);
+      }
+    } else if (layers.current.search) {
+      layers.current.search.remove();
+      layers.current.search = undefined;
+    }
+
     if (base) {
       const pos: [number, number] = [base.lat, base.lon];
       if (!layers.current.base) {
@@ -152,7 +187,39 @@ export function FlightMap({ aircraft, scene, base, track = [], className }: Flig
         layers.current.base.setLatLng(pos);
       }
     }
-  }, [scene?.lat, scene?.lon, base?.lat, base?.lon, scene?.label, base?.label]);
+
+    // Drawn only once the bridge reports a sighting -- before that the app has
+    // no idea where the casualty is, which is the whole point of the search.
+    if (sighted) {
+      const pos: [number, number] = [sighted.lat, sighted.lon];
+      if (!layers.current.sighted) {
+        layers.current.sighted = L.circleMarker(pos, {
+          radius: 9,
+          color: "#ef4444",
+          weight: 4,
+          fillColor: "#ef4444",
+          fillOpacity: 0.85,
+        })
+          .addTo(m)
+          .bindTooltip("Casualty", {
+            permanent: true,
+            direction: "top",
+            offset: [0, -8],
+            className: "rotorops-scene-label",
+          });
+      } else {
+        layers.current.sighted.setLatLng(pos);
+      }
+    } else if (layers.current.sighted) {
+      layers.current.sighted.remove();
+      layers.current.sighted = undefined;
+    }
+  }, [
+    scene?.lat, scene?.lon, scene?.label,
+    search?.lat, search?.lon, search?.radiusNm,
+    sighted?.lat, sighted?.lon,
+    base?.lat, base?.lon, base?.label,
+  ]);
 
   // Aircraft, track and the leg to the scene move every sample.
   useEffect(() => {

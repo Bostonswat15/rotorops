@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { Plane, Briefcase, BookOpen, Wrench, TrendingUp, AlertTriangle, DollarSign, Star } from "lucide-react";
 import { FlightMap } from "@/components/flight-map";
-import { useLiveFlight } from "@/hooks/use-live-flight";
+import { useLiveFlight, useBridgeObjectives } from "@/hooks/use-live-flight";
+import { searchAreaOf } from "@/lib/missions";
 import { useState, useEffect } from "react";
 import { desktop, type BridgeStatus } from "@/lib/desktop";
 
@@ -15,6 +16,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 function Dashboard() {
   const { flight, track, isDesktop } = useLiveFlight();
+  const objectives = useBridgeObjectives();
 
   const { data } = useQuery({
     queryKey: ["dashboard"],
@@ -55,6 +57,9 @@ function Dashboard() {
   // The contract being flown right now, so the map can show where the job is.
   const activeMission = data.active[0] ?? null;
   const homeBase = data.bases.find((b: any) => b.latitude != null && b.longitude != null) ?? null;
+  // Public half of a SAR tasking: where they were last seen, and how far they
+  // could have got. Never where they are.
+  const searchArea = activeMission ? searchAreaOf(activeMission.objectives) : null;
   const sceneRange =
     flight && activeMission?.scene_lat != null
       ? nmBetween(flight.lat, flight.lon, Number(activeMission.scene_lat), Number(activeMission.scene_lon))
@@ -83,7 +88,7 @@ function Dashboard() {
               {sceneRange != null && <Readout label="To scene" value={`${sceneRange.toFixed(1)} nm`} />}
             </div>
           </div>
-          <LiveObjectives />
+          <LiveObjectives state={objectives} />
 
           <FlightMap
             aircraft={{ lat: flight.lat, lon: flight.lon, heading: flight.heading }}
@@ -92,10 +97,14 @@ function Dashboard() {
                 ? {
                     lat: Number(activeMission.scene_lat),
                     lon: Number(activeMission.scene_lon),
-                    label: activeMission.scene_name ?? "Scene",
+                    label: searchArea
+                      ? `Datum — ${activeMission.scene_name ?? "search"}`
+                      : (activeMission.scene_name ?? "Scene"),
                   }
                 : null
             }
+            search={searchArea}
+            sighted={objectives?.sighted ?? null}
             base={
               homeBase
                 ? { lat: Number(homeBase.latitude), lon: Number(homeBase.longitude), label: homeBase.name }
@@ -261,17 +270,7 @@ function nmBetween(aLat: number, aLon: number, bLat: number, bLon: number) {
  * that, arriving at a scene and having nothing happen is indistinguishable
  * from the tracking being broken.
  */
-function LiveObjectives() {
-  const [state, setState] = useState<BridgeStatus["objectives"]>(null);
-
-  useEffect(() => {
-    const app = desktop();
-    if (!app) return;
-    let live = true;
-    app.status().then((s) => live && setState(s?.objectives ?? null)).catch(() => {});
-    return app.onStatus((s) => live && setState(s?.objectives ?? null));
-  }, []);
-
+function LiveObjectives({ state }: { state: BridgeStatus["objectives"] }) {
   if (!state || state.items.length === 0) return null;
   const nextIdx = state.items.findIndex((o) => !o.done);
 

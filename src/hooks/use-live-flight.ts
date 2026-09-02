@@ -94,3 +94,28 @@ export function useLiveFlight() {
 
   return { flight: live, track, isDesktop: !!desktop() };
 }
+
+/**
+ * Live objective progress from the sim bridge.
+ *
+ * Shared by the checklist and the moving map: both need the same snapshot, and
+ * the map in particular needs `sighted`, which is the only channel through
+ * which a hidden SAR casualty ever becomes known to the app.
+ */
+export function useBridgeObjectives() {
+  const [state, setState] = useState<BridgeStatus["objectives"]>(null);
+
+  useEffect(() => {
+    const app = desktop();
+    if (!app) return;
+    let live = true;
+    app.status().then((s) => live && setState(s?.objectives ?? null)).catch(() => {});
+    const off = app.onStatus((s) => live && setState(s?.objectives ?? null));
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
+
+  return state;
+}

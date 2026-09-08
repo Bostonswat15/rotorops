@@ -197,6 +197,7 @@ export type Database = {
           latitude: number
           longitude: number
           confidence: string
+          source: string
           stock: number
           capacity: number
           base_rate: number
@@ -212,6 +213,7 @@ export type Database = {
           latitude: number
           longitude: number
           confidence?: string
+          source?: string
           stock?: number
           capacity: number
           base_rate: number
@@ -227,6 +229,7 @@ export type Database = {
           latitude?: number
           longitude?: number
           confidence?: string
+          source?: string
           stock?: number
           capacity?: number
           base_rate?: number
@@ -301,6 +304,7 @@ export type Database = {
           capacity_per_dollar: number
           good_unit_lb: number
           good_base_value: number
+          build_cost: number
         }
         Insert: {
           kind: string
@@ -313,6 +317,7 @@ export type Database = {
           capacity_per_dollar: number
           good_unit_lb: number
           good_base_value: number
+          build_cost?: number
         }
         Update: {
           kind?: string
@@ -325,6 +330,7 @@ export type Database = {
           capacity_per_dollar?: number
           good_unit_lb?: number
           good_base_value?: number
+          build_cost?: number
         }
         Relationships: []
       }
@@ -872,6 +878,10 @@ export type Database = {
       }
       invest_in_industry: {
         Args: { _industry_id: string; _amount: number }
+        Returns: Database["public"]["Tables"]["industries"]["Row"]
+      }
+      place_industry: {
+        Args: { _base_id: string; _kind: string; _lat: number; _lon: number; _name?: string | null }
         Returns: Database["public"]["Tables"]["industries"]["Row"]
       }
       dispatch_trade_run: {

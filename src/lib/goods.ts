@@ -30,6 +30,9 @@ export const GOODS: Good[] = [
 
   { id: "ore", name: "Iron Ore", category: "raw", unit_lb: 62, base_value: 7 },
   { id: "steel", name: "Structural Steel", category: "processed", unit_lb: 60, base_value: 34 },
+
+  { id: "fish", name: "Fresh Catch", category: "raw", unit_lb: 40, base_value: 5 },
+  { id: "seafood", name: "Packed Seafood", category: "processed", unit_lb: 35, base_value: 17 },
 ];
 
 export function goodById(id: string): Good | null {

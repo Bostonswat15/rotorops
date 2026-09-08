@@ -33,9 +33,10 @@ export type IndustryKind =
   | "forest" | "sawmill"
   | "farmland" | "grain_mill"
   | "oil_well" | "refinery"
-  | "quarry" | "steel_works";
+  | "quarry" | "steel_works"
+  | "fishing_camp" | "cannery";
 
-export type ChainId = "timber" | "grain" | "fuel" | "steel";
+export type ChainId = "timber" | "grain" | "fuel" | "steel" | "fishing";
 
 export type IndustryDef = {
   kind: IndustryKind;
@@ -52,24 +53,36 @@ export type IndustryDef = {
   base_rate: number;
   /** How much a unit of investment buys in extra capacity, per chain. */
   capacity_per_dollar: number;
+  /**
+   * One-time cost to build this site from nothing, via `place_industry`.
+   * A site found by the OSM scan costs nothing -- it already existed --
+   * but building one wherever you like has to cost real capital, or a
+   * company could carpet a map in free tier-1 extraction sites and print
+   * money forever. Mirrored in industry_defs.build_cost server-side, which
+   * is the number that is ever actually charged.
+   */
+  build_cost: number;
 };
 
 export const INDUSTRY_DEFS: Record<IndustryKind, IndustryDef> = {
-  forest: { kind: "forest", label: "Logging Camp", chain: "timber", tier: 1, output: "timber", input: null, capacity: 4000, base_rate: 60, capacity_per_dollar: 0.6 },
-  sawmill: { kind: "sawmill", label: "Sawmill", chain: "timber", tier: 2, output: "lumber", input: "timber", capacity: 2500, base_rate: 40, capacity_per_dollar: 0.4 },
+  forest: { kind: "forest", label: "Lumber Camp", chain: "timber", tier: 1, output: "timber", input: null, capacity: 4000, base_rate: 60, capacity_per_dollar: 0.6, build_cost: 55000 },
+  sawmill: { kind: "sawmill", label: "Sawmill", chain: "timber", tier: 2, output: "lumber", input: "timber", capacity: 2500, base_rate: 40, capacity_per_dollar: 0.4, build_cost: 130000 },
 
-  farmland: { kind: "farmland", label: "Farm", chain: "grain", tier: 1, output: "grain", input: null, capacity: 5000, base_rate: 70, capacity_per_dollar: 0.8 },
-  grain_mill: { kind: "grain_mill", label: "Grain Mill", chain: "grain", tier: 2, output: "flour", input: "grain", capacity: 3000, base_rate: 45, capacity_per_dollar: 0.5 },
+  farmland: { kind: "farmland", label: "Farm", chain: "grain", tier: 1, output: "grain", input: null, capacity: 5000, base_rate: 70, capacity_per_dollar: 0.8, build_cost: 40000 },
+  grain_mill: { kind: "grain_mill", label: "Grain Mill", chain: "grain", tier: 2, output: "flour", input: "grain", capacity: 3000, base_rate: 45, capacity_per_dollar: 0.5, build_cost: 100000 },
 
-  oil_well: { kind: "oil_well", label: "Oil Well", chain: "fuel", tier: 1, output: "crude", input: null, capacity: 3500, base_rate: 35, capacity_per_dollar: 0.25 },
-  refinery: { kind: "refinery", label: "Refinery", chain: "fuel", tier: 2, output: "avgas", input: "crude", capacity: 2200, base_rate: 28, capacity_per_dollar: 0.2 },
+  oil_well: { kind: "oil_well", label: "Oil Well", chain: "fuel", tier: 1, output: "crude", input: null, capacity: 3500, base_rate: 35, capacity_per_dollar: 0.25, build_cost: 200000 },
+  refinery: { kind: "refinery", label: "Refinery", chain: "fuel", tier: 2, output: "avgas", input: "crude", capacity: 2200, base_rate: 28, capacity_per_dollar: 0.2, build_cost: 420000 },
 
-  quarry: { kind: "quarry", label: "Quarry", chain: "steel", tier: 1, output: "ore", input: null, capacity: 4500, base_rate: 50, capacity_per_dollar: 0.3 },
-  steel_works: { kind: "steel_works", label: "Steel Works", chain: "steel", tier: 2, output: "steel", input: "ore", capacity: 2000, base_rate: 30, capacity_per_dollar: 0.15 },
+  quarry: { kind: "quarry", label: "Quarry", chain: "steel", tier: 1, output: "ore", input: null, capacity: 4500, base_rate: 50, capacity_per_dollar: 0.3, build_cost: 70000 },
+  steel_works: { kind: "steel_works", label: "Steel Works", chain: "steel", tier: 2, output: "steel", input: "ore", capacity: 2000, base_rate: 30, capacity_per_dollar: 0.15, build_cost: 380000 },
+
+  fishing_camp: { kind: "fishing_camp", label: "Fishing Camp", chain: "fishing", tier: 1, output: "fish", input: null, capacity: 3800, base_rate: 55, capacity_per_dollar: 0.35, build_cost: 60000 },
+  cannery: { kind: "cannery", label: "Cannery", chain: "fishing", tier: 2, output: "seafood", input: "fish", capacity: 2400, base_rate: 35, capacity_per_dollar: 0.25, build_cost: 140000 },
 };
 
 export const CHAIN_LABEL: Record<ChainId, string> = {
-  timber: "Timber", grain: "Grain", fuel: "Fuel", steel: "Steel",
+  timber: "Timber", grain: "Grain", fuel: "Fuel", steel: "Steel", fishing: "Fishing",
 };
 
 // ---------------------------------------------------------------------------
@@ -85,12 +98,13 @@ export type SitedIndustry = {
   confidence: "named" | "guessed" | "synthesised";
 };
 
-const TIER1_KINDS: IndustryKind[] = ["forest", "farmland", "oil_well", "quarry"];
+const TIER1_KINDS: IndustryKind[] = ["forest", "farmland", "oil_well", "quarry", "fishing_camp"];
 const TIER2_OF: Record<IndustryKind, IndustryKind> = {
   forest: "sawmill", sawmill: "sawmill",
   farmland: "grain_mill", grain_mill: "grain_mill",
   oil_well: "refinery", refinery: "refinery",
   quarry: "steel_works", steel_works: "steel_works",
+  fishing_camp: "cannery", cannery: "cannery",
 };
 
 /**

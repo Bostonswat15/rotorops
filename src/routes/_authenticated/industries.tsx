@@ -10,8 +10,9 @@ import {
 } from "@/components/ui/select";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Factory, TrendingUp, TrendingDown, Coins, Compass } from "lucide-react";
+import { Factory, TrendingUp, TrendingDown, Coins, Compass, Hammer, Crosshair } from "lucide-react";
 import { useCompanyRole } from "@/hooks/use-company";
+import { useLiveFlight } from "@/hooks/use-live-flight";
 import { findIndustrySites } from "@/lib/osm";
 import {
   siteIndustries, INDUSTRY_DEFS, CHAIN_LABEL, buyPrice, sellPrice,
@@ -35,6 +36,14 @@ function IndustriesPage() {
   const [tradeQty, setTradeQty] = useState<Record<string, string>>({});
   const [tradeDest, setTradeDest] = useState<Record<string, string>>({});
   const [busyTrade, setBusyTrade] = useState<string | null>(null);
+
+  // Build-a-camp: place a new site anywhere, not just where OSM found one.
+  const [buildKind, setBuildKind] = useState<IndustryKind | "">("");
+  const [buildName, setBuildName] = useState("");
+  const [buildLat, setBuildLat] = useState("");
+  const [buildLon, setBuildLon] = useState("");
+  const [building, setBuilding] = useState(false);
+  const { flight } = useLiveFlight();
 
   const { data: company } = useQuery({ queryKey: ["company"], queryFn: fetchCurrentCompany });
   const { data: bases } = useQuery({
@@ -121,6 +130,27 @@ function IndustriesPage() {
     qc.invalidateQueries({ queryKey: ["missions"] });
   }
 
+  async function build() {
+    if (!base) return toast.error("Set a home base first.");
+    if (!buildKind) return toast.error("Pick what to build.");
+    const lat = Number(buildLat);
+    const lon = Number(buildLon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return toast.error("Enter a valid latitude and longitude.");
+    }
+    setBuilding(true);
+    const { error } = await supabase.rpc("place_industry", {
+      _base_id: base.id, _kind: buildKind, _lat: lat, _lon: lon,
+      _name: buildName.trim() || null,
+    });
+    setBuilding(false);
+    if (error) return toast.error(error.message);
+    toast.success(`${INDUSTRY_DEFS[buildKind].label} under construction.`);
+    setBuildName(""); setBuildLat(""); setBuildLon(""); setBuildKind("");
+    qc.invalidateQueries({ queryKey: ["industries"] });
+    qc.invalidateQueries({ queryKey: ["company"] });
+  }
+
   if (!company) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   const list = industries ?? [];
@@ -169,16 +199,78 @@ function IndustriesPage() {
         </p>
       )}
 
+      {canManage && base && (
+        <div className="rounded-lg border border-border bg-card p-5">
+          <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+            <Hammer className="h-4 w-4 text-primary" /> Build a New Camp
+          </h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Scanning finds real forests, farms, quarries and wells nearby. Building puts a site of
+            your choosing wherever you like -- it costs real capital and starts from nothing, same as
+            buying an aircraft, but nothing stops you putting a fishing camp anywhere you want it.
+          </p>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <Label className="text-xs">Kind</Label>
+              <Select value={buildKind} onValueChange={(v) => setBuildKind(v as IndustryKind)}>
+                <SelectTrigger className="h-9 w-48"><SelectValue placeholder="choose…" /></SelectTrigger>
+                <SelectContent>
+                  {Object.values(INDUSTRY_DEFS).map((d) => (
+                    <SelectItem key={d.kind} value={d.kind}>
+                      {d.label} — {money(d.build_cost)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Name (optional)</Label>
+              <Input className="h-9 w-40" value={buildName} onChange={(e) => setBuildName(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Latitude</Label>
+              <Input
+                type="number" step="any" className="h-9 w-28"
+                value={buildLat} onChange={(e) => setBuildLat(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Longitude</Label>
+              <Input
+                type="number" step="any" className="h-9 w-28"
+                value={buildLon} onChange={(e) => setBuildLon(e.target.value)}
+              />
+            </div>
+            {flight && (
+              <Button
+                type="button" variant="secondary" size="sm" className="h-9"
+                onClick={() => { setBuildLat(String(flight.lat.toFixed(5))); setBuildLon(String(flight.lon.toFixed(5))); }}
+              >
+                <Crosshair className="mr-1.5 h-3.5 w-3.5" /> Use aircraft position
+              </Button>
+            )}
+            <Button onClick={build} disabled={building || !buildKind}>
+              {building ? "Building…" : "Build here"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {[...byChain.entries()].map(([chain, sites]) => {
-        const tier1 = sites.find((s) => INDUSTRY_DEFS[s.kind as IndustryKind]?.tier === 1);
-        const tier2 = sites.find((s) => INDUSTRY_DEFS[s.kind as IndustryKind]?.tier === 2);
+        // A chain can have several sites of the same kind now that a
+        // company can build its own camps -- two lumber camps in different
+        // valleys, say -- so every site is shown, not just the first tier-1
+        // and first tier-2 the old find()-based lookup kept.
+        const ordered = [...sites].sort(
+          (a, b) => (INDUSTRY_DEFS[a.kind as IndustryKind]?.tier ?? 9) - (INDUSTRY_DEFS[b.kind as IndustryKind]?.tier ?? 9),
+        );
         return (
           <div key={chain} className="rounded-lg border border-border bg-card p-5">
             <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
               <Factory className="h-4 w-4 text-primary" /> {CHAIN_LABEL[chain as keyof typeof CHAIN_LABEL]}
             </h2>
             <div className="grid gap-4 md:grid-cols-2">
-              {[tier1, tier2].filter(Boolean).map((ind) => {
+              {ordered.map((ind) => {
                 const def = INDUSTRY_DEFS[ind.kind as IndustryKind];
                 const good = goodById(def.output);
                 if (!good) return null;
@@ -197,6 +289,11 @@ function IndustriesPage() {
                           {ind.confidence === "synthesised" && (
                             <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                               estimated site
+                            </span>
+                          )}
+                          {ind.source === "built" && (
+                            <span className="ml-2 rounded bg-primary/15 px-1.5 py-0.5 text-xs text-primary">
+                              built
                             </span>
                           )}
                         </p>

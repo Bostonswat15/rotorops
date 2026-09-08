@@ -187,6 +187,147 @@ export type Database = {
           },
         ]
       }
+      industries: {
+        Row: {
+          id: string
+          company_id: string
+          base_id: string | null
+          kind: string
+          name: string | null
+          latitude: number
+          longitude: number
+          confidence: string
+          stock: number
+          capacity: number
+          base_rate: number
+          last_tick_at: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          base_id?: string | null
+          kind: string
+          name?: string | null
+          latitude: number
+          longitude: number
+          confidence?: string
+          stock?: number
+          capacity: number
+          base_rate: number
+          last_tick_at?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          base_id?: string | null
+          kind?: string
+          name?: string | null
+          latitude?: number
+          longitude?: number
+          confidence?: string
+          stock?: number
+          capacity?: number
+          base_rate?: number
+          last_tick_at?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "industries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "industries_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "bases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_industry_investments: {
+        Row: {
+          id: string
+          company_id: string
+          industry_id: string
+          invested_total: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          industry_id: string
+          invested_total?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          industry_id?: string
+          invested_total?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_industry_investments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_industry_investments_industry_id_fkey"
+            columns: ["industry_id"]
+            isOneToOne: false
+            referencedRelation: "industries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      industry_defs: {
+        Row: {
+          kind: string
+          chain: string
+          tier: number
+          output_good: string
+          input_good: string | null
+          default_capacity: number
+          base_rate: number
+          capacity_per_dollar: number
+          good_unit_lb: number
+          good_base_value: number
+        }
+        Insert: {
+          kind: string
+          chain: string
+          tier: number
+          output_good: string
+          input_good?: string | null
+          default_capacity: number
+          base_rate: number
+          capacity_per_dollar: number
+          good_unit_lb: number
+          good_base_value: number
+        }
+        Update: {
+          kind?: string
+          chain?: string
+          tier?: number
+          output_good?: string
+          input_good?: string | null
+          default_capacity?: number
+          base_rate?: number
+          capacity_per_dollar?: number
+          good_unit_lb?: number
+          good_base_value?: number
+        }
+        Relationships: []
+      }
       companies: {
         Row: {
           cash: number
@@ -717,6 +858,26 @@ export type Database = {
       }
       set_active_company: { Args: { _company_id: string }; Returns: undefined }
       set_base_sites: { Args: { _base_id: string; _sites: Json }; Returns: string }
+      site_industries: {
+        Args: { _base_id: string; _sites: Json }
+        Returns: Database["public"]["Tables"]["industries"]["Row"][]
+      }
+      industry_tick: {
+        Args: { _industry_id: string }
+        Returns: Database["public"]["Tables"]["industries"]["Row"]
+      }
+      tick_base_industries: {
+        Args: { _base_id: string }
+        Returns: Database["public"]["Tables"]["industries"]["Row"][]
+      }
+      invest_in_industry: {
+        Args: { _industry_id: string; _amount: number }
+        Returns: Database["public"]["Tables"]["industries"]["Row"]
+      }
+      dispatch_trade_run: {
+        Args: { _from_industry_id: string; _to_industry_id: string; _quantity: number }
+        Returns: Database["public"]["Tables"]["missions"]["Row"]
+      }
       mission_objectives_met: { Args: { _mission_id: string }; Returns: boolean }
       aircraft_sale_value: { Args: { _aircraft_id: string }; Returns: number }
       sell_aircraft: { Args: { _aircraft_id: string }; Returns: Json }

@@ -319,3 +319,98 @@ export async function findSites(centre: LatLon, radiusNm = 60): Promise<SiteFeat
 
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Industry sites
+// ---------------------------------------------------------------------------
+
+/**
+ * A real-world feature that anchors one stage of an industry chain.
+ *
+ * `tier` mirrors the two-stage chains in `goods.ts`: 1 is extraction (a
+ * forest, a farm, a quarry, a well), 2 is processing (a sawmill, a works). OSM
+ * tags a raw-material *site* -- a forest, farmland, a quarry -- far more
+ * reliably than it tags a *processing plant*, which is usually just
+ * `landuse=industrial` with a name if you are lucky. So tier 2 sites carry a
+ * confidence flag: `named` means the classification came from the feature's
+ * own name, `guessed` means it is an unlabelled industrial area near a tier 1
+ * site and the pairing is an assumption, not a read fact.
+ */
+export type IndustrySite = {
+  kind:
+    | "forest" | "sawmill"
+    | "farmland" | "grain_mill"
+    | "oil_well" | "refinery"
+    | "quarry" | "steel_works";
+  tier: 1 | 2;
+  lat: number;
+  lon: number;
+  name: string | null;
+  confidence: "named" | "guessed";
+};
+
+/** Name fragments that identify a tier-2 processing site, by chain. */
+const PROCESSING_NAME: Record<string, RegExp> = {
+  grain_mill: /\bmill\b|grain|flour/i,
+  refinery: /refin|petrol|oil\b/i,
+  steel_works: /steel|iron\s*works|foundry|smelt/i,
+};
+
+export async function findIndustrySites(
+  centre: LatLon,
+  radiusNm = 50,
+): Promise<IndustrySite[] | null> {
+  const b = bbox(centre, radiusNm);
+  // Tier-1 sites use real, common OSM tags -- forests, farmland and quarries
+  // are reliably mapped almost everywhere. Tier-2 processing has no equally
+  // reliable tag, so it is read from generic industrial land plus a name
+  // heuristic, same technique the hospital-vs-rehab filter already uses.
+  // Learned the hard way on the water/road scan: one shared output budget
+  // across several tag types starves whichever ones return last, not the
+  // ones you actually need. Six tags here, six budgets -- industrial land is
+  // by far the noisiest, so it gets the smallest one.
+  const elements = await overpass(
+    `[out:json][timeout:60];` +
+      `way["landuse"="forest"](${b});out center 200;` +
+      `way["landuse"="farmland"](${b});out center 200;` +
+      `way["landuse"="quarry"](${b});out center 100;` +
+      `(node["craft"="sawmill"](${b});way["craft"="sawmill"](${b}););out center 60;` +
+      `(node["man_made"="petroleum_well"](${b});way["man_made"="petroleum_well"](${b}););out center 60;` +
+      `way["landuse"="industrial"](${b});out center 150;`,
+    60_000,
+  );
+  if (elements === null) return null;
+
+  const out: IndustrySite[] = [];
+  for (const e of elements) {
+    const lat = e.lat ?? e.center?.lat;
+    const lon = e.lon ?? e.center?.lon;
+    if (typeof lat !== "number" || typeof lon !== "number") continue;
+    const t = e.tags ?? {};
+    const name: string | null = t.name ?? null;
+
+    if (t.landuse === "forest") {
+      out.push({ kind: "forest", tier: 1, lat, lon, name, confidence: "named" });
+    } else if (t.landuse === "farmland") {
+      out.push({ kind: "farmland", tier: 1, lat, lon, name, confidence: "named" });
+    } else if (t.landuse === "quarry") {
+      out.push({ kind: "quarry", tier: 1, lat, lon, name, confidence: "named" });
+    } else if (t.craft === "sawmill") {
+      out.push({ kind: "sawmill", tier: 2, lat, lon, name, confidence: "named" });
+    } else if (t.man_made === "petroleum_well") {
+      out.push({ kind: "oil_well", tier: 1, lat, lon, name, confidence: "named" });
+    } else if (t.landuse === "industrial" && name) {
+      // Unlabelled industrial land is not placed at all -- a processing site
+      // synthesised near its tier-1 supplier (see missions/industries.ts) is
+      // more honest than a guess with nothing behind it.
+      if (PROCESSING_NAME.grain_mill.test(name)) {
+        out.push({ kind: "grain_mill", tier: 2, lat, lon, name, confidence: "named" });
+      } else if (PROCESSING_NAME.refinery.test(name)) {
+        out.push({ kind: "refinery", tier: 2, lat, lon, name, confidence: "named" });
+      } else if (PROCESSING_NAME.steel_works.test(name)) {
+        out.push({ kind: "steel_works", tier: 2, lat, lon, name, confidence: "named" });
+      }
+    }
+  }
+  return out;
+}

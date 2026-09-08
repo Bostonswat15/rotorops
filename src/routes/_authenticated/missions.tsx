@@ -25,10 +25,14 @@ import {
   siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
   type SceneType, type PlacementSites,
 } from "@/lib/missions";
-import { findAerodromes, findSites } from "@/lib/osm";
+import { findAerodromes, findSites, findIndustrySites } from "@/lib/osm";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission,
 } from "@/lib/fixed-wing";
+import {
+  siteIndustries, generateIndustryHaul, INDUSTRY_DEFS,
+  type IndustryRow,
+} from "@/lib/industries";
 
 export const Route = createFileRoute("/_authenticated/missions")({
   head: () => ({ meta: [{ title: "Mission Board — RotorOps" }] }),
@@ -59,6 +63,10 @@ function MissionsPage() {
   const { data: bases } = useQuery({
     queryKey: ["bases"],
     queryFn: async () => (await supabase.from("bases").select("*")).data ?? [],
+  });
+  const { data: industries } = useQuery({
+    queryKey: ["industries"],
+    queryFn: async () => (await supabase.from("industries").select("*")).data ?? [],
   });
 
   const locatedBase = (bases ?? []).find((b: any) => b.latitude != null && b.longitude != null) ?? null;
@@ -199,6 +207,82 @@ function MissionsPage() {
         if (patrol) rows[5] = { company_id: company.id, ...patrol };
       } catch {
         // Overpass unavailable -- the synthetic contract already in the slot stands.
+      }
+
+      // Industries: sited once per base from real OSM land use (forests,
+      // farmland, quarries, wells) and cached as rows rather than a JSON blob
+      // -- unlike water and roads, industries have their own ongoing state
+      // (stock, capacity) that has to persist and accumulate, not just a
+      // position to remember.
+      let baseIndustries = (industries ?? []).filter((i: any) => i.base_id === base.id);
+      if (baseIndustries.length === 0) {
+        try {
+          const rawInd = await findIndustrySites(
+            { lat: Number(base.latitude), lon: Number(base.longitude) },
+            50,
+          );
+          if (rawInd && rawInd.length > 0) {
+            const sited = siteIndustries(rawInd);
+            if (sited.length > 0) {
+              const { data: placed, error: indErr } = await supabase.rpc("site_industries", {
+                _base_id: base.id,
+                _sites: sited as unknown as never,
+              });
+              if (!indErr && placed) {
+                baseIndustries = placed as any[];
+                qc.invalidateQueries({ queryKey: ["industries"] });
+              }
+            }
+          }
+        } catch {
+          // Overpass unavailable -- no industries this batch, nothing else affected.
+        }
+      } else {
+        // Already sited: bring stock up to date rather than re-scanning.
+        try {
+          const { data: ticked } = await supabase.rpc("tick_base_industries", { _base_id: base.id });
+          if (ticked) baseIndustries = ticked as any[];
+        } catch {
+          // Stale stock numbers are a worse Generate, not a broken one.
+        }
+      }
+
+      if (baseIndustries.length > 0) {
+        const byKind = new Map<string, any>(baseIndustries.map((i: any) => [i.kind, i]));
+        const candidates: Record<string, unknown>[] = [];
+        for (const ind of baseIndustries) {
+          const def = INDUSTRY_DEFS[ind.kind as keyof typeof INDUSTRY_DEFS];
+          if (!def) continue;
+          const from: IndustryRow = {
+            id: ind.id, kind: def.kind, lat: Number(ind.latitude), lon: Number(ind.longitude),
+            name: ind.name, stock: Number(ind.stock), capacity: Number(ind.capacity),
+          };
+          // Tier 1 hauls its raw material to the paired processor when one is
+          // sited; tier 2 hauls its finished good back to the market at base.
+          const dest =
+            def.tier === 1
+              ? (() => {
+                  const pairKind = Object.values(INDUSTRY_DEFS).find(
+                    (d) => d.chain === def.chain && d.tier === 2,
+                  )?.kind;
+                  const pair = pairKind ? byKind.get(pairKind) : null;
+                  return pair
+                    ? { lat: Number(pair.latitude), lon: Number(pair.longitude), icao: null, name: pair.name ?? INDUSTRY_DEFS[pair.kind as keyof typeof INDUSTRY_DEFS]?.label }
+                    : null;
+                })()
+              : { lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao, name: `${base.icao ?? "base"} market` };
+          if (!dest) continue;
+          const haul = generateIndustryHaul(from, dest, company.reputation, site);
+          if (haul) candidates.push({ company_id: company.id, ...haul });
+        }
+        // Up to a dozen chain pairs can exist at a busy base -- cap what lands
+        // on the board in one batch the same way the rest of Generate does (6
+        // scenes, 3 fixed-wing), rather than flooding it with every haul at once.
+        for (let i = candidates.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+        }
+        rows.push(...candidates.slice(0, 2));
       }
     } else {
       const pool = MISSION_TEMPLATES.filter((t) =>

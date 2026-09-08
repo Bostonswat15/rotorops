@@ -16,6 +16,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedMissionsRouteImport } from './routes/_authenticated/missions'
 import { Route as AuthenticatedMarketRouteImport } from './routes/_authenticated/market'
 import { Route as AuthenticatedMaintenanceRouteImport } from './routes/_authenticated/maintenance'
+import { Route as AuthenticatedIndustriesRouteImport } from './routes/_authenticated/industries'
 import { Route as AuthenticatedFlightLogsRouteImport } from './routes/_authenticated/flight-logs'
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -57,6 +58,11 @@ const AuthenticatedMaintenanceRoute =
     path: '/maintenance',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedIndustriesRoute = AuthenticatedIndustriesRouteImport.update({
+  id: '/industries',
+  path: '/industries',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedFlightLogsRoute = AuthenticatedFlightLogsRouteImport.update({
   id: '/flight-logs',
   path: '/flight-logs',
@@ -91,6 +97,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/finance': typeof AuthenticatedFinanceRoute
   '/flight-logs': typeof AuthenticatedFlightLogsRoute
+  '/industries': typeof AuthenticatedIndustriesRoute
   '/maintenance': typeof AuthenticatedMaintenanceRoute
   '/market': typeof AuthenticatedMarketRoute
   '/missions': typeof AuthenticatedMissionsRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/finance': typeof AuthenticatedFinanceRoute
   '/flight-logs': typeof AuthenticatedFlightLogsRoute
+  '/industries': typeof AuthenticatedIndustriesRoute
   '/maintenance': typeof AuthenticatedMaintenanceRoute
   '/market': typeof AuthenticatedMarketRoute
   '/missions': typeof AuthenticatedMissionsRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/finance': typeof AuthenticatedFinanceRoute
   '/_authenticated/flight-logs': typeof AuthenticatedFlightLogsRoute
+  '/_authenticated/industries': typeof AuthenticatedIndustriesRoute
   '/_authenticated/maintenance': typeof AuthenticatedMaintenanceRoute
   '/_authenticated/market': typeof AuthenticatedMarketRoute
   '/_authenticated/missions': typeof AuthenticatedMissionsRoute
@@ -134,6 +143,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/finance'
     | '/flight-logs'
+    | '/industries'
     | '/maintenance'
     | '/market'
     | '/missions'
@@ -147,6 +157,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/finance'
     | '/flight-logs'
+    | '/industries'
     | '/maintenance'
     | '/market'
     | '/missions'
@@ -161,6 +172,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/finance'
     | '/_authenticated/flight-logs'
+    | '/_authenticated/industries'
     | '/_authenticated/maintenance'
     | '/_authenticated/market'
     | '/_authenticated/missions'
@@ -224,6 +236,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMaintenanceRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/industries': {
+      id: '/_authenticated/industries'
+      path: '/industries'
+      fullPath: '/industries'
+      preLoaderRoute: typeof AuthenticatedIndustriesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/flight-logs': {
       id: '/_authenticated/flight-logs'
       path: '/flight-logs'
@@ -268,6 +287,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedFinanceRoute: typeof AuthenticatedFinanceRoute
   AuthenticatedFlightLogsRoute: typeof AuthenticatedFlightLogsRoute
+  AuthenticatedIndustriesRoute: typeof AuthenticatedIndustriesRoute
   AuthenticatedMaintenanceRoute: typeof AuthenticatedMaintenanceRoute
   AuthenticatedMarketRoute: typeof AuthenticatedMarketRoute
   AuthenticatedMissionsRoute: typeof AuthenticatedMissionsRoute
@@ -280,6 +300,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedFinanceRoute: AuthenticatedFinanceRoute,
   AuthenticatedFlightLogsRoute: AuthenticatedFlightLogsRoute,
+  AuthenticatedIndustriesRoute: AuthenticatedIndustriesRoute,
   AuthenticatedMaintenanceRoute: AuthenticatedMaintenanceRoute,
   AuthenticatedMarketRoute: AuthenticatedMarketRoute,
   AuthenticatedMissionsRoute: AuthenticatedMissionsRoute,

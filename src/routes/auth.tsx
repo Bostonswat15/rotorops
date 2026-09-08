@@ -38,16 +38,36 @@ function AuthPage() {
   async function signUp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    // Never hand Supabase a loopback address to put in an email. The desktop
+    // app serves itself from 127.0.0.1 on a private port, so window.location
+    // .origin is the *sender's own machine* -- a link that is dead everywhere
+    // else, and dead on a phone even for the person who requested it.
+    const origin = window.location.origin;
+    const reachable =
+      /^https?:\/\//.test(origin) &&
+      !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(origin);
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: window.location.origin,
+        ...(reachable ? { emailRedirectTo: origin } : {}),
         data: { display_name: displayName || email.split("@")[0] },
       },
     });
     setLoading(false);
     if (error) return toast.error(error.message);
+
+    // A session only comes back when the project has email confirmation off.
+    // Claiming "you're signed in" and pushing to the dashboard when it is on
+    // just bounces the new user straight back here with no explanation.
+    if (!data.session) {
+      return toast.info(
+        "Account created. Confirm your email address, then sign in — " +
+          "or ask whoever runs the company to confirm it for you.",
+        { duration: 12000 },
+      );
+    }
     toast.success("Account created. You're signed in.");
     navigate({ to: "/dashboard", replace: true });
   }

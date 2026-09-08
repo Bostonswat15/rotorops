@@ -880,6 +880,10 @@ export type Database = {
         Args: { _industry_id: string; _amount: number }
         Returns: Database["public"]["Tables"]["industries"]["Row"]
       }
+      book_checkride: {
+        Args: { _company_id: string; _cert: string; _mission: Json }
+        Returns: Database["public"]["Tables"]["missions"]["Row"]
+      }
       place_industry: {
         Args: { _base_id: string; _kind: string; _lat: number; _lon: number; _name?: string | null }
         Returns: Database["public"]["Tables"]["industries"]["Row"]

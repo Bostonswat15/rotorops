@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { CERT_LABELS, CERT_UNLOCKS, ALL_CERTS } from "@/lib/game-data";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { Radio, Trash2, MapPin } from "lucide-react";
+import { Radio, Trash2, MapPin, GraduationCap } from "lucide-react";
 import { useCompanyRole } from "@/hooks/use-company";
 import { desktop, type BridgeStatus } from "@/lib/desktop";
+import { generateCheckride } from "@/lib/checkrides";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — RotorOps" }] }),
@@ -26,6 +27,39 @@ function SettingsPage() {
     queryFn: fetchCurrentCompany,
   });
 
+  const [booking, setBooking] = useState<string | null>(null);
+  const { data: bases } = useQuery({
+    queryKey: ["bases"],
+    queryFn: async () => (await supabase.from("bases").select("*")).data ?? [],
+  });
+  const { data: checkrideMissions } = useQuery({
+    queryKey: ["missions"],
+    queryFn: async () => (await supabase.from("missions").select("*")).data ?? [],
+  });
+
+  // A pass or fail only becomes known once the bridge submits the flight --
+  // nothing else in the app currently listens for this event, so this is the
+  // one place a check ride's outcome is actually announced rather than the
+  // player having to notice a cert appear (or not) after a page refetch.
+  useEffect(() => {
+    const app = desktop();
+    if (!app) return;
+    return app.onEvent((e) => {
+      if (e.type !== "flight-logged") return;
+      const r = e.result as { checkride?: boolean; checkride_passed?: boolean } | undefined;
+      if (!r?.checkride) return;
+      if (r.checkride_passed) {
+        toast.success(`Check ride passed — ${e.mission ?? "rating"} earned.`, { duration: 10000 });
+      } else {
+        toast.error(`Check ride failed — objectives were not all completed. Book again when ready.`, {
+          duration: 10000,
+        });
+      }
+      qc.invalidateQueries({ queryKey: ["company"] });
+      qc.invalidateQueries({ queryKey: ["missions"] });
+    });
+  }, [qc]);
+
   async function updateField(patch: any) {
     if (!company) return;
     const { error } = await supabase.from("companies").update(patch).eq("id", company.id);
@@ -34,21 +68,38 @@ function SettingsPage() {
     qc.invalidateQueries();
   }
 
-  // Pricing and the cash/reputation checks live in the database now -- with
-  // more than one member, a client-side purchase is a permission hole.
-  async function purchaseCert(c: string) {
+  // Booking still charges the cost and checks the reputation floor -- that
+  // gate is unchanged. What used to grant the cert outright now only puts a
+  // real flight on the Mission Board; passing it is what earns the rating.
+  async function bookCheckride(c: string) {
     if (!company) return;
-    const { error } = await supabase.rpc("purchase_certification", {
+    const base = (bases ?? []).find((b: any) => b.latitude != null && b.longitude != null);
+    if (!base) return toast.error("Set a home base with a real position first.");
+    const mission = generateCheckride(c, {
+      lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao,
+    });
+    if (!mission) return toast.error("No check ride profile for this rating yet.");
+
+    setBooking(c);
+    const { error } = await supabase.rpc("book_checkride", {
       _company_id: company.id,
       _cert: c,
+      _mission: mission as unknown as never,
     });
+    setBooking(null);
     if (error) return toast.error(error.message);
-    toast.success(`${CERT_LABELS[c]} unlocked.`);
-    qc.invalidateQueries();
+    toast.success(`Check ride booked. Find it on the Mission Board and fly it to earn ${CERT_LABELS[c]}.`);
+    qc.invalidateQueries({ queryKey: ["company"] });
+    qc.invalidateQueries({ queryKey: ["missions"] });
   }
 
   if (!company) return null;
   const ownedCerts = new Set<string>(company.certifications ?? []);
+  const bookedCerts = new Set<string>(
+    (checkrideMissions ?? [])
+      .filter((m: any) => m.role === "checkride" && ["available", "in_progress"].includes(m.status))
+      .map((m: any) => m.scene_name),
+  );
 
   return (
     <div className="space-y-6 p-6 md:p-8">
@@ -94,8 +145,16 @@ function SettingsPage() {
                   </div>
                   {owned ? (
                     <span className="text-xs text-success">Held</span>
+                  ) : bookedCerts.has(c) ? (
+                    <span className="text-xs text-warning">Check ride booked — fly it on the board</span>
                   ) : meta ? (
-                    <Button size="sm" variant="secondary" disabled={!canManage} onClick={() => purchaseCert(c)}>Acquire</Button>
+                    <Button
+                      size="sm" variant="secondary" disabled={!canManage || booking === c}
+                      onClick={() => bookCheckride(c)}
+                    >
+                      <GraduationCap className="mr-1.5 h-3.5 w-3.5" />
+                      {booking === c ? "Booking…" : "Book check ride"}
+                    </Button>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}

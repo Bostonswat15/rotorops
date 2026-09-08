@@ -42,22 +42,23 @@ type CatalogEntry = {
 /** Small piston trainers through to heavy-lift cranes. */
 const CATALOG: CatalogEntry[] = [
   // --- Piston: training and light utility ---------------------------------
-  { id: "MOSQUITO-XE", name: "Mosquito XE", simTitle: "Mosquito XE", price: 17200, payload: 312, rangeNm: 50, cruiseKts: 62, seats: 1, engine: "piston", tags: ["trainer"] },
-  { id: "MINI-500", name: "Revolution Mini-500", simTitle: "Revolution Mini-500", price: 24400, payload: 413, rangeNm: 196, cruiseKts: 65, seats: 1, engine: "piston", tags: ["trainer"] },
-  { id: "M24-ORION", name: "M24 Orion", simTitle: "M24 Orion", price: 11900, payload: 520, rangeNm: 323, cruiseKts: 65, seats: 1, engine: "piston", tags: ["trainer"] },
-  { id: "VELOCITY", name: "Velocity", simTitle: "Velocity", price: 5400, payload: 437, rangeNm: 35, cruiseKts: 60, seats: 1, engine: "piston", tags: ["trainer"] },
-  { id: "R22", name: "Robinson R22", simTitle: "Robinson R22", price: 5100, payload: 500, rangeNm: 209, cruiseKts: 96, seats: 1, engine: "piston", tags: ["trainer"] },
-  { id: "CABRI-G2", name: "Guimbal Cabri G2", simTitle: "Guimbal Cabri G2", price: 23000, payload: 618, rangeNm: 400, cruiseKts: 100, seats: 1, engine: "piston", tags: ["trainer"] },
-  { id: "S300", name: "Schweizer S300", simTitle: "Schweizer S300", price: 80200, payload: 950, rangeNm: 195, cruiseKts: 86, seats: 2, engine: "piston", tags: ["trainer", "light_utility"] },
-  { id: "BELL-47G2", name: "Bell 47-G2", simTitle: "Bell 47-G2", price: 71300, payload: 1057, rangeNm: 214, cruiseKts: 73, seats: 2, engine: "piston", sling: true, tags: ["trainer", "light_utility"] },
-  { id: "BELL-47G2-EXT", name: "Bell 47-G2 Extended Fuel", simTitle: "Bell 47-G2 - Extended Fuel", price: 64000, payload: 1057, rangeNm: 306, cruiseKts: 73, seats: 2, engine: "piston", sling: true, tags: ["trainer", "light_utility"] },
-  { id: "R44", name: "Robinson R44", simTitle: "Robinson R44", price: 102800, payload: 748, rangeNm: 304, cruiseKts: 110, seats: 3, engine: "piston", tags: ["trainer", "light_utility"] },
-  { id: "CH1-SKYHOOK", name: "Cessna CH-1 Skyhook", simTitle: "Cessna CH-1 Skyhook", price: 86000, payload: 1020, rangeNm: 230, cruiseKts: 94, seats: 3, engine: "piston", tags: ["light_utility"] },
+  // Every entry below is confirmed present in the install this catalog was
+  // checked against -- either a stock MSFS 2024 aircraft (its package folder
+  // exists under StreamedPackages/Official2024) or an owned community add-on
+  // (found under Community/Community2024 earlier this session). The dozen
+  // entries this replaced -- Mosquito XE, Mini-500, M24 Orion, Velocity, R22,
+  // Schweizer S300, Bell 47-G2 (x2), R44, CH-1 Skyhook, EC120, SA342 Gazelle
+  // -- had no package anywhere: not vanilla, not community, not even an
+  // AI-only traffic model. Buying one would have bought an aircraft the sim
+  // could never load, breaking the sim_title match the whole flight-tracking
+  // loop depends on. R22 and R44 specifically are AI traffic only in MSFS
+  // 2024 (SimConnect enumerates them as passive, non-flyable) despite being
+  // the classic real-world trainer -- worth knowing if that surprises you.
+  { id: "CABRI-G2", name: "Guimbal Cabri G2", simTitle: "Guimbal Cabri G2", price: 23000, payload: 618, rangeNm: 400, cruiseKts: 100, seats: 2, engine: "piston", tags: ["trainer"] },
 
   // --- Light single turbine ------------------------------------------------
   { id: "R66", name: "Robinson R66", simTitle: "Robinson R66", price: 218700, payload: 1200, rangeNm: 350, cruiseKts: 110, seats: 4, engine: "turbine", tags: ["light_utility", "survey"] },
-  { id: "EC120", name: "Eurocopter EC120 Colibri", simTitle: "Eurocopter EC120 Colibri", price: 224800, payload: 1230, rangeNm: 393, cruiseKts: 122, seats: 4, engine: "turbine", tags: ["light_utility", "vip", "survey"] },
-  { id: "SA342", name: "Eurocopter SA342 Gazelle", simTitle: "Eurocopter SA342", price: 149800, payload: 1050, rangeNm: 195, cruiseKts: 143, seats: 5, engine: "turbine", tags: ["light_utility", "patrol"] },
+  { id: "EC135", name: "Airbus EC135", simTitle: "Airbus EC135", price: 195000, payload: 1450, rangeNm: 335, cruiseKts: 133, seats: 6, engine: "turbine", hoist: true, tags: ["light_utility", "medevac", "survey"] },
   { id: "B206B", name: "Bell 206B JetRanger", simTitle: "Bell 206B JetRanger", price: 136300, payload: 800, rangeNm: 374, cruiseKts: 120, seats: 5, engine: "turbine", sling: true, tags: ["light_utility", "patrol", "survey"] },
   { id: "B206L", name: "Bell 206 LongRanger", simTitle: "Bell 206 LongRanger", price: 275000, payload: 1950, rangeNm: 317, cruiseKts: 109, seats: 6, engine: "turbine", sling: true, tags: ["light_utility", "vip", "patrol"] },
   { id: "MD530F", name: "MD 530F", simTitle: "MD 530F", price: 258500, payload: 1519, rangeNm: 232, cruiseKts: 135, seats: 4, engine: "turbine", sling: true, tags: ["light_utility", "patrol", "survey"] },
@@ -121,6 +122,14 @@ const FIXED_WING: CatalogEntry[] = [
   { id: "C152", name: "Cessna 152", simTitle: "Cessna 152", price: 89000, payload: 520, rangeNm: 415, cruiseKts: 107, seats: 2, engine: "piston", wing: "fixed", runwayFt: 1400, tags: ["trainer"] },
   { id: "C172", name: "Cessna 172 Skyhawk", simTitle: "Cessna Skyhawk", price: 145000, payload: 878, rangeNm: 640, cruiseKts: 122, seats: 4, engine: "piston", wing: "fixed", runwayFt: 1600, tags: ["trainer", "light_utility"] },
   { id: "DA40", name: "Diamond DA40 NG", simTitle: "Diamond DA40", price: 320000, payload: 838, rangeNm: 940, cruiseKts: 154, seats: 4, engine: "piston", wing: "fixed", runwayFt: 1500, tags: ["trainer", "light_utility"] },
+  // SR22, Baron G58 and Longitude below: unlike Kodiak/ATR72, these have real
+  // evidence of being present -- their livery packages are in this install's
+  // manifest, which implies a base aircraft exists for the livery to apply
+  // to, most likely carried forward from MSFS2020 backward compatibility.
+  // But I only found the liveries, not a base package I could point to
+  // directly, so this is inference rather than confirmed the way Cabri G2 or
+  // the DHC-6 are. Worth a quick check in-sim if one of these ever shows up
+  // as "aircraft not found" on a contract.
   { id: "SR22", name: "Cirrus SR22", simTitle: "Cirrus SR22", price: 560000, payload: 1075, rangeNm: 1050, cruiseKts: 183, seats: 4, engine: "piston", wing: "fixed", runwayFt: 1900, tags: ["light_utility", "vip"] },
   { id: "G36", name: "Beechcraft Bonanza G36", simTitle: "Bonanza G36", price: 620000, payload: 1050, rangeNm: 920, cruiseKts: 176, seats: 6, engine: "piston", wing: "fixed", runwayFt: 2000, tags: ["light_utility", "vip"] },
 
@@ -128,7 +137,11 @@ const FIXED_WING: CatalogEntry[] = [
   { id: "XCUB", name: "CubCrafters XCub", simTitle: "CubCrafters XCub", price: 385000, payload: 780, rangeNm: 800, cruiseKts: 130, seats: 2, engine: "piston", wing: "fixed", runwayFt: 500, tags: ["bush", "light_utility"] },
   { id: "SAVAGE", name: "Zlin Savage Cub", simTitle: "Savage Cub", price: 118000, payload: 470, rangeNm: 380, cruiseKts: 92, seats: 2, engine: "piston", wing: "fixed", runwayFt: 400, tags: ["bush", "trainer"] },
   { id: "DHC2", name: "De Havilland DHC-2 Beaver", simTitle: "DHC-2 Beaver", price: 690000, payload: 2100, rangeNm: 455, cruiseKts: 125, seats: 7, engine: "piston", wing: "fixed", runwayFt: 1200, tags: ["bush", "cargo", "light_utility"] },
-  { id: "KODIAK", name: "Daher Kodiak 100", simTitle: "Kodiak 100", price: 2450000, payload: 3535, rangeNm: 1130, cruiseKts: 174, seats: 10, engine: "turbine", wing: "fixed", runwayFt: 1400, tags: ["bush", "cargo", "medium_utility"] },
+  // Kodiak 100 dropped: no package anywhere in this install, not even an
+  // AI-only one -- neither stock nor a known community add-on. Two confirmed
+  // stock aircraft cover the same STOL-utility niche it would have filled.
+  { id: "PC12NGX", name: "Pilatus PC-12 NGX", simTitle: "Pilatus PC-12 NGX", price: 3450000, payload: 3120, rangeNm: 1600, cruiseKts: 285, seats: 9, engine: "turbine", wing: "fixed", runwayFt: 2400, tags: ["bush", "cargo", "vip", "medium_utility"] },
+  { id: "DHC6", name: "DHC-6 Twin Otter", simTitle: "DHC-6 Twin Otter", price: 2100000, payload: 4280, rangeNm: 780, cruiseKts: 160, seats: 19, engine: "twin_turbine", wing: "fixed", runwayFt: 1200, tags: ["bush", "cargo", "medium_utility"] },
 
   // --- Twins and turboprops ------------------------------------------------
   { id: "BE58", name: "Beechcraft Baron G58", simTitle: "Baron G58", price: 1450000, payload: 1750, rangeNm: 1480, cruiseKts: 200, seats: 6, engine: "piston", wing: "fixed", runwayFt: 2300, tags: ["light_utility", "vip", "patrol"] },
@@ -143,7 +156,10 @@ const FIXED_WING: CatalogEntry[] = [
   { id: "LONGITUDE", name: "Cessna Citation Longitude", simTitle: "Citation Longitude", price: 28500000, payload: 3500, rangeNm: 3500, cruiseKts: 483, seats: 12, engine: "twin_turbine", wing: "fixed", runwayFt: 4800, tags: ["vip", "airline"] },
 
   // --- Regional ------------------------------------------------------------
-  { id: "ATR72", name: "ATR 72-600", simTitle: "ATR 72-600", price: 21500000, payload: 16500, rangeNm: 825, cruiseKts: 275, seats: 72, engine: "twin_turbine", wing: "fixed", runwayFt: 4300, tags: ["airline", "cargo"] },
+  // ATR 72-600 dropped for the same reason -- no evidence it exists here at
+  // all. King Air 350i above already covers regional/airline-tag work; the
+  // catalogue is a passenger short at the top end without a true airliner,
+  // which is a real gap worth a proper confirmed replacement if you want one.
 ];
 
 // ---------------------------------------------------------------------------

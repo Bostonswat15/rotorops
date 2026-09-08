@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useState } from "react";
 import { toast } from "sonner";
 import { ShoppingCart, Fuel, Gauge, Package, Users, Anchor, ArrowUpDown, Wrench, KeyRound } from "lucide-react";
-import { AIRCRAFT_ARCHETYPES, TAG_LABELS, type AircraftArchetype } from "@/lib/game-data";
+import { AIRCRAFT_ARCHETYPES, TAG_LABELS, type AircraftArchetype, type WingType } from "@/lib/game-data";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
 
 export const Route = createFileRoute("/_authenticated/market")({
@@ -47,6 +47,7 @@ function MarketPage() {
   const { data: company } = useCompany();
   const { canManage } = useCompanyRole();
   const [sort, setSort] = useState("price");
+  const [wing, setWing] = useState<WingType>("rotary");
   const [busy, setBusy] = useState<string | null>(null);
 
   const cash = Number(company?.cash ?? 0);
@@ -82,7 +83,11 @@ function MarketPage() {
     qc.invalidateQueries();
   }
 
-  const sorted = [...AIRCRAFT_ARCHETYPES].sort((x, y) => {
+  const rotaryCount = AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === "rotary").length;
+  const fixedCount = AIRCRAFT_ARCHETYPES.length - rotaryCount;
+  const inWing = AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === wing);
+
+  const sorted = [...inWing].sort((x, y) => {
     if (sort === "price") return x.acquisition_cost - y.acquisition_cost;
     if (sort === "hourly") return hourlyTotal(x) - hourlyTotal(y);
     if (sort === "payload") return y.payload_lbs - x.payload_lbs;
@@ -97,9 +102,31 @@ function MarketPage() {
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Acquisition</p>
           <h1 className="mt-1 text-3xl font-semibold">Aircraft Market</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {AIRCRAFT_ARCHETYPES.length} airframes · cash on hand {money(cash)}
+            {sorted.length} {wing === "fixed" ? "fixed-wing" : "rotary"} airframes · cash on hand{" "}
+            {money(cash)}
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-md border border-border">
+            <button
+              type="button"
+              onClick={() => setWing("rotary")}
+              className={`px-3 py-2 text-sm ${
+                wing === "rotary" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground"
+              }`}
+            >
+              Helicopters ({rotaryCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setWing("fixed")}
+              className={`px-3 py-2 text-sm ${
+                wing === "fixed" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground"
+              }`}
+            >
+              Planes ({fixedCount})
+            </button>
+          </div>
         <Select value={sort} onValueChange={setSort}>
           <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -110,6 +137,7 @@ function MarketPage() {
             <SelectItem value="name">Sort: name</SelectItem>
           </SelectContent>
         </Select>
+        </div>
       </div>
 
       {!canManage && (

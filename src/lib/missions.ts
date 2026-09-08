@@ -37,7 +37,9 @@ export type SceneType =
   | "highway"
   | "field"
   | "rooftop"
-  | "confined";
+  | "confined"
+  /** Not a scene at all: a fixed-wing contract, which runs runway to runway. */
+  | "airport";
 
 export const SCENE_LABELS: Record<SceneType, string> = {
   vessel: "Vessel at sea",
@@ -51,6 +53,7 @@ export const SCENE_LABELS: Record<SceneType, string> = {
   field: "Open field",
   rooftop: "Rooftop pad",
   confined: "Confined area",
+  airport: "Airfield",
 };
 
 /** How the scene is described in a briefing, for flavour that reads right. */
@@ -66,6 +69,7 @@ const SCENE_FLAVOUR: Record<SceneType, string[]> = {
   field: ["a farmer's field", "open pasture beside the road"],
   rooftop: ["the hospital rooftop pad", "a tower helipad"],
   confined: ["a walled yard", "a clearing barely wider than the disc"],
+  airport: ["the field"],
 };
 
 // ---------------------------------------------------------------------------

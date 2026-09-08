@@ -26,6 +26,9 @@ import {
   type SceneType, type PlacementSites,
 } from "@/lib/missions";
 import { findAerodromes, findSites } from "@/lib/osm";
+import {
+  FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission,
+} from "@/lib/fixed-wing";
 
 export const Route = createFileRoute("/_authenticated/missions")({
   head: () => ({ meta: [{ title: "Mission Board — RotorOps" }] }),
@@ -35,6 +38,9 @@ export const Route = createFileRoute("/_authenticated/missions")({
 function MissionsPage() {
   const qc = useQueryClient();
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  // Helicopters and aeroplanes fly completely different work, so the board is
+  // split rather than mixed -- you are usually shopping for one or the other.
+  const [wing, setWing] = useState<"rotary" | "fixed">("rotary");
   const [manualFor, setManualFor] = useState<any | null>(null);
   const { canManage } = useCompanyRole();
 
@@ -141,9 +147,13 @@ function MissionsPage() {
       );
       let fromOsm: any[] = [];
       try {
+        // Wider than the site scan: fixed-wing legs run out to a couple of
+        // hundred miles, and a contract can only route to a field we know
+        // about. Airfields come back without geometry, so the extra reach is
+        // cheap.
         fromOsm = await findAerodromes(
           { lat: Number(base.latitude), lon: Number(base.longitude) },
-          60,
+          140,
         );
       } catch {
         // Overpass unavailable; the bridge's list still stands.
@@ -167,12 +177,26 @@ function MissionsPage() {
         return { company_id: company.id, ...generateSceneMission(t, company.reputation, site) };
       });
 
+      // Aeroplane work, built from the same real airfields. Skipped silently
+      // when the base has no airport data, since a fixed-wing contract is
+      // nothing but its destination and there is no honest way to invent one.
+      const fwPool = FIXED_WING_TEMPLATES.filter((t) =>
+        companyHasCerts(company.certifications, t.required_certs),
+      );
+      if (fwPool.length > 0 && airports.length > 0) {
+        for (let i = 0; i < 3; i++) {
+          const t = fwPool[Math.floor(Math.random() * fwPool.length)];
+          const fw = generateFixedWingMission(t, company.reputation, site);
+          if (fw) rows.push({ company_id: company.id, ...fw });
+        }
+      }
+
       // One contract follows a real transmission line, when OSM knows of one
       // nearby. MSFS draws its powerlines from the same data, so it's a line
       // you can actually see and follow.
       try {
         const patrol = await generatePowerlinePatrol(company.reputation, site);
-        if (patrol) rows[rows.length - 1] = { company_id: company.id, ...patrol };
+        if (patrol) rows[5] = { company_id: company.id, ...patrol };
       } catch {
         // Overpass unavailable -- the synthetic contract already in the slot stands.
       }
@@ -205,10 +229,10 @@ function MissionsPage() {
           `${droppedForSites} contract type${droppedForSites === 1 ? "" : "s"} withheld — no suitable water or road near this base`,
         );
       }
+      const fw = rows.filter((r) => r.scene_type === "airport").length;
       toast.success(
-        notes.length === 0
-          ? "Generated 6 scene contracts."
-          : `Generated 6 scene contracts. ${notes.join(". ")}.`,
+        `Generated ${rows.length - fw} rotary and ${fw} fixed-wing contracts.` +
+          (notes.length ? ` ${notes.join(". ")}.` : ""),
       );
     }
     qc.invalidateQueries({ queryKey: ["missions"] });
@@ -259,8 +283,15 @@ function MissionsPage() {
   const available = missions?.filter((m: any) => m.status === "available") ?? [];
   const inProgress = missions?.filter((m: any) => m.status === "in_progress") ?? [];
   const completed = missions?.filter((m: any) => m.status === "completed" || m.status === "failed").slice(0, 10) ?? [];
-  const filtered = roleFilter === "all" ? available : available.filter((m: any) => m.role === roleFilter);
-  const roles = [...new Set(available.map((m: any) => m.role))];
+  // Split first, then filter by role: the role lists differ between the two
+  // halves, so offering "freight" while looking at helicopters is just noise.
+  const forWing = available.filter((m: any) =>
+    wing === "fixed" ? isFixedWingMission(m) : !isFixedWingMission(m),
+  );
+  const rotaryCount = available.length - available.filter(isFixedWingMission).length;
+  const fixedCount = available.length - rotaryCount;
+  const filtered = roleFilter === "all" ? forWing : forWing.filter((m: any) => m.role === roleFilter);
+  const roles = [...new Set(forWing.map((m: any) => m.role))];
   const fleet = aircraft ?? [];
 
   return (
@@ -270,11 +301,32 @@ function MissionsPage() {
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Dispatch</p>
           <h1 className="mt-1 text-3xl font-semibold">Mission Board</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {available.length} contracts available
+            {forWing.length} {wing === "fixed" ? "fixed-wing" : "rotary"} contract
+            {forWing.length === 1 ? "" : "s"} available
             {homeIcao ? <> · operating from <span className="font-mono">{homeIcao}</span></> : " · no home base set"}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <div className="flex overflow-hidden rounded-md border border-border">
+            <button
+              type="button"
+              onClick={() => { setWing("rotary"); setRoleFilter("all"); }}
+              className={`px-3 py-2 text-sm ${
+                wing === "rotary" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground"
+              }`}
+            >
+              Helicopters ({rotaryCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => { setWing("fixed"); setRoleFilter("all"); }}
+              className={`px-3 py-2 text-sm ${
+                wing === "fixed" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground"
+              }`}
+            >
+              Planes ({fixedCount})
+            </button>
+          </div>
           <Select value={roleFilter} onValueChange={setRoleFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -344,7 +396,8 @@ function MissionsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         {filtered.length === 0 && (
           <div className="col-span-2 rounded-lg border border-dashed border-border p-12 text-center text-muted-foreground">
-            No available missions. {canManage ? <>Click <strong>Generate</strong> to pull new contracts.</> : <>Ask a manager to generate new contracts.</>}
+            No {wing === "fixed" ? "fixed-wing" : "rotary"} contracts available.{" "}
+            {canManage ? <>Click <strong>Generate</strong> to pull new ones.</> : <>Ask a manager to generate new contracts.</>}
           </div>
         )}
         {filtered.map((m: any) => (

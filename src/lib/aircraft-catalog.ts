@@ -1,5 +1,6 @@
 /**
- * The helicopter catalogue.
+ * The aircraft catalogue: helicopters, and since the company outgrew them,
+ * fixed-wing too.
  *
  * Name, price, payload, range, cruise and seats come from the sim's own
  * aircraft list, so the market matches what you can actually fly. Everything
@@ -13,7 +14,7 @@
  * performance data.
  */
 
-import type { AircraftArchetype, AircraftTag } from "./game-data";
+import type { AircraftArchetype, AircraftTag, WingType } from "./game-data";
 
 type Engine = "piston" | "turbine" | "twin_turbine";
 
@@ -31,6 +32,10 @@ type CatalogEntry = {
   engine: Engine;
   sling?: boolean;
   hoist?: boolean;
+  /** Rotary unless stated -- the catalogue was helicopters only to begin with. */
+  wing?: WingType;
+  /** Shortest strip it will operate from, in feet. Fixed-wing only. */
+  runwayFt?: number;
   tags: AircraftTag[];
 };
 
@@ -101,6 +106,46 @@ const CATALOG: CatalogEntry[] = [
   { id: "V22", name: "Bell Boeing V-22 Osprey", simTitle: "Bell Boeing V-22 Osprey", price: 10884600, payload: 20000, rangeNm: 2230, cruiseKts: 275, seats: 32, engine: "twin_turbine", sling: true, hoist: true, tags: ["heavy_lift", "offshore", "sar"] },
 ];
 
+/**
+ * The fixed-wing catalogue.
+ *
+ * Same derived-economics treatment as the helicopters, plus a shortest-strip
+ * figure -- the one number that actually decides whether a contract into a
+ * 1,800 ft bush strip is flyable in a King Air.
+ *
+ * Titles are the stock MSFS 2024 aircraft, so the market matches what you can
+ * load without buying anything.
+ */
+const FIXED_WING: CatalogEntry[] = [
+  // --- Piston trainers and tourers ----------------------------------------
+  { id: "C152", name: "Cessna 152", simTitle: "Cessna 152", price: 89000, payload: 520, rangeNm: 415, cruiseKts: 107, seats: 2, engine: "piston", wing: "fixed", runwayFt: 1400, tags: ["trainer"] },
+  { id: "C172", name: "Cessna 172 Skyhawk", simTitle: "Cessna Skyhawk", price: 145000, payload: 878, rangeNm: 640, cruiseKts: 122, seats: 4, engine: "piston", wing: "fixed", runwayFt: 1600, tags: ["trainer", "light_utility"] },
+  { id: "DA40", name: "Diamond DA40 NG", simTitle: "Diamond DA40", price: 320000, payload: 838, rangeNm: 940, cruiseKts: 154, seats: 4, engine: "piston", wing: "fixed", runwayFt: 1500, tags: ["trainer", "light_utility"] },
+  { id: "SR22", name: "Cirrus SR22", simTitle: "Cirrus SR22", price: 560000, payload: 1075, rangeNm: 1050, cruiseKts: 183, seats: 4, engine: "piston", wing: "fixed", runwayFt: 1900, tags: ["light_utility", "vip"] },
+  { id: "G36", name: "Beechcraft Bonanza G36", simTitle: "Bonanza G36", price: 620000, payload: 1050, rangeNm: 920, cruiseKts: 176, seats: 6, engine: "piston", wing: "fixed", runwayFt: 2000, tags: ["light_utility", "vip"] },
+
+  // --- Bush and short field ------------------------------------------------
+  { id: "XCUB", name: "CubCrafters XCub", simTitle: "CubCrafters XCub", price: 385000, payload: 780, rangeNm: 800, cruiseKts: 130, seats: 2, engine: "piston", wing: "fixed", runwayFt: 500, tags: ["bush", "light_utility"] },
+  { id: "SAVAGE", name: "Zlin Savage Cub", simTitle: "Savage Cub", price: 118000, payload: 470, rangeNm: 380, cruiseKts: 92, seats: 2, engine: "piston", wing: "fixed", runwayFt: 400, tags: ["bush", "trainer"] },
+  { id: "DHC2", name: "De Havilland DHC-2 Beaver", simTitle: "DHC-2 Beaver", price: 690000, payload: 2100, rangeNm: 455, cruiseKts: 125, seats: 7, engine: "piston", wing: "fixed", runwayFt: 1200, tags: ["bush", "cargo", "light_utility"] },
+  { id: "KODIAK", name: "Daher Kodiak 100", simTitle: "Kodiak 100", price: 2450000, payload: 3535, rangeNm: 1130, cruiseKts: 174, seats: 10, engine: "turbine", wing: "fixed", runwayFt: 1400, tags: ["bush", "cargo", "medium_utility"] },
+
+  // --- Twins and turboprops ------------------------------------------------
+  { id: "BE58", name: "Beechcraft Baron G58", simTitle: "Baron G58", price: 1450000, payload: 1750, rangeNm: 1480, cruiseKts: 200, seats: 6, engine: "piston", wing: "fixed", runwayFt: 2300, tags: ["light_utility", "vip", "patrol"] },
+  { id: "DA62", name: "Diamond DA62", simTitle: "Diamond DA62", price: 1350000, payload: 1477, rangeNm: 1280, cruiseKts: 192, seats: 7, engine: "piston", wing: "fixed", runwayFt: 2100, tags: ["light_utility", "survey", "patrol"] },
+  { id: "C208", name: "Cessna 208B Grand Caravan EX", simTitle: "Cessna 208B Grand Caravan EX", price: 2650000, payload: 4200, rangeNm: 960, cruiseKts: 186, seats: 13, engine: "turbine", wing: "fixed", runwayFt: 1800, tags: ["cargo", "bush", "medium_utility"] },
+  { id: "TBM930", name: "Daher TBM 930", simTitle: "TBM 930", price: 4100000, payload: 1980, rangeNm: 1730, cruiseKts: 252, seats: 6, engine: "turbine", wing: "fixed", runwayFt: 2400, tags: ["vip", "medevac"] },
+  { id: "B350", name: "Beechcraft King Air 350i", simTitle: "King Air 350i", price: 7900000, payload: 5150, rangeNm: 1800, cruiseKts: 312, seats: 11, engine: "twin_turbine", wing: "fixed", runwayFt: 3300, tags: ["vip", "medevac", "cargo", "survey"] },
+
+  // --- Jets ----------------------------------------------------------------
+  { id: "SF50", name: "Cirrus Vision Jet SF50", simTitle: "Vision Jet SF50", price: 3400000, payload: 1450, rangeNm: 1275, cruiseKts: 300, seats: 7, engine: "turbine", wing: "fixed", runwayFt: 2900, tags: ["vip"] },
+  { id: "CJ4", name: "Cessna Citation CJ4", simTitle: "Citation CJ4", price: 10800000, payload: 2900, rangeNm: 2165, cruiseKts: 451, seats: 10, engine: "twin_turbine", wing: "fixed", runwayFt: 3300, tags: ["vip", "medevac"] },
+  { id: "LONGITUDE", name: "Cessna Citation Longitude", simTitle: "Citation Longitude", price: 28500000, payload: 3500, rangeNm: 3500, cruiseKts: 483, seats: 12, engine: "twin_turbine", wing: "fixed", runwayFt: 4800, tags: ["vip", "airline"] },
+
+  // --- Regional ------------------------------------------------------------
+  { id: "ATR72", name: "ATR 72-600", simTitle: "ATR 72-600", price: 21500000, payload: 16500, rangeNm: 825, cruiseKts: 275, seats: 72, engine: "twin_turbine", wing: "fixed", runwayFt: 4300, tags: ["airline", "cargo"] },
+];
+
 // ---------------------------------------------------------------------------
 // Derived economics
 // ---------------------------------------------------------------------------
@@ -149,8 +194,9 @@ function category(e: CatalogEntry): string {
 }
 
 /** The catalogue, expanded into the shape the rest of the app expects. */
-export const CATALOG_ARCHETYPES: AircraftArchetype[] = CATALOG.map((e) => ({
+export const CATALOG_ARCHETYPES: AircraftArchetype[] = [...CATALOG, ...FIXED_WING].map((e) => ({
   internal_id: e.id,
+  wing: e.wing ?? "rotary",
   display_name: e.name,
   sim_title: e.simTitle,
   category: category(e),

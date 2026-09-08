@@ -1,5 +1,15 @@
 // Helicopter archetypes for seeding & mission catalog.
 import { CATALOG_ARCHETYPES as CATALOG_ARCHETYPES_IMPL } from "./aircraft-catalog";
+/**
+ * Fixed-wing or rotary.
+ *
+ * The whole app was helicopters, so this defaults to rotary everywhere and
+ * nothing that already existed has to change. It matters because the two fly
+ * completely different work: a plane cannot hover over a cliff, and a
+ * helicopter does not want a 3000 ft strip.
+ */
+export type WingType = "rotary" | "fixed";
+
 export type AircraftTag =
   | "trainer"
   | "light_utility"
@@ -11,7 +21,11 @@ export type AircraftTag =
   | "patrol"
   | "vip"
   | "firefighting"
-  | "survey";
+  | "survey"
+  // Fixed-wing work.
+  | "cargo"
+  | "bush"
+  | "airline";
 
 export const ALL_TAGS: AircraftTag[] = [
   "trainer",
@@ -25,6 +39,9 @@ export const ALL_TAGS: AircraftTag[] = [
   "vip",
   "firefighting",
   "survey",
+  "cargo",
+  "bush",
+  "airline",
 ];
 
 export const TAG_LABELS: Record<AircraftTag, string> = {
@@ -39,6 +56,9 @@ export const TAG_LABELS: Record<AircraftTag, string> = {
   vip: "VIP",
   firefighting: "Firefighting",
   survey: "Survey",
+  cargo: "Freight",
+  bush: "Bush / Short Field",
+  airline: "Regional Airline",
 };
 
 export const ALL_CERTS = [
@@ -77,6 +97,8 @@ export const CERT_UNLOCKS: Record<string, { cost: number; minRep: number }> = {
 
 export type AircraftArchetype = {
   internal_id: string;
+  /** Rotary unless stated. Decides which half of the mission board applies. */
+  wing?: WingType;
   display_name: string;
   sim_title: string;
   category: string;

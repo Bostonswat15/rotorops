@@ -20,10 +20,23 @@ function reachableOrigin(): string | null {
   return ok ? origin : null;
 }
 
-// Where a password-recovery email actually sends people: a small hosted page
-// that completes the reset, since the app itself runs on that same dead
-// loopback origin and can't be the destination of an emailed link.
-const PASSWORD_RESET_URL = "https://claude.ai/code/artifact/b98d0dd3-7445-4864-9006-f56de222f3d7";
+/**
+ * Where a recovery email sends people: straight back into this app.
+ *
+ * The desktop build serves itself on a fixed loopback port, so the app is its
+ * own landing page -- nothing to host, and the page that completes the reset
+ * is ordinary app code that can actually reach Supabase. window.location
+ * .origin is used rather than a hardcoded port because the app falls back
+ * through 47821-47825 depending on what is free; whichever one it actually
+ * bound to is the one already in the address bar here.
+ *
+ * The honest limitation: the link only works on the machine running RotorOps,
+ * with the app open. Opened on a phone it simply will not connect. Hosting a
+ * real page is what fixes that, and is the upgrade path if it ever matters.
+ */
+function passwordResetUrl(): string {
+  return `${window.location.origin.replace(/\/+$/, "")}/reset-password`;
+}
 
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign in — RotorOps Manager" }] }),
@@ -54,14 +67,13 @@ function AuthPage() {
     navigate({ to: "/dashboard", replace: true });
   }
 
-  // The link always sends people to a small hosted page rather than back
-  // into the app -- the desktop app runs on 127.0.0.1, which is dead the
-  // moment the email is opened anywhere but this exact machine right now.
+  // Sends people back into this app at /reset-password -- see
+  // passwordResetUrl above for why the app is its own landing page.
   async function forgotPassword() {
     if (!email) return toast.error("Enter your email above first, then click this again.");
     setResetting(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: PASSWORD_RESET_URL,
+      redirectTo: passwordResetUrl(),
     });
     setResetting(false);
     if (error) return toast.error(error.message);

@@ -8,6 +8,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Helicopter } from "lucide-react";
 
+// Supabase must never be handed a loopback address to put in an email link.
+// The desktop app serves itself from 127.0.0.1 on a private port, so
+// window.location.origin there is the *sender's own machine* -- dead on
+// every other device, dead on a phone even for the person who asked.
+function reachableOrigin(): string | null {
+  const origin = window.location.origin;
+  const ok =
+    /^https?:\/\//.test(origin) &&
+    !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(origin);
+  return ok ? origin : null;
+}
+
+// Where a password-recovery email actually sends people: a small hosted page
+// that completes the reset, since the app itself runs on that same dead
+// loopback origin and can't be the destination of an emailed link.
+const PASSWORD_RESET_URL = "https://claude.ai/code/artifact/b98d0dd3-7445-4864-9006-f56de222f3d7";
+
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Sign in — RotorOps Manager" }] }),
   component: AuthPage,
@@ -26,6 +43,8 @@ function AuthPage() {
     });
   }, [navigate]);
 
+  const [resetting, setResetting] = useState(false);
+
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -35,23 +54,29 @@ function AuthPage() {
     navigate({ to: "/dashboard", replace: true });
   }
 
+  // The link always sends people to a small hosted page rather than back
+  // into the app -- the desktop app runs on 127.0.0.1, which is dead the
+  // moment the email is opened anywhere but this exact machine right now.
+  async function forgotPassword() {
+    if (!email) return toast.error("Enter your email above first, then click this again.");
+    setResetting(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: PASSWORD_RESET_URL,
+    });
+    setResetting(false);
+    if (error) return toast.error(error.message);
+    toast.success("If that email has an account, a reset link is on its way.", { duration: 8000 });
+  }
+
   async function signUp(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    // Never hand Supabase a loopback address to put in an email. The desktop
-    // app serves itself from 127.0.0.1 on a private port, so window.location
-    // .origin is the *sender's own machine* -- a link that is dead everywhere
-    // else, and dead on a phone even for the person who requested it.
-    const origin = window.location.origin;
-    const reachable =
-      /^https?:\/\//.test(origin) &&
-      !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|$)/.test(origin);
-
+    const origin = reachableOrigin();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        ...(reachable ? { emailRedirectTo: origin } : {}),
+        ...(origin ? { emailRedirectTo: origin } : {}),
         data: { display_name: displayName || email.split("@")[0] },
       },
     });
@@ -91,7 +116,17 @@ function AuthPage() {
                   <Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
                 </div>
                 <div>
-                  <Label>Password</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Password</Label>
+                    <button
+                      type="button"
+                      onClick={forgotPassword}
+                      disabled={resetting}
+                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+                    >
+                      {resetting ? "Sending…" : "Forgot password?"}
+                    </button>
+                  </div>
                   <Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
                 </div>
                 <Button type="submit" className="w-full" disabled={loading}>

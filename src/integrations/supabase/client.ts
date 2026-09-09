@@ -51,6 +51,14 @@ function createSupabaseClient() {
       storage: typeof window !== 'undefined' ? localStorage : undefined,
       persistSession: true,
       autoRefreshToken: true,
+      // PKCE (the v2 default) stores a code verifier in *this* client's own
+      // storage and expects the same browser to finish the flow. A password
+      // reset email is opened in a completely different browser -- the
+      // verifier is never there, the link silently fails to produce a
+      // session, and the recovery page just times out looking "expired."
+      // Implicit flow puts everything the link needs into the link itself,
+      // so any browser on any device can complete it.
+      flowType: 'implicit',
     }
   });
 }

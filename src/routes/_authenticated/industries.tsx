@@ -14,6 +14,7 @@ import { Factory, TrendingUp, TrendingDown, Coins, Compass, Hammer, Crosshair } 
 import { useCompanyRole } from "@/hooks/use-company";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 import { findIndustrySites } from "@/lib/osm";
+import { LocationPicker } from "@/components/location-picker";
 import {
   siteIndustries, INDUSTRY_DEFS, CHAIN_LABEL, buyPrice, sellPrice,
   type IndustryKind,
@@ -253,6 +254,26 @@ function IndustriesPage() {
               {building ? "Building…" : "Build here"}
             </Button>
           </div>
+
+          <p className="mb-1.5 mt-4 text-xs text-muted-foreground">
+            Or click the map to place it — the boxes above update to match.
+          </p>
+          <LocationPicker
+            className="h-56 w-full rounded-lg border border-border"
+            value={
+              Number.isFinite(Number(buildLat)) && Number.isFinite(Number(buildLon)) && buildLat !== "" && buildLon !== ""
+                ? { lat: Number(buildLat), lon: Number(buildLon) }
+                : null
+            }
+            onChange={(lat, lon) => { setBuildLat(String(lat)); setBuildLon(String(lon)); }}
+            center={base ? { lat: Number(base.latitude), lon: Number(base.longitude) } : null}
+            markers={list
+              .filter((s: any) => s.latitude != null && s.longitude != null)
+              .map((s: any) => ({
+                lat: Number(s.latitude), lon: Number(s.longitude),
+                label: s.name ?? INDUSTRY_DEFS[s.kind as IndustryKind]?.label,
+              }))}
+          />
         </div>
       )}
 

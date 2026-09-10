@@ -303,7 +303,11 @@ export function FlightMap({
       `}</style>
     <div
       ref={holder}
-      className={className ?? "h-80 w-full rounded-lg border border-border"}
+      // isolate keeps Leaflet's internal z-index values (200-1000+, for
+      // tiles, markers, its zoom control) from ever painting over a dropdown
+      // or dialog elsewhere on the page -- see location-picker.tsx for the
+      // report that traced this down.
+      className={`isolate ${className ?? "h-80 w-full rounded-lg border border-border"}`}
       // Leaflet paints its own background; without this the panel flashes white
       // in dark mode before the first tiles arrive.
       style={{ background: "#0b1220" }}

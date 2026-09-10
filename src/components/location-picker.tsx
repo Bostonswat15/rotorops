@@ -102,9 +102,14 @@ export function LocationPicker({ value, onChange, center, markers = [], classNam
   }, [value?.lat, value?.lon]);
 
   return (
+    // isolate traps Leaflet's internal panes (z-index 200-1000+, for tiles,
+    // markers, its zoom control) inside their own stacking context, so none
+    // of them can ever paint over a dropdown or dialog elsewhere on the page
+    // regardless of Leaflet's own numbers -- without it, a Select menu at the
+    // usual z-50 loses to Leaflet every time.
     <div
       ref={holder}
-      className={className ?? "h-56 w-full rounded-lg border border-border"}
+      className={`isolate ${className ?? "h-56 w-full rounded-lg border border-border"}`}
       style={{ background: "#0b1220" }}
     />
   );

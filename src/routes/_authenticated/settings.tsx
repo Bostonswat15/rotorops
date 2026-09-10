@@ -9,10 +9,11 @@ import { Input } from "@/components/ui/input";
 import { CERT_LABELS, CERT_UNLOCKS, ALL_CERTS } from "@/lib/game-data";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { Radio, Trash2, MapPin, GraduationCap } from "lucide-react";
+import { Radio, Trash2, MapPin, GraduationCap, Crosshair } from "lucide-react";
 import { useCompanyRole } from "@/hooks/use-company";
 import { desktop, type BridgeStatus } from "@/lib/desktop";
 import { generateCheckride } from "@/lib/checkrides";
+import { useLiveFlight } from "@/hooks/use-live-flight";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — RotorOps" }] }),
@@ -182,7 +183,10 @@ function HomeBase({ canManage }: { canManage: boolean }) {
   const qc = useQueryClient();
   const [icao, setIcao] = useState("");
   const [name, setName] = useState("");
+  const [lat, setLat] = useState("");
+  const [lon, setLon] = useState("");
   const [busy, setBusy] = useState(false);
+  const { flight } = useLiveFlight();
 
   const { data: bases } = useQuery({
     queryKey: ["bases"],
@@ -196,29 +200,48 @@ function HomeBase({ canManage }: { canManage: boolean }) {
     if (base) {
       setIcao(base.icao ?? "");
       setName(base.name ?? "");
+      setLat(base.latitude != null ? String(base.latitude) : "");
+      setLon(base.longitude != null ? String(base.longitude) : "");
     }
-  }, [base?.id, base?.icao, base?.name]);
+  }, [base?.id, base?.icao, base?.name, base?.latitude, base?.longitude]);
 
   async function save() {
     if (!base) return;
     const nextIcao = icao.trim().toUpperCase();
+    const latNum = lat.trim() === "" ? null : Number(lat);
+    const lonNum = lon.trim() === "" ? null : Number(lon);
+    if (lat.trim() !== "" && (!Number.isFinite(latNum) || latNum! < -90 || latNum! > 90)) {
+      return toast.error("Latitude must be between -90 and 90.");
+    }
+    if (lon.trim() !== "" && (!Number.isFinite(lonNum) || lonNum! < -180 || lonNum! > 180)) {
+      return toast.error("Longitude must be between -180 and 180.");
+    }
     setBusy(true);
-    // A different field means the stored coordinates are no longer this base.
+    // A different field means the stored coordinates are no longer this base --
+    // unless coordinates were typed in or pulled from the aircraft right here,
+    // in which case those take precedence over the auto-clear.
     const movingField = nextIcao !== (base.icao ?? "").toUpperCase();
+    const manualPosition = lat.trim() !== "" && lon.trim() !== "";
     const { error } = await supabase
       .from("bases")
       .update({
         icao: nextIcao || null,
         name: name.trim() || base.name,
-        ...(movingField ? { latitude: null, longitude: null } : {}),
+        ...(manualPosition
+          ? { latitude: latNum, longitude: lonNum }
+          : movingField
+            ? { latitude: null, longitude: null }
+            : {}),
       })
       .eq("id", base.id);
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(
-      movingField
-        ? `Base moved to ${nextIcao}. Run the sim bridge to locate it, then generate fresh contracts.`
-        : "Base updated.",
+      manualPosition
+        ? "Base updated."
+        : movingField
+          ? `Base moved to ${nextIcao}. Run the sim bridge to locate it, then generate fresh contracts.`
+          : "Base updated.",
     );
     qc.invalidateQueries();
   }
@@ -260,17 +283,49 @@ function HomeBase({ canManage }: { canManage: boolean }) {
         </div>
       </div>
 
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="base-lat">Latitude</Label>
+          <Input
+            id="base-lat" type="number" step="any" disabled={!canManage}
+            value={lat} onChange={(e) => setLat(e.target.value)} placeholder="auto from sim bridge"
+            className="font-mono"
+          />
+        </div>
+        <div>
+          <Label htmlFor="base-lon">Longitude</Label>
+          <Input
+            id="base-lon" type="number" step="any" disabled={!canManage}
+            value={lon} onChange={(e) => setLon(e.target.value)} placeholder="auto from sim bridge"
+            className="font-mono"
+          />
+        </div>
+      </div>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Usually filled in automatically the first time the sim bridge sees this ICAO nearby --
+        useful as a manual fallback for a small or private field SimConnect never reports on its
+        own. Clear both boxes and save to hand resolution back to the bridge.
+      </p>
+
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <Button size="sm" onClick={save} disabled={!canManage || busy}>
           {busy ? "Saving…" : "Save base"}
         </Button>
+        {canManage && flight && (
+          <Button
+            type="button" size="sm" variant="secondary"
+            onClick={() => { setLat(flight.lat.toFixed(5)); setLon(flight.lon.toFixed(5)); }}
+          >
+            <Crosshair className="mr-1.5 h-3.5 w-3.5" /> Use aircraft position
+          </Button>
+        )}
         {located ? (
           <span className="font-mono text-xs text-success">
             located at {Number(base.latitude).toFixed(4)}, {Number(base.longitude).toFixed(4)}
           </span>
         ) : (
           <span className="text-xs text-warning">
-            Position unknown — run the sim bridge once to locate it.
+            Position unknown — run the sim bridge once to locate it, or set it manually above.
           </span>
         )}
       </div>

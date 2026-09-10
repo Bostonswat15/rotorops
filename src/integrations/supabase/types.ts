@@ -292,6 +292,38 @@ export type Database = {
           },
         ]
       }
+      pilot_skills: {
+        Row: {
+          company_id: string
+          user_id: string
+          xp: number
+          unlocked_perks: string[]
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          user_id: string
+          xp?: number
+          unlocked_perks?: string[]
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          user_id?: string
+          xp?: number
+          unlocked_perks?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pilot_skills_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       industry_defs: {
         Row: {
           kind: string
@@ -784,6 +816,10 @@ export type Database = {
     }
     Functions: {
       owns_company: { Args: { _company_id: string }; Returns: boolean }
+      unlock_pilot_perk: {
+        Args: { _company_id: string; _perk: string }
+        Returns: Database["public"]["Tables"]["pilot_skills"]["Row"]
+      }
       dispatch_mission: {
         Args: { _mission_id: string; _aircraft_id: string }
         Returns: Database["public"]["Tables"]["missions"]["Row"]

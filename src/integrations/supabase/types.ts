@@ -201,6 +201,7 @@ export type Database = {
           stock: number
           capacity: number
           base_rate: number
+          workers: number
           last_tick_at: string
           created_at: string
         }
@@ -217,6 +218,7 @@ export type Database = {
           stock?: number
           capacity: number
           base_rate: number
+          workers?: number
           last_tick_at?: string
           created_at?: string
         }
@@ -233,6 +235,7 @@ export type Database = {
           stock?: number
           capacity?: number
           base_rate?: number
+          workers?: number
           last_tick_at?: string
           created_at?: string
         }
@@ -337,6 +340,8 @@ export type Database = {
           good_unit_lb: number
           good_base_value: number
           build_cost: number
+          max_workers: number
+          wage_per_hour: number
         }
         Insert: {
           kind: string
@@ -350,6 +355,8 @@ export type Database = {
           good_unit_lb: number
           good_base_value: number
           build_cost?: number
+          max_workers?: number
+          wage_per_hour?: number
         }
         Update: {
           kind?: string
@@ -363,6 +370,8 @@ export type Database = {
           good_unit_lb?: number
           good_base_value?: number
           build_cost?: number
+          max_workers?: number
+          wage_per_hour?: number
         }
         Relationships: []
       }
@@ -819,6 +828,10 @@ export type Database = {
       unlock_pilot_perk: {
         Args: { _company_id: string; _perk: string }
         Returns: Database["public"]["Tables"]["pilot_skills"]["Row"]
+      }
+      set_industry_workers: {
+        Args: { _industry_id: string; _workers: number }
+        Returns: Database["public"]["Tables"]["industries"]["Row"]
       }
       dispatch_mission: {
         Args: { _mission_id: string; _aircraft_id: string }

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Factory, TrendingUp, TrendingDown, Coins, Compass, Hammer, Crosshair } from "lucide-react";
+import { Factory, TrendingUp, TrendingDown, Coins, Compass, Hammer, Crosshair, Users, Minus, Plus } from "lucide-react";
 import { useCompanyRole } from "@/hooks/use-company";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 import { findIndustrySites } from "@/lib/osm";
@@ -37,6 +37,7 @@ function IndustriesPage() {
   const [tradeQty, setTradeQty] = useState<Record<string, string>>({});
   const [tradeDest, setTradeDest] = useState<Record<string, string>>({});
   const [busyTrade, setBusyTrade] = useState<string | null>(null);
+  const [busyStaff, setBusyStaff] = useState<string | null>(null);
 
   // Build-a-camp: place a new site anywhere, not just where OSM found one.
   const [buildKind, setBuildKind] = useState<IndustryKind | "">("");
@@ -108,6 +109,17 @@ function IndustriesPage() {
     qc.invalidateQueries({ queryKey: ["industries"] });
     qc.invalidateQueries({ queryKey: ["industry-investments"] });
     qc.invalidateQueries({ queryKey: ["company"] });
+  }
+
+  async function setWorkers(industryId: string, next: number) {
+    setBusyStaff(industryId);
+    const { error } = await supabase.rpc("set_industry_workers", {
+      _industry_id: industryId,
+      _workers: next,
+    });
+    setBusyStaff(null);
+    if (error) return toast.error(error.message);
+    qc.invalidateQueries({ queryKey: ["industries"] });
   }
 
   async function dispatchTrade(fromId: string) {
@@ -345,6 +357,40 @@ function IndustriesPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {Math.round(Number(ind.stock)).toLocaleString()} / {Math.round(Number(ind.capacity)).toLocaleString()} units on hand
                     </p>
+
+                    <div className="mt-3 flex items-center justify-between rounded border border-border bg-background px-2.5 py-1.5">
+                      <span className="flex items-center gap-1.5 text-xs">
+                        <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                        {ind.workers === 0 ? (
+                          <span className="text-warning">Unstaffed — producing nothing</span>
+                        ) : (
+                          <span>
+                            {ind.workers} / {def.max_workers} workers
+                            <span className="ml-1.5 text-muted-foreground">
+                              ({money(ind.workers * def.wage_per_hour)}/hr)
+                            </span>
+                          </span>
+                        )}
+                      </span>
+                      {canManage && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button" size="icon" variant="secondary" className="h-6 w-6"
+                            disabled={busyStaff === ind.id || ind.workers <= 0}
+                            onClick={() => setWorkers(ind.id, ind.workers - 1)}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            type="button" size="icon" variant="secondary" className="h-6 w-6"
+                            disabled={busyStaff === ind.id || ind.workers >= def.max_workers}
+                            onClick={() => setWorkers(ind.id, ind.workers + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
 
                     {canManage && (
                       <div className="mt-4 space-y-3 border-t border-border pt-3">

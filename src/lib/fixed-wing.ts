@@ -175,8 +175,12 @@ const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.lengt
  * few so a batch of contracts doesn't all route to the same airport. Returns
  * null when the base has no airport data at all, which is the caller's cue to
  * skip fixed-wing work entirely rather than invent a field.
+ *
+ * Exported for charter.ts -- rotary charter contracts want exactly this same
+ * "a real field at roughly the distance asked for" logic, not a second copy
+ * of it that drifts over time.
  */
-function pickDestination(
+export function pickDestination(
   base: { lat: number; lon: number; icao: string | null },
   airports: Airport[] | undefined,
   legNm: number,

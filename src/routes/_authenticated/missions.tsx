@@ -29,6 +29,7 @@ import { findAerodromes, findSites, findIndustrySites } from "@/lib/osm";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission,
 } from "@/lib/fixed-wing";
+import { CHARTER_TEMPLATES, generateCharterMission } from "@/lib/charter";
 import {
   siteIndustries, generateIndustryHaul, INDUSTRY_DEFS,
   type IndustryRow,
@@ -196,6 +197,19 @@ function MissionsPage() {
           const t = fwPool[Math.floor(Math.random() * fwPool.length)];
           const fw = generateFixedWingMission(t, company.reputation, site);
           if (fw) rows.push({ company_id: company.id, ...fw });
+        }
+      }
+
+      // Rotary charter work: plain cargo/passenger runs to a real nearby
+      // field, no scene involved. Same real-airport pool as fixed-wing above.
+      const charterPool = CHARTER_TEMPLATES.filter((t) =>
+        companyHasCerts(company.certifications, t.required_certs),
+      );
+      if (charterPool.length > 0 && airports.length > 0) {
+        for (let i = 0; i < 3; i++) {
+          const t = charterPool[Math.floor(Math.random() * charterPool.length)];
+          const ch = generateCharterMission(t, company.reputation, site);
+          if (ch) rows.push({ company_id: company.id, ...ch });
         }
       }
 

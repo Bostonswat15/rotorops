@@ -17,7 +17,19 @@ function MaintPage() {
   const { canManage } = useCompanyRole();
   const { data: aircraft } = useQuery({
     queryKey: ["aircraft"],
-    queryFn: async () => (await supabase.from("aircraft").select("*").order("wear", { ascending: false })).data ?? [],
+    queryFn: async () =>
+      (
+        await supabase
+          .from("aircraft")
+          .select("*")
+          // Selling/returning/losing an aircraft never deletes its row -- it
+          // just flips status -- so without this a sold or destroyed airframe
+          // sat here forever, still offering Inspection/Overhaul buttons for
+          // a helicopter the company no longer owns. Matches the same filter
+          // the Aircraft (fleet) page already applies.
+          .not("status", "in", "(sold,returned,destroyed)")
+          .order("wear", { ascending: false })
+      ).data ?? [],
   });
   const { data: events } = useQuery({
     queryKey: ["maint"],

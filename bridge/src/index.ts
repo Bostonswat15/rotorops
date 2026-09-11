@@ -117,6 +117,10 @@ async function cmdProbe(filter?: string) {
       console.log(`\n--- SimObjects available for scene dressing ---`);
       console.log(`  boats:  ${cat.boats}`);
       console.log(`  ground: ${cat.ground}`);
+      console.log(`
+--- flyable aircraft in this install ---`);
+      console.log(`  helicopters: ${cat.helicopters}`);
+      console.log(`  aeroplanes:  ${cat.planes}`);
 
       if (!cat.boats && !cat.ground) {
         console.log('  none reported -- scene objects will not appear');
@@ -125,16 +129,26 @@ async function cmdProbe(filter?: string) {
         // is exactly what is needed to choose props deliberately instead of
         // guessing one keyword at a time.
         const every = director.sampleTitles(1e9);
+        const fly = director.flyable;
         const out = 'simobjects.txt';
         writeFileSync(
           out,
-          `# SimObjects reported by this install\n\n## BOAT (${every.boats.length})\n` +
+          `# SimObjects reported by this install\n\n## HELICOPTER (${fly.helicopters.length})\n` +
+            fly.helicopters.join('\n') +
+            `\n\n## AIRCRAFT (${fly.planes.length})\n` +
+            fly.planes.join('\n') +
+            `\n\n## BOAT (${every.boats.length})\n` +
             every.boats.join('\n') +
             `\n\n## GROUND (${every.ground.length})\n` +
             every.ground.join('\n') +
             '\n',
         );
-        console.log(`\n  Wrote ${every.boats.length + every.ground.length} title(s) to ${out}`);
+        const total =
+          every.boats.length + every.ground.length + fly.helicopters.length + fly.planes.length;
+        console.log(`\n  Wrote ${total} title(s) to ${out}`);
+        console.log(
+          `  ${fly.helicopters.length} flyable helicopters, ${fly.planes.length} aeroplanes.`,
+        );
       } else if (filter) {
         // With well over a thousand titles, listing them all is useless --
         // searching for the kind of prop you need is what's actually wanted.

@@ -20,6 +20,8 @@ const { SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPo
 
 const REQ_ENUM_BOAT = 900;
 const REQ_ENUM_GROUND = 901;
+const REQ_ENUM_HELI = 902;
+const REQ_ENUM_PLANE = 903;
 const REQ_SPAWN = 910;
 const REQ_REMOVE = 911;
 const REQ_RELEASE = 912;
@@ -406,6 +408,17 @@ export class SceneDirector {
   private log: (m: string) => void;
   private boats: string[] = [];
   private ground: string[] = [];
+  /**
+   * Flyable aircraft this install actually has.
+   *
+   * Not used for staging -- you cannot spawn the user's own aircraft as
+   * scenery -- but the catalogue has no other honest source for which
+   * variants and liveries exist. MSFS gives every livery its own title
+   * ("H125 C-GJPC", "H125 Cargo"), so a catalogue written from memory
+   * will name aircraft nobody can fly and miss the ones they can.
+   */
+  private helicopters: string[] = [];
+  private planes: string[] = [];
   private spawned: number[] = [];
   private payloadReady = false;
   private freezeReady = false;
@@ -432,6 +445,8 @@ export class SceneDirector {
     try {
       this.handle.enumerateSimObjectsAndLiveries(REQ_ENUM_BOAT, SimObjectType.BOAT);
       this.handle.enumerateSimObjectsAndLiveries(REQ_ENUM_GROUND, SimObjectType.GROUND);
+      this.handle.enumerateSimObjectsAndLiveries(REQ_ENUM_HELI, SimObjectType.HELICOPTER);
+      this.handle.enumerateSimObjectsAndLiveries(REQ_ENUM_PLANE, SimObjectType.AIRCRAFT);
     } catch (e) {
       this.log(`could not enumerate sim objects: ${(e as Error).message}`);
     }
@@ -444,6 +459,10 @@ export class SceneDirector {
         this.boats = [...new Set([...this.boats, ...titles])];
       } else if (recv.requestID === REQ_ENUM_GROUND) {
         this.ground = [...new Set([...this.ground, ...titles])];
+      } else if (recv.requestID === REQ_ENUM_HELI) {
+        this.helicopters = [...new Set([...this.helicopters, ...titles])];
+      } else if (recv.requestID === REQ_ENUM_PLANE) {
+        this.planes = [...new Set([...this.planes, ...titles])];
       }
     });
 
@@ -503,7 +522,17 @@ export class SceneDirector {
   }
 
   get catalogue() {
-    return { boats: this.boats.length, ground: this.ground.length };
+    return {
+      boats: this.boats.length,
+      ground: this.ground.length,
+      helicopters: this.helicopters.length,
+      planes: this.planes.length,
+    };
+  }
+
+  /** Every flyable title, for checking the aircraft catalogue against reality. */
+  get flyable() {
+    return { helicopters: [...this.helicopters], planes: [...this.planes] };
   }
 
   /**

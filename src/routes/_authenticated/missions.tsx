@@ -85,8 +85,9 @@ function MissionsPage() {
     if (!company) return;
     const base = locatedBase;
 
-    let rows: any[];
+    let rows: any[] = [];
     let droppedForSites = 0;
+    let rotaryNote: string | null = null;
     if (base) {
       // What is actually around this base -- water to ditch a boat in, roads to
       // close, hospitals to deliver to. Without asking, the board offered vessel
@@ -132,19 +133,22 @@ function MissionsPage() {
       }
       const avail = siteAvailability(sites);
 
+      // Certification or siting coming up short for rotary scene work used to
+      // abort the whole batch here -- which meant a company with, say, only
+      // fixed-wing certs (or a base with no water/road for the rotary certs
+      // it does have) got an unrelated error and never even reached the
+      // fixed-wing/charter/industries generation further down. Each category
+      // now stands on its own: a shortfall in one just skips that category
+      // and records why, instead of cancelling everything after it.
       const certified = SCENE_TEMPLATES.filter((t) =>
         companyHasCerts(company.certifications, t.required_certs),
       );
-      if (certified.length === 0) {
-        return toast.error("No contracts match your certifications yet.");
-      }
-
       const pool = certified.filter((t) => sceneIsFlyable(t.scene_type, avail));
       droppedForSites = certified.length - pool.length;
-      if (pool.length === 0) {
-        return toast.error(
-          "Every contract you're certified for needs water or a road, and there's neither near this base.",
-        );
+      if (certified.length === 0) {
+        rotaryNote = "no rotary contracts match your certifications yet";
+      } else if (pool.length === 0) {
+        rotaryNote = "every rotary contract you're certified for needs water or a road, and there's neither near this base";
       }
 
       // Airfields come from two places: the sim's facility cache (reported by
@@ -181,10 +185,14 @@ function MissionsPage() {
         sites,
       };
 
-      rows = Array.from({ length: 6 }, () => {
-        const t = pool[Math.floor(Math.random() * pool.length)];
-        return { company_id: company.id, ...generateSceneMission(t, company.reputation, site) };
-      });
+      if (pool.length > 0) {
+        rows.push(
+          ...Array.from({ length: 6 }, () => {
+            const t = pool[Math.floor(Math.random() * pool.length)];
+            return { company_id: company.id, ...generateSceneMission(t, company.reputation, site) };
+          }),
+        );
+      }
 
       // Aeroplane work, built from the same real airfields. Skipped silently
       // when the base has no airport data, since a fixed-wing contract is
@@ -215,10 +223,16 @@ function MissionsPage() {
 
       // One contract follows a real transmission line, when OSM knows of one
       // nearby. MSFS draws its powerlines from the same data, so it's a line
-      // you can actually see and follow.
+      // you can actually see and follow. Replaces the last rotary slot when
+      // there is one; otherwise (no rotary work generated this batch) it's
+      // just appended rather than lost.
       try {
         const patrol = await generatePowerlinePatrol(company.reputation, site);
-        if (patrol) rows[5] = { company_id: company.id, ...patrol };
+        if (patrol) {
+          const row = { company_id: company.id, ...patrol };
+          if (rows.length >= 6) rows[5] = row;
+          else rows.push(row);
+        }
       } catch {
         // Overpass unavailable -- the synthetic contract already in the slot stands.
       }
@@ -311,25 +325,45 @@ function MissionsPage() {
       });
     }
 
+    // Every category (rotary scene, rotary charter, fixed-wing, industry
+    // haul) can independently come up empty -- only when all of them do is
+    // this actually a failed Generate.
+    if (rows.length === 0) {
+      return toast.error(
+        base
+          ? `Nothing to generate this time${rotaryNote ? ` — ${rotaryNote}` : ""}. ` +
+            "Fixed-wing and charter work also need airfield data near this base -- fly around a bit and try again."
+          : "Nothing to generate yet.",
+      );
+    }
+
     const { error } = await supabase.from("missions").insert(rows);
     if (error) return toast.error(error.message);
 
     if (!base) {
-      toast.success("Generated 6 contracts. Run the sim bridge once to unlock scene missions.");
+      toast.success(`Generated ${rows.length} contracts. Run the sim bridge once to unlock scene missions.`);
     } else {
       const withField = rows.filter((r) => r.nearest_airport_icao).length;
       const notes: string[] = [];
       if (withField < rows.length) {
-        notes.push(`${withField} of 6 have a nearest field — no airfield data near the rest`);
+        notes.push(`${withField} of ${rows.length} have a nearest field — no airfield data near the rest`);
       }
       if (droppedForSites > 0) {
         notes.push(
-          `${droppedForSites} contract type${droppedForSites === 1 ? "" : "s"} withheld — no suitable water or road near this base`,
+          `${droppedForSites} rotary contract type${droppedForSites === 1 ? "" : "s"} withheld — no suitable water or road near this base`,
         );
       }
+      if (rotaryNote) notes.push(`no rotary scene contracts this batch — ${rotaryNote}`);
       const fw = rows.filter((r) => r.scene_type === "airport").length;
+      const charter = rows.filter((r) => r.scene_type === "charter").length;
+      const rotary = rows.length - fw - charter;
+      const parts = [
+        rotary > 0 ? `${rotary} rotary` : null,
+        charter > 0 ? `${charter} rotary charter` : null,
+        fw > 0 ? `${fw} fixed-wing` : null,
+      ].filter(Boolean);
       toast.success(
-        `Generated ${rows.length - fw} rotary and ${fw} fixed-wing contracts.` +
+        `Generated ${parts.join(", ")} contract${rows.length === 1 ? "" : "s"}.` +
           (notes.length ? ` ${notes.join(". ")}.` : ""),
       );
     }

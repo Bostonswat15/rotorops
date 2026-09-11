@@ -1,132 +1,57 @@
 {
+  "_comment": [
+    "OPTIONAL. Copy to the RotorOps folder under %APPDATA% only if you want",
+    "to pin exact models. The built-in scenes are matched against whatever your",
+    "install reports and are usually better, so start without this file --",
+    "run 'probe' to see what you have, and 'probe dump' to list everything.",
+    "An override REPLACES the built-in scene for that role, so anything you",
+    "leave out here, you lose. Titles this install lacks are ignored with a",
+    "warning; if none survive, the built-in scene is used instead."
+  ],
   "roles": {
     "medevac": {
-      "pool": "ground",
-      "titles": [
-        "EDPro_Person_Laying_down_008",
-        "MMHAmbulance",
-        "Truck Utility Europe Medic Box"
-      ],
-      "count": 3,
-      "spreadNm": 0.02
+      "layers": [
+        { "titles": ["mmh_roadsideAccident"], "count": 1, "spreadNm": 0 },
+        { "titles": ["EDPro_Person_Laying_down_008", "EDPro_Person_Sitting_down_002"], "count": 2, "spreadNm": 0.01 },
+        { "titles": ["EDPro_RescueStretcher_001"], "count": 1, "spreadNm": 0.01 },
+        { "titles": ["MMHAmbulance", "Truck Utility Europe Medic Box"], "count": 2, "spreadNm": 0.03 }
+      ]
+    },
+    "sar": {
+      "layers": [
+        { "titles": ["EDPro_AC_Wreck_001_Fire"], "count": 1, "spreadNm": 0 },
+        { "titles": ["EDPro_Person_Laying_down_003", "EDPro_Person_Sitting_down_005"], "count": 2, "spreadNm": 0.012 },
+        { "titles": ["MMH_SmokeEffect"], "count": 1, "spreadNm": 0.01 },
+        { "titles": ["EDPro_RescueBasket_001"], "count": 1, "spreadNm": 0.01 }
+      ]
     },
     "logistics": {
-      "pool": "ground",
-      "titles": [
-        "MMH_DoublePallet",
-        "MMH_SinglePallet",
-        "mmh_SlingLoads",
-        "Microsoft_Truck_Container"
-      ],
-      "count": 4,
-      "spreadNm": 0.05
+      "layers": [
+        { "titles": ["mmh_SlingLoads", "MMH_DoublePallet", "MMH_SinglePallet"], "count": 3, "spreadNm": 0.04, "freeze": false },
+        { "titles": ["MMHMilitaryTent", "Car Bush Utility"], "count": 2, "spreadNm": 0.05 }
+      ]
     },
-    "construction": {
-      "pool": "ground",
-      "titles": [
-        "mmh_SlingLoads",
-        "MMH_DoublePallet",
-        "Microsoft_Truck_Crane_Small"
-      ],
-      "count": 3,
-      "spreadNm": 0.04
-    },
-    "patrol": {
-      "pool": "ground",
-      "titles": [
-        "Microsoft_Truck_NA_White",
-        "Car Bush Utility"
-      ],
-      "count": 5,
-      "spreadNm": 0.8
+    "industry": {
+      "layers": [
+        { "titles": ["Microsoft_Harvester_Green", "Bulldozer", "Microsoft_Forklift_Medium"], "count": 3, "spreadNm": 0.05 },
+        { "titles": ["Microsoft_Truck_Container", "MMH_DoublePallet"], "count": 2, "spreadNm": 0.03 },
+        { "titles": ["MMHMilitaryTent"], "count": 1, "spreadNm": 0.05 }
+      ]
     },
     "firefighting": {
-      "pool": "ground",
-      "titles": [
-        "MMHFireTruck",
-        "MMH_Fire",
-        "Microsoft_Truck_Fire_Medium_Red",
-        "Car Bush Firefighting"
-      ],
-      "count": 3,
-      "spreadNm": 0.3
+      "layers": [
+        { "titles": ["MMH_Fire", "MMH_SmokeEffect"], "count": 2, "spreadNm": 0.2 },
+        { "titles": ["MMHFireTruck", "Microsoft_Truck_Fire_Medium_Red", "Car Bush Firefighting"], "count": 3, "spreadNm": 0.25 }
+      ]
     }
   },
   "scenes": {
     "vessel": {
       "pool": "boat",
-      "titles": [
-        "Microsoft_Ships_Corpesca1_12_Sink",
-        "Microsoft_Ships_CaribbeanBlue_7_Sink",
-        "Microsoft_Ships_HermannMarwede_8"
-      ],
-      "count": 1,
-      "spreadNm": 0
-    },
-    "riverbank": {
-      "pool": "boat",
-      "titles": [
-        "EDPro_EmergencyRaft_001_dup30"
-      ],
-      "count": 1,
-      "spreadNm": 0
-    },
-    "cliff": {
-      "pool": "ground",
-      "titles": [
-        "mmh_hikerRescue",
-        "EDPro_Person_Sitting_down_002"
-      ],
-      "count": 1,
-      "spreadNm": 0
-    },
-    "ridgeline": {
-      "pool": "ground",
-      "titles": [
-        "mmh_hikerRescue",
-        "EDPro_Person_Sitting_down_002"
-      ],
-      "count": 2,
-      "spreadNm": 0.02
-    },
-    "beach": {
-      "pool": "ground",
-      "titles": [
-        "EDPro_Person_Laying_down_003",
-        "EDPro_EmergencyRaft_001_dup30"
-      ],
-      "count": 2,
-      "spreadNm": 0.02
-    },
-    "forest": {
-      "pool": "ground",
-      "titles": [
-        "EDPro_Person_Laying_down_013",
-        "Car Bush Utility"
-      ],
-      "count": 2,
-      "spreadNm": 0.03
-    },
-    "highway": {
-      "pool": "ground",
-      "titles": [
-        "Car NorthAm 02",
-        "MMHAmbulance",
-        "EDPro_Person_Laying_down_008",
-        "SUV NorthAm 02"
-      ],
-      "count": 4,
-      "spreadNm": 0.02
-    },
-    "oil_rig": {
-      "pool": "boat",
-      "titles": [
-        "PlatformSupply",
-        "Microsoft_Ships_PlatformSupplyVessel_5",
-        "Microsoft_Ships_PlatformSupplyVessel_4"
-      ],
-      "count": 1,
-      "spreadNm": 0
+      "layers": [
+        { "pool": "boat", "titles": ["Microsoft_Ships_Corpesca1_12_Sink"], "count": 1, "spreadNm": 0 },
+        { "pool": "boat", "titles": ["EDPro_EmergencyRaft_001_dup30"], "count": 1, "spreadNm": 0.01 }
+      ]
     }
   }
 }

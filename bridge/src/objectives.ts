@@ -216,6 +216,31 @@ export class ObjectiveTracker {
     const onGround = num(s.onGround, 0) === 1;
     const payload = num(s.payload);
 
+    // Inspection sections count in any order.
+    //
+    // Everything else here is a sequence -- you cannot drop a load you have
+    // not picked up -- so the tracker advances one objective at a time. A
+    // line patrol is the exception: its points are six sections of the same
+    // conductor, not six steps. Under strict ordering, missing the first one
+    // (by joining the line partway along, or transiting over it above the
+    // ceiling) left the remaining five unreachable no matter how carefully
+    // they were flown, and the contract read as broken rather than missed.
+    //
+    // Safe to evaluate out of band because overfly is pure position and
+    // altitude: no timers, no carried state, nothing that depends on what
+    // came before it. The current objective is skipped here and left to the
+    // switch below, which owns the hint.
+    for (const cand of this.objectives) {
+      if (cand.kind !== 'overfly') continue;
+      if (this.done.has(cand.id) || cand.id === o.id) continue;
+      const d = distanceNm(lat, lon, cand.lat, cand.lon);
+      const low = onGround || (agl > 0 && agl <= cand.max_agl_ft);
+      if (d <= zone(cand.radius_nm) && low) {
+        this.done.add(cand.id);
+        completed.push(cand.id);
+      }
+    }
+
     this.hint = null;
 
     switch (o.kind) {

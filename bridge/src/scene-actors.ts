@@ -47,7 +47,7 @@ export type SceneType =
  * patrol wants something strung out along the route to fly past. `count` and
  * `spreadNm` turn a single marker into a site.
  */
-type StagePlan = {
+type StageLayer = {
   pool: 'boat' | 'ground';
   hints: string[];
   count: number;
@@ -60,6 +60,16 @@ type StagePlan = {
   freeze?: boolean;
 };
 
+/**
+ * A scene is composed of layers, each drawn from its own shortlist.
+ *
+ * One flat list could not express "the casualty, and the ambulance that came
+ * for them": placement walks the matched titles in order, so a single list
+ * with people ranked first placed three bodies and no ambulance. A layer per
+ * element is what makes a scene read as a scene.
+ */
+type StagePlan = StageLayer[];
+
 const CARGO_HINTS = ['cargo', 'pallet', 'crate', 'container', 'box', 'freight', 'sling', 'barrel'];
 /** A working site: something stacked, something parked, something built. */
 const SITE_HINTS = [
@@ -67,25 +77,34 @@ const SITE_HINTS = [
   'trailer', 'excavator', 'digger', 'loader', 'tractor', 'crane', 'generator',
   'truck', 'pickup',
 ];
+/**
+ * A person on the ground.
+ *
+ * MSFS 2024 ships these (EDPro_Person_Laying_down_*, EDPro_Person_Sitting_down_*,
+ * mmh_hikerRescue), which is what makes a casualty a casualty rather than a
+ * parked van standing in for one. Laying/sitting first: someone upright reads
+ * as a bystander, someone down reads as the reason you came.
+ */
+const PERSON_HINTS = ['laying_down', 'laying', 'sitting_down', 'hikerrescue', 'hiker', 'person'];
 const MEDICAL_HINTS = ['ambulance', 'medic', 'rescue', 'emergency'];
 const FIRE_HINTS = ['fire', 'engine', 'tender', 'pumper'];
 const VEHICLE_HINTS = ['truck', 'van', 'suv', 'car', 'pickup', 'jeep', 'bus'];
 const BOAT_HINTS = ['fishing', 'trawler', 'yacht', 'boat', 'sail', 'ferry', 'cargo'];
+/**
+ * A vessel in trouble, for a SAR scene.
+ *
+ * The stock ship library carries "_Sink" variants of most hulls -- a ship
+ * going down is the whole reason a rescue was tasked, so those come first,
+ * then the life raft, and only then an ordinary working boat.
+ */
+const DISTRESS_BOAT_HINTS = ['sink', 'raft', 'emergency', 'fishing', 'trawler', 'yacht', 'sail'];
 const STRUCTURE_HINTS = ['tower', 'pylon', 'pole', 'mast', 'antenna', 'crane', 'generator'];
 /** Emergency response: what turns up when something has gone wrong on a road. */
 const RESPONSE_HINTS = ['police', 'patrol', 'sheriff', 'ambulance', 'fire', 'tow', 'recovery'];
-/**
- * Small enough to be worth searching for.
- *
- * A casualty on a ridge or a cliff has no vehicle beside them -- what makes a
- * search a search is a small object you have to actually spot. MSFS enumerates
- * no reliable person object, so this reaches for the smallest, most
- * out-of-place things an install tends to carry, and the generic fallback
- * covers a install that has none of them.
- */
-const CASUALTY_HINTS = [
+/** Small, out of place, and worth spotting from the air. */
+const KIT_HINTS = [
   'raft', 'dinghy', 'kayak', 'canoe', 'tent', 'backpack', 'quad', 'atv',
-  'snowmobile', 'motorcycle', 'bike', 'cart',
+  'snowmobile', 'motorbike', 'motorcycle', 'bike', 'cart',
 ];
 /** People gathered where people gather: a pad, an estate, a viewpoint. */
 const PAX_HINTS = ['car', 'suv', 'van', 'limo', 'bus', 'minibus'];
@@ -107,7 +126,7 @@ const OUTPOST_HINTS = ['hut', 'shed', 'cabin', 'trailer', 'tank', 'barrel', 'cra
  *     "scenes": { "vessel":    { "pool": "boat",   "titles": ["My Trawler"] } }
  *   }
  */
-export type SceneOverride = Partial<StagePlan> & { titles?: string[] };
+export type SceneOverride = Partial<StageLayer> & { titles?: string[] };
 export type SceneOverrides = {
   roles?: Record<string, SceneOverride>;
   scenes?: Record<string, SceneOverride>;
@@ -124,68 +143,89 @@ export function setSceneOverrides(next: SceneOverrides | null) {
  *
  * Every role the game generates is answered explicitly, so nothing drops
  * through to "one random car in a field" by accident. Returning null is a
- * decision too: a real airport dresses itself, and there is no prop worth
- * putting on an oil platform that the sim's own scenery doesn't already have.
+ * decision too: a real airport dresses itself, and a check ride wants clear
+ * air rather than obstacles.
+ *
+ * Scenes are composed of layers so they read as a situation rather than a
+ * pile of one kind of object -- the casualty AND the ambulance that came for
+ * them, the load AND the plant that will lift it.
  */
 function planFor(role: string, scene: SceneType): StagePlan | null {
+  /** The load you are there to hook: never frozen, or a sling cannot lift it. */
+  const load = (hints: string[], count: number, spreadNm: number): StageLayer =>
+    ({ pool: 'ground', hints, count, spreadNm, freeze: false });
+  /** Anything that is there to be looked at rather than moved. */
+  const set = (hints: string[], count: number, spreadNm: number): StageLayer =>
+    ({ pool: 'ground', hints, count, spreadNm });
+  const afloat = (hints: string[], count: number, spreadNm: number): StageLayer =>
+    ({ pool: 'boat', hints, count, spreadNm });
+
   switch (role) {
     // --- Work with a load on the hook ------------------------------------
     case 'logistics':
     case 'supply':
-      // A camp being resupplied: a cluster of stores on the ground. Not frozen --
-      // these are the loads you hook.
-      return { pool: 'ground', hints: CARGO_HINTS, count: 4, spreadNm: 0.05, freeze: false };
+      // Stores to hook, and the camp that ordered them.
+      return [load(CARGO_HINTS, 3, 0.04), set(OUTPOST_HINTS, 2, 0.05)];
     case 'construction':
-      // Load to lift, plus something being built next to it.
-      return { pool: 'ground', hints: [...CARGO_HINTS, ...STRUCTURE_HINTS], count: 3, spreadNm: 0.04, freeze: false };
+      // Load to lift, plus the site it is going to.
+      return [load(CARGO_HINTS, 2, 0.03), set([...STRUCTURE_HINTS, ...SITE_HINTS], 3, 0.04)];
     case 'industry':
       // A lumber camp, quarry, well or mill. Nothing in the sim marks these
       // -- they are real OSM land use, or a spot the company chose to build
       // on -- so without something placed here you fly to an empty clearing
-      // and take it on trust. Clustered and frozen: this is the site itself,
-      // not the load (the load is a payload objective, not an object).
-      return { pool: 'ground', hints: [...SITE_HINTS, ...CARGO_HINTS], count: 5, spreadNm: 0.06 };
+      // and take it on trust. The stock is the site's, not yours to hook:
+      // the load is a payload objective, so all of this stays frozen.
+      return [set(SITE_HINTS, 3, 0.05), set(CARGO_HINTS, 2, 0.03), set(VEHICLE_HINTS, 1, 0.04)];
 
     // --- Emergency work ---------------------------------------------------
     case 'patrol':
       // Strung out along the line so there's a route to follow, not a dot.
-      return { pool: 'ground', hints: [...STRUCTURE_HINTS, ...VEHICLE_HINTS], count: 5, spreadNm: 0.8 };
+      return [set(STRUCTURE_HINTS, 5, 0.8), set(VEHICLE_HINTS, 1, 0.05)];
     case 'firefighting':
-      return { pool: 'ground', hints: [...FIRE_HINTS, ...VEHICLE_HINTS], count: 4, spreadNm: 0.3 };
+      return [set(FIRE_HINTS, 3, 0.25), set(VEHICLE_HINTS, 2, 0.3)];
     case 'medevac':
-      // A roadside scene should look like one: the casualty's own vehicle,
-      // plus whatever turned up to help.
-      if (scene === 'highway')
-        return { pool: 'ground', hints: [...RESPONSE_HINTS, ...VEHICLE_HINTS], count: 5, spreadNm: 0.04 };
-      return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 3, spreadNm: 0.03 };
+      // The patient first -- they are the reason for the contract -- then
+      // whatever turned up for them. A roadside scene gets the traffic too.
+      if (scene === 'highway') {
+        return [
+          set(PERSON_HINTS, 2, 0.01),
+          set(RESPONSE_HINTS, 2, 0.03),
+          set(VEHICLE_HINTS, 3, 0.05),
+        ];
+      }
+      return [set(PERSON_HINTS, 1, 0.01), set(MEDICAL_HINTS, 2, 0.02), set(VEHICLE_HINTS, 1, 0.03)];
     case 'sar':
       if (scene === 'vessel' || scene === 'riverbank') {
-        return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0 };
+        // A hull going down, and people in the water beside it.
+        return [afloat(DISTRESS_BOAT_HINTS, 1, 0), set(PERSON_HINTS, 2, 0.01)];
       }
       // A casualty up a cliff or along a ridge used to get nothing at all,
-      // on the grounds that no vehicle belongs there -- which left the one
-      // contract type built around *looking* for someone with nothing to
-      // find. Something small and out of place is the whole point.
-      if (scene === 'cliff' || scene === 'ridgeline' || scene === 'confined')
-        return { pool: 'ground', hints: CASUALTY_HINTS, count: 2, spreadNm: 0.015 };
-      if (scene === 'beach')
-        return { pool: 'ground', hints: [...CASUALTY_HINTS, ...VEHICLE_HINTS], count: 2, spreadNm: 0.02 };
-      // Ground search: a couple of vehicles at the staging point.
-      return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 3, spreadNm: 0.03 };
+      // on the grounds that no vehicle belongs up there -- which left the one
+      // contract type built entirely around *looking* for someone with
+      // nothing to find. The person is the object now, with their kit beside
+      // them to give the eye something to catch.
+      if (scene === 'cliff' || scene === 'ridgeline' || scene === 'confined') {
+        return [set(PERSON_HINTS, 2, 0.008), set(KIT_HINTS, 1, 0.01)];
+      }
+      if (scene === 'beach') {
+        return [set(PERSON_HINTS, 2, 0.01), set(KIT_HINTS, 1, 0.015), set(VEHICLE_HINTS, 1, 0.03)];
+      }
+      // Ground search: the casualty, and the search party staged nearby.
+      return [set(PERSON_HINTS, 2, 0.01), set(MEDICAL_HINTS, 1, 0.03), set(VEHICLE_HINTS, 2, 0.04)];
     case 'offshore':
       // The platform itself is scenery where the sim has it, but a rig with
       // nothing alongside reads as abandoned -- and in plenty of regions
       // there is no platform modelled at all, leaving open water.
-      return { pool: 'boat', hints: BOAT_HINTS, count: 2, spreadNm: 0.08 };
+      return [afloat(BOAT_HINTS, 2, 0.08)];
 
     // --- People work ------------------------------------------------------
     case 'executive':
     case 'tourism':
     case 'training':
-      return { pool: 'ground', hints: PAX_HINTS, count: 2, spreadNm: 0.02 };
+      return [set(PAX_HINTS, 2, 0.02), set(PERSON_HINTS, 2, 0.008)];
     case 'survey':
       // Something to actually survey, spread along the track.
-      return { pool: 'ground', hints: [...STRUCTURE_HINTS, ...SITE_HINTS], count: 4, spreadNm: 0.5 };
+      return [set(STRUCTURE_HINTS, 4, 0.5), set(SITE_HINTS, 1, 0.05)];
 
     // --- Nothing to add ---------------------------------------------------
     case 'charter_cargo':
@@ -206,19 +246,14 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
   }
 
   // No role match: fall back to what the terrain suggests.
-  if (scene === 'vessel' || scene === 'riverbank') {
-    return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0 };
-  }
+  if (scene === 'vessel' || scene === 'riverbank') return [afloat(BOAT_HINTS, 1, 0)];
   if (scene === 'airport' || scene === 'charter' || scene === 'checkride') return null;
-  if (scene === 'oil_rig') return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0.05 };
+  if (scene === 'oil_rig') return [afloat(BOAT_HINTS, 1, 0.05)];
   if (scene === 'rooftop') return null; // nothing settles believably on a roof
-  if (scene === 'forest' || scene === 'field')
-    return { pool: 'ground', hints: OUTPOST_HINTS, count: 3, spreadNm: 0.04 };
-  if (scene === 'highway')
-    return { pool: 'ground', hints: [...RESPONSE_HINTS, ...VEHICLE_HINTS], count: 4, spreadNm: 0.04 };
-  if (scene === 'cliff' || scene === 'ridgeline')
-    return { pool: 'ground', hints: CASUALTY_HINTS, count: 2, spreadNm: 0.015 };
-  return { pool: 'ground', hints: VEHICLE_HINTS, count: 2, spreadNm: 0.02 };
+  if (scene === 'forest' || scene === 'field') return [set(OUTPOST_HINTS, 3, 0.04)];
+  if (scene === 'highway') return [set(RESPONSE_HINTS, 2, 0.03), set(VEHICLE_HINTS, 2, 0.04)];
+  if (scene === 'cliff' || scene === 'ridgeline') return [set(PERSON_HINTS, 1, 0.008), set(KIT_HINTS, 1, 0.01)];
+  return [set(VEHICLE_HINTS, 2, 0.02)];
 }
 
 /** Every title matching any hint, best hints first. */
@@ -257,10 +292,16 @@ export class SceneDirector {
   private spawned: number[] = [];
   private payloadReady = false;
   private freezeReady = false;
-  /** Whether the next batch of spawns should be pinned in place. */
-  private freezeNext = true;
-  /** Titles awaiting an object id, in request order. */
-  private pendingTitles: string[] = [];
+  /**
+   * Spawns awaiting an object id, in request order.
+   *
+   * Freeze is carried per spawn rather than held in one field: a scene is
+   * staged in layers now, and a load that must stay liftable is requested in
+   * the same batch as scenery that must stay put. A single shared flag was
+   * read by the time the ids came back, so the last layer's setting won for
+   * every object in the batch.
+   */
+  private pending: { title: string; freeze: boolean }[] = [];
   /** What actually made it into the world, for reporting. */
   private placedById = new Map<number, string>();
 
@@ -294,13 +335,14 @@ export class SceneDirector {
 
       this.spawned.push(recv.objectID);
       // Objects come back in the order they were requested, so pairing the id
-      // with the title makes it obvious which one failed to appear.
-      const title = this.pendingTitles.shift() ?? '(unknown)';
+      // with the request makes it obvious which one failed to appear.
+      const req = this.pending.shift();
+      const title = req?.title ?? '(unknown)';
       this.placedById.set(recv.objectID, title);
       this.log(`Placed "${title}" (id ${recv.objectID}).`);
 
-      if (this.freezeNext) this.freeze(recv.objectID);
-      else this.log(`  left liftable (sling load)`);
+      if (req?.freeze === false) this.log(`  left liftable (sling load)`);
+      else this.freeze(recv.objectID);
     });
   }
 
@@ -358,86 +400,108 @@ export class SceneDirector {
     const role = scene.role ?? '';
     const type = (scene.type as SceneType) ?? 'field';
 
-    // A user override for this role or scene replaces the built-in plan.
+    // A user override for this role or scene replaces the built-in plan
+    // outright -- a hand-authored scene is one layer, deliberately: if you
+    // have gone to the trouble of naming objects, you do not also want the
+    // built-in composition fighting you.
     const override = overrides.roles?.[role] ?? overrides.scenes?.[type];
     const base = planFor(role, type);
     if (!base && !override) return 0;
 
-    const plan: StagePlan = {
-      pool: override?.pool ?? base?.pool ?? 'ground',
-      hints: override?.hints ?? base?.hints ?? [],
-      count: override?.count ?? base?.count ?? 1,
-      spreadNm: override?.spreadNm ?? base?.spreadNm ?? 0,
-      freeze: override?.freeze ?? base?.freeze ?? true,
-    };
-    this.freezeNext = plan.freeze !== false;
+    const layers: StageLayer[] = override
+      ? [{
+          pool: override.pool ?? base?.[0]?.pool ?? 'ground',
+          hints: override.hints ?? base?.[0]?.hints ?? [],
+          count: override.count ?? base?.[0]?.count ?? 1,
+          spreadNm: override.spreadNm ?? base?.[0]?.spreadNm ?? 0,
+          freeze: override.freeze ?? base?.[0]?.freeze ?? true,
+        }]
+      : base!;
+
     const explicit = override?.titles ?? [];
-
-    const pool = plan.pool === 'boat' ? this.boats : this.ground;
-    if (pool.length === 0 && explicit.length === 0) {
-      this.log(`no ${plan.pool} SimObjects in this install -- nothing to place`);
-      return 0;
-    }
-
-    // Hand-authored titles first: if you've added a model for this job, it is
-    // by definition a better choice than anything keyword matching found. Only
-    // titles the sim actually reports are used, so a typo fails loudly rather
-    // than silently spawning nothing.
     const known = new Set([...this.boats, ...this.ground]);
-    const configured = explicit.filter((t) => known.has(t));
     const missing = explicit.filter((t) => !known.has(t));
     if (missing.length > 0) {
       this.log(`configured object(s) not found in this install: ${missing.join(', ')}`);
     }
+    const configured = explicit.filter((t) => known.has(t));
 
-    let titles = configured.length > 0 ? configured : matches(pool, plan.hints);
-    if (titles.length === 0) {
-      // Nothing matched the job; anything is better than an empty scene.
-      titles = pool.slice(0, 5);
-      this.log(`no object matched ${scene.role ?? scene.type}; using a generic one`);
-    }
-
-    // Along a bearing for spread-out sites, scattered for clustered ones.
+    // One bearing for the whole scene, so layers strung along a line share it
+    // rather than each picking their own and crossing.
     const lineBearing = Math.random() * 360;
     let placed = 0;
+    const requested: string[] = [];
+    /** Titles already used at this scene, so layers don't repeat each other. */
+    const usedTitles = new Set<string>();
 
-    for (let i = 0; i < plan.count; i++) {
-      const title = titles[i % titles.length];
-      const spread =
-        plan.spreadNm === 0
-          ? { lat: scene.lat, lon: scene.lon }
-          : plan.spreadNm > 0.3
-            ? offset(scene.lat, scene.lon, plan.spreadNm * i, lineBearing) // a line
-            : offset(scene.lat, scene.lon, plan.spreadNm * (0.4 + Math.random()), Math.random() * 360);
+    for (const layer of layers) {
+      const pool = layer.pool === 'boat' ? this.boats : this.ground;
+      if (pool.length === 0 && configured.length === 0) {
+        this.log(`no ${layer.pool} SimObjects in this install -- skipping that part of the scene`);
+        continue;
+      }
 
-      try {
-        const pos = new InitPosition();
-        pos.latitude = spread.lat;
-        pos.longitude = spread.lon;
-        // Zero altitude with onGround set lets the sim settle it onto terrain
-        // or sea level, which is what we want without knowing the elevation.
-        pos.altitude = 0;
-        pos.pitch = 0;
-        pos.bank = 0;
-        pos.heading = plan.spreadNm > 0.3 ? lineBearing : Math.random() * 360;
-        pos.onGround = true;
-        pos.airspeed = 0;
+      // Hand-authored titles first: if you've added a model for this job, it
+      // is by definition a better choice than anything keyword matching
+      // found.
+      let titles = configured.length > 0 ? configured : matches(pool, layer.hints);
+      // Prefer something this scene hasn't used yet, so a casualty layer and
+      // a vehicle layer that happen to share a matching title still look
+      // like two different things.
+      const fresh = titles.filter((t) => !usedTitles.has(t));
+      if (fresh.length > 0) titles = fresh;
 
-        this.pendingTitles.push(title);
-        this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
-        placed++;
-      } catch (e) {
-        this.log(`could not place "${title}": ${(e as Error).message}`);
+      if (titles.length === 0) {
+        // Nothing matched this layer. Skip rather than substitute: a random
+        // airliner tug standing in for a casualty is worse than an empty
+        // patch of grass, and the other layers still stand.
+        this.log(`no object matched ${layer.hints.slice(0, 3).join('/')} for ${role || type}`);
+        continue;
+      }
+
+      for (let i = 0; i < layer.count; i++) {
+        const title = titles[i % titles.length];
+        usedTitles.add(title);
+        const spread =
+          layer.spreadNm === 0
+            ? { lat: scene.lat, lon: scene.lon }
+            : layer.spreadNm > 0.3
+              ? offset(scene.lat, scene.lon, layer.spreadNm * i, lineBearing) // a line
+              : offset(
+                  scene.lat, scene.lon,
+                  layer.spreadNm * (0.4 + Math.random()), Math.random() * 360,
+                );
+
+        try {
+          const pos = new InitPosition();
+          pos.latitude = spread.lat;
+          pos.longitude = spread.lon;
+          // Zero altitude with onGround set lets the sim settle it onto terrain
+          // or sea level, which is what we want without knowing the elevation.
+          pos.altitude = 0;
+          pos.pitch = 0;
+          pos.bank = 0;
+          pos.heading = layer.spreadNm > 0.3 ? lineBearing : Math.random() * 360;
+          pos.onGround = true;
+          pos.airspeed = 0;
+
+          this.pending.push({ title, freeze: layer.freeze !== false });
+          this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
+          requested.push(title);
+          placed++;
+        } catch (e) {
+          this.log(`could not place "${title}": ${(e as Error).message}`);
+        }
       }
     }
 
     if (placed > 0) {
-      this.log(`Requested ${placed} object(s): ${this.pendingTitles.slice(-placed).join(', ')}`);
+      this.log(`Requested ${placed} object(s): ${requested.join(', ')}`);
       // Anything the sim silently refuses never gets an id back, so say so
       // rather than leaving an invisible gap at the scene.
-      const expected = [...this.pendingTitles];
       setTimeout(() => {
-        const missed = expected.filter((t) => ![...this.placedById.values()].includes(t));
+        const arrived = [...this.placedById.values()];
+        const missed = requested.filter((t) => !arrived.includes(t));
         if (missed.length) {
           this.log(`sim refused to place: ${[...new Set(missed)].join(', ')}`);
         }

@@ -17,6 +17,21 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 function Dashboard() {
   const { flight, track, isDesktop } = useLiveFlight();
   const objectives = useBridgeObjectives();
+  const [simAircraft, setSimAircraft] = useState<BridgeStatus["simAircraft"]>(null);
+
+  // Only needed to explain why objectives are not arming, so it rides along
+  // with the status stream rather than getting its own poll.
+  useEffect(() => {
+    const app = desktop();
+    if (!app) return;
+    let live = true;
+    app.status().then((st) => live && setSimAircraft(st?.simAircraft ?? null)).catch(() => {});
+    const off = app.onStatus((st) => live && setSimAircraft(st?.simAircraft ?? null));
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
 
   const { data } = useQuery({
     queryKey: ["dashboard"],
@@ -117,6 +132,23 @@ function Dashboard() {
               {sceneRange != null && <Readout label="To scene" value={`${sceneRange.toFixed(1)} nm`} />}
             </div>
           </div>
+          {/*
+            The map draws its rings from the database, so a contract whose
+            objectives never armed in the bridge looks entirely normal here
+            and simply never ticks. The usual cause is the loaded aircraft
+            not being linked to the fleet, which is invisible from this
+            screen -- worth saying plainly rather than leaving someone to
+            fly a whole patrol that was never being watched.
+          */}
+          {activeMission && !objectives && (
+            <p className="rounded-lg border border-warning/40 bg-card px-4 py-3 text-sm text-warning">
+              "{activeMission.title}" is in progress, but the sim bridge is not
+              tracking it, so nothing will tick.{" "}
+              {simAircraft && !simAircraft.matchedName
+                ? `The aircraft loaded in the sim ("${simAircraft.simTitle}") is not in your fleet — link it on Settings → Sim Link.`
+                : "Check that the contract is dispatched to the aircraft you are flying."}
+            </p>
+          )}
           <LiveObjectives state={objectives} />
 
           <FlightMap

@@ -171,6 +171,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
    * change the sim's TITLE, so keying off that alone meant objectives never
    * armed for the job you just accepted.
    */
+  /** So the reason is stated once, not on every poll. */
+  let warnedNoArm = false;
   function armObjectives(ac?: BridgeAircraft | null) {
     const aircraft =
       ac !== undefined
@@ -181,10 +183,28 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
     const m = aircraft ? missionFor(aircraft) : null;
     if (!m || !Array.isArray(m.objectives) || m.objectives.length === 0) {
-      if (objectiveMission) log('No contract with objectives for the loaded aircraft.');
+      // Say which of the three ways this can fail actually happened. The map
+      // draws its rings from the database, not from here, so a contract whose
+      // objectives never armed looks completely normal in the app and simply
+      // never ticks -- the failure has to announce itself or it reads as the
+      // objectives being broken.
+      if (objectiveMission || !warnedNoArm) {
+        warnedNoArm = true;
+        if (!aircraft) {
+          warn(
+            `Loaded aircraft "${currentSimTitle || 'unknown'}" is not in the fleet, ` +
+              'so no contract can be tracked. Link it on Settings -> Sim Link.',
+          );
+        } else if (!m) {
+          log(`No contract dispatched to ${aircraft.display_name}. Dispatch one from the Mission Board.`);
+        } else {
+          log(`Contract "${m.title}" has no objectives to track.`);
+        }
+      }
       objectiveMission = null;
       return;
     }
+    warnedNoArm = false;
     if (objectiveMission?.id === m.id) return;
     objectiveMission = m;
     const alreadyDone = Object.entries(m.objectives_state ?? {})

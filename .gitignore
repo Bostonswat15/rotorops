@@ -40,3 +40,4 @@ dist-ssr
 # Build output. The desktop bundle alone is 550MB; ship it via Releases.
 desktop/dist/
 bridge/dist/
+bridge/simobjects.txt

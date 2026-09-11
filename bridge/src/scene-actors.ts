@@ -70,46 +70,96 @@ type StageLayer = {
  */
 type StagePlan = StageLayer[];
 
-const CARGO_HINTS = ['cargo', 'pallet', 'crate', 'container', 'box', 'freight', 'sling', 'barrel'];
-/** A working site: something stacked, something parked, something built. */
+/**
+ * Hint lists, ordered best-first.
+ *
+ * These were guesses until a real MSFS 2024 install was enumerated (1462
+ * boats, 403 ground) and checked against them -- 'crate', 'pylon', 'tower'
+ * and 'ambulance' all matched nothing, while the install turned out to carry
+ * a purpose-built roadside accident, aircraft wrecks with fire variants,
+ * rescue baskets and stretchers, 36 casualty poses, and fire/smoke effects.
+ * What follows names those directly and keeps the generic terms as the tail
+ * so a thinner install still finds something.
+ */
+
+/** The load on the hook. Sling loads and pallets before generic freight. */
+const CARGO_HINTS = [
+  'slingload', 'doublepallet', 'singlepallet', 'pallet', 'container',
+  'cargo', 'crate', 'box', 'freight', 'barrel',
+];
+/** A working site: plant, stores, something half-built. */
 const SITE_HINTS = [
-  'container', 'crate', 'pallet', 'barrel', 'tank', 'silo', 'shed', 'hut',
-  'trailer', 'excavator', 'digger', 'loader', 'tractor', 'crane', 'generator',
-  'truck', 'pickup',
+  'bulldozer', 'harvester', 'forklift', 'crane', 'tractor', 'loader',
+  'tank', 'container', 'pallet', 'tent', 'trailer', 'excavator', 'digger',
+  'silo', 'shed', 'hut', 'generator',
 ];
 /**
  * A person on the ground.
  *
- * MSFS 2024 ships these (EDPro_Person_Laying_down_*, EDPro_Person_Sitting_down_*,
- * mmh_hikerRescue), which is what makes a casualty a casualty rather than a
- * parked van standing in for one. Laying/sitting first: someone upright reads
- * as a bystander, someone down reads as the reason you came.
+ * The install carries EDPro_Person_Laying_down_001-018 and
+ * EDPro_Person_Sitting_down_001-018, plus mmh_hikerRescue and
+ * mmh_skierRescue. Laying first: someone upright reads as a bystander,
+ * someone down reads as the reason you came.
  */
-const PERSON_HINTS = ['laying_down', 'laying', 'sitting_down', 'hikerrescue', 'hiker', 'person'];
-const MEDICAL_HINTS = ['ambulance', 'medic', 'rescue', 'emergency'];
-const FIRE_HINTS = ['fire', 'engine', 'tender', 'pumper'];
+const PERSON_HINTS = [
+  'laying_down', 'hikerrescue', 'skierrescue', 'sitting_down',
+  'laying', 'hiker', 'person',
+];
+/** What a casualty is packaged into once you reach them. */
+const RESCUE_KIT_HINTS = ['rescuebasket', 'rescuestretcher', 'basket', 'stretcher', 'arcticrescue'];
+/** Medical response, real models first. */
+const MEDICAL_HINTS = [
+  'mmhambulance', 'ambulance', 'medicaltent', 'medic', 'rescuestretcher',
+  'rescuebasket', 'rescue', 'emergency',
+];
+/** Fire, including the standalone fire and smoke effects. */
+const FIRE_HINTS = [
+  'mmh_fire', 'firetruck', 'truck_fire', 'fire airport', 'truck fire',
+  'firefighting', 'fire', 'smokeeffect', 'engine', 'tender', 'pumper',
+];
+/** Smoke and flare, for marking a scene you are meant to find. */
+const SIGNAL_HINTS = ['smokeeffect', 'flareeffect', 'smoke', 'flare'];
 const VEHICLE_HINTS = ['truck', 'van', 'suv', 'car', 'pickup', 'jeep', 'bus'];
 const BOAT_HINTS = ['fishing', 'trawler', 'yacht', 'boat', 'sail', 'ferry', 'cargo'];
 /**
- * A vessel in trouble, for a SAR scene.
+ * A vessel in trouble.
  *
  * The stock ship library carries "_Sink" variants of most hulls -- a ship
  * going down is the whole reason a rescue was tasked, so those come first,
  * then the life raft, and only then an ordinary working boat.
  */
 const DISTRESS_BOAT_HINTS = ['sink', 'raft', 'emergency', 'fishing', 'trawler', 'yacht', 'sail'];
-const STRUCTURE_HINTS = ['tower', 'pylon', 'pole', 'mast', 'antenna', 'crane', 'generator'];
-/** Emergency response: what turns up when something has gone wrong on a road. */
-const RESPONSE_HINTS = ['police', 'patrol', 'sheriff', 'ambulance', 'fire', 'tow', 'recovery'];
+/**
+ * Things strung out along a line to fly past.
+ *
+ * This install has no pylon, tower or mast model beyond a single mast
+ * truck, so a powerline patrol leans on service vehicles along the route
+ * rather than the towers themselves -- honest about what is available
+ * instead of substituting a baggage tug for a transmission tower.
+ */
+const STRUCTURE_HINTS = [
+  'mast', 'crane', 'tower', 'pylon', 'pole', 'antenna', 'generator',
+  'aerial_tank', 'platform tank',
+];
+/** What turns up when something has gone wrong on a road. */
+const RESPONSE_HINTS = [
+  'roadsideaccident', 'mmhpolice', 'police', 'mmhambulance', 'ambulance',
+  'firetruck', 'sheriff', 'tow', 'recovery',
+];
+/** A crash site: the wreck itself, burning where the install offers it. */
+const WRECK_HINTS = ['ac_wreck', 'wreck'];
 /** Small, out of place, and worth spotting from the air. */
 const KIT_HINTS = [
-  'raft', 'dinghy', 'kayak', 'canoe', 'tent', 'backpack', 'quad', 'atv',
-  'snowmobile', 'motorbike', 'motorcycle', 'bike', 'cart',
+  'quad', 'motorbike', 'snowcat', 'raft', 'dinghy', 'kayak', 'canoe',
+  'tent', 'backpack', 'atv', 'snowmobile', 'motorcycle', 'bike', 'cart',
 ];
 /** People gathered where people gather: a pad, an estate, a viewpoint. */
-const PAX_HINTS = ['car', 'suv', 'van', 'limo', 'bus', 'minibus'];
-/** Farm/parked plant, for a supply run into somewhere remote. */
-const OUTPOST_HINTS = ['hut', 'shed', 'cabin', 'trailer', 'tank', 'barrel', 'crate', 'tractor'];
+const PAX_HINTS = ['limousine', 'limo', 'sportscar', 'suv', 'car', 'van', 'minibus', 'bus'];
+/** Somewhere remote that is nonetheless lived in. */
+const OUTPOST_HINTS = [
+  'tent', 'hut', 'shed', 'cabin', 'trailer', 'bush', 'tank', 'barrel',
+  'tractor', 'quad', 'snowcat',
+];
 
 /**
  * Optional user overrides, read once from
@@ -198,25 +248,41 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // on -- so without something placed here you fly to an empty clearing
       // and take it on trust. The stock is the site's, not yours to hook:
       // the load is a payload objective, so all of this stays frozen.
-      return [set(SITE_HINTS, 3, 0.05), set(CARGO_HINTS, 2, 0.03), set(VEHICLE_HINTS, 1, 0.04)];
+      return [
+        set(SITE_HINTS, 3, 0.05),
+        set(CARGO_HINTS, 2, 0.03),
+        set(OUTPOST_HINTS, 1, 0.05),
+        set(VEHICLE_HINTS, 1, 0.04),
+      ];
 
     // --- Emergency work ---------------------------------------------------
     case 'patrol':
       // Strung out along the line so there's a route to follow, not a dot.
       return [set(STRUCTURE_HINTS, 5, 0.8), set(VEHICLE_HINTS, 1, 0.05)];
     case 'firefighting':
-      return [set(FIRE_HINTS, 3, 0.25), set(VEHICLE_HINTS, 2, 0.3)];
+      // MMH_Fire and the smoke effect are standalone objects here, so a
+      // fire contract can have a fire in it rather than only the trucks
+      // that came to fight it.
+      return [set(SIGNAL_HINTS, 2, 0.2), set(FIRE_HINTS, 3, 0.25), set(VEHICLE_HINTS, 1, 0.3)];
     case 'medevac':
       // The patient first -- they are the reason for the contract -- then
       // whatever turned up for them. A roadside scene gets the traffic too.
       if (scene === 'highway') {
+        // mmh_roadsideAccident is exactly this scene in one object; the
+        // casualties, the responders and the stopped traffic build around it.
         return [
+          set(RESPONSE_HINTS, 2, 0.02),
           set(PERSON_HINTS, 2, 0.01),
-          set(RESPONSE_HINTS, 2, 0.03),
+          set(RESCUE_KIT_HINTS, 1, 0.01),
           set(VEHICLE_HINTS, 3, 0.05),
         ];
       }
-      return [set(PERSON_HINTS, 1, 0.01), set(MEDICAL_HINTS, 2, 0.02), set(VEHICLE_HINTS, 1, 0.03)];
+      return [
+        set(PERSON_HINTS, 1, 0.01),
+        set(RESCUE_KIT_HINTS, 1, 0.01),
+        set(MEDICAL_HINTS, 2, 0.02),
+        set(VEHICLE_HINTS, 1, 0.03),
+      ];
     case 'sar':
       if (scene === 'vessel' || scene === 'riverbank') {
         // A hull going down, and people in the water beside it.
@@ -228,13 +294,35 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // nothing to find. The person is the object now, with their kit beside
       // them to give the eye something to catch.
       if (scene === 'cliff' || scene === 'ridgeline' || scene === 'confined') {
-        return [set(PERSON_HINTS, 2, 0.008), set(KIT_HINTS, 1, 0.01)];
+        // Smoke is what a casualty on a ridge actually has to signal with,
+        // and it is the difference between a search you can fly and one you
+        // give up on.
+        return [
+          set(PERSON_HINTS, 2, 0.008),
+          set(SIGNAL_HINTS, 1, 0.01),
+          set(KIT_HINTS, 1, 0.01),
+        ];
       }
       if (scene === 'beach') {
         return [set(PERSON_HINTS, 2, 0.01), set(KIT_HINTS, 1, 0.015), set(VEHICLE_HINTS, 1, 0.03)];
       }
+      if (scene === 'forest' || scene === 'field') {
+        // Downed aircraft: the install carries wrecks with burning variants,
+        // which is the classic inland search and a far better reason to be
+        // hovering over trees than a parked van.
+        return [
+          set(WRECK_HINTS, 1, 0),
+          set(PERSON_HINTS, 2, 0.012),
+          set(SIGNAL_HINTS, 1, 0.01),
+        ];
+      }
       // Ground search: the casualty, and the search party staged nearby.
-      return [set(PERSON_HINTS, 2, 0.01), set(MEDICAL_HINTS, 1, 0.03), set(VEHICLE_HINTS, 2, 0.04)];
+      return [
+        set(PERSON_HINTS, 2, 0.01),
+        set(RESCUE_KIT_HINTS, 1, 0.015),
+        set(MEDICAL_HINTS, 1, 0.03),
+        set(VEHICLE_HINTS, 2, 0.04),
+      ];
     case 'offshore':
       // The platform itself is scenery where the sim has it, but a rig with
       // nothing alongside reads as abandoned -- and in plenty of regions

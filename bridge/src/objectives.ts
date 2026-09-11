@@ -70,20 +70,23 @@ export type Objective =
 /**
  * How much slack to allow around a positional objective.
  *
- * The generated radii -- 0.3-0.6 nm to reach a scene, 0.5 nm over an
- * inspection point -- are tight enough that a contract can be flown correctly
- * and still refuse to tick, which reads as the objective being broken rather
- * than missed. Applied here rather than at generation so contracts already
- * sitting on the board get the same slack as newly generated ones.
+ * Applied here rather than at generation so contracts already sitting on the
+ * board get the same slack as newly generated ones.
+ *
+ * Kept modest on purpose. A first pass at 1.8x looked reasonable in the code
+ * and absurd in the air -- a patrol point became a 4 nm-wide ring you could
+ * tick without going near the line. Most of what felt like "the zone is too
+ * small" was really the zone being invisible: the map drew no ring at all, so
+ * there was nothing to fly to. With the ring drawn, a little slack is enough.
  *
  * Deliberately NOT applied to 'search': hunting for a casualty inside a
  * stated radius is the mechanic, not an obstacle, and widening it silently
  * would let the one contract type built around looking for something complete
  * itself early.
  */
-const ZONE_TOLERANCE = 1.8;
+const ZONE_TOLERANCE = 1.35;
 /** A floor as well, so a very tight radius is still flyable. */
-const MIN_ZONE_NM = 0.75;
+const MIN_ZONE_NM = 0.5;
 const zone = (radiusNm: number) => Math.max(MIN_ZONE_NM, radiusNm * ZONE_TOLERANCE);
 
 type Snap = Record<string, number | string>;

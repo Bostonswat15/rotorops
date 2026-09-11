@@ -205,8 +205,10 @@ export function FlightMap({
 
     waypoints.forEach((w, i) => {
       const colour = w.done ? "#4ade80" : "#f5a623";
-      // Real distance, so you can judge from the map whether you are inside
-      // it rather than guessing.
+      // One ring, drawn at the real acceptance distance so you can judge from
+      // the map whether you are inside it. A centre dot was tried as well and
+      // read as a second, tighter zone you had to hit -- two rings around one
+      // point invite the question of which one counts.
       L.circle([w.lat, w.lon], {
         radius: w.radiusNm * 1852,
         color: colour,
@@ -214,16 +216,9 @@ export function FlightMap({
         opacity: w.done ? 0.5 : 0.9,
         fillColor: colour,
         fillOpacity: w.done ? 0.05 : 0.12,
-      }).addTo(group);
-      L.circleMarker([w.lat, w.lon], {
-        radius: 5,
-        color: colour,
-        weight: 2,
-        fillColor: colour,
-        fillOpacity: 0.9,
       })
         .addTo(group)
-        .bindTooltip(w.label ?? `Point ${i + 1}`, { direction: "top", offset: [0, -6] });
+        .bindTooltip(w.label ?? `Point ${i + 1}`, { direction: "top" });
     });
     layers.current.waypoints = group;
   }, [waypoints]);

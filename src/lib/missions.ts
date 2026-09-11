@@ -22,7 +22,7 @@
 
 import type { AircraftTag } from "./game-data";
 import {
-  findPowerLines, pathLengthNm, samplePath, bearingBetween,
+  findPowerLines, findPowerTowers, pathLengthNm, samplePath, bearingBetween,
   type SiteFeatures,
 } from "./osm";
 
@@ -1166,8 +1166,42 @@ export async function generatePowerlinePatrol(
   if (usable.length === 0) return null;
 
   const { l: line, len } = usable[0];
-  const points = samplePath(line.geometry, 6);
+  let points = samplePath(line.geometry, 6);
   const label = line.name ?? `${line.operator ?? "the"} transmission line`;
+
+  // Snap each inspection point onto a real tower where there is one.
+  //
+  // A power=line way's vertices are a mix of towers and shape points -- places
+  // where the line merely changes direction, with nothing standing there.
+  // Measured against OSM near a real base, only about a quarter are tagged
+  // power=tower. MSFS builds its pylons from this same data, so a point on a
+  // tower node is a point where the sim actually draws a structure.
+  //
+  // Sampling first and snapping second, rather than picking towers directly:
+  // tried the other way round and the towers mapped on a 24 nm line turned out
+  // to cluster in a single 2 nm stretch, which collapsed a long patrol into a
+  // short hop. Even spacing is the part worth protecting; landing on a tower
+  // is a bonus applied to each point independently, and a point with no tower
+  // within ~280 m simply stays where the geometry put it.
+  try {
+    const towers = await findPowerTowers({ lat: base.lat, lon: base.lon }, 40);
+    if (towers.length > 0) {
+      points = points.map((p) => {
+        let best: { lat: number; lon: number } | null = null;
+        let bestNm = 0.15;
+        for (const t of towers) {
+          const d = distanceNm(p.lat, p.lon, t.lat, t.lon);
+          if (d < bestNm) {
+            bestNm = d;
+            best = t;
+          }
+        }
+        return best ?? p;
+      });
+    }
+  } catch {
+    // Overpass unavailable -- the sampled geometry already in hand stands.
+  }
 
   const objectives: Objective[] = points.map((p, i) => ({
     id: `pt${i + 1}`,

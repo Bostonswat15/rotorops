@@ -93,6 +93,32 @@ export async function findPowerLines(centre: LatLon, radiusNm = 40): Promise<Pow
     .sort((a, b) => b.geometry.length - a.geometry.length);
 }
 
+/**
+ * Transmission towers within `radiusNm`, from OSM.
+ *
+ * MSFS 2024 builds its powerline scenery from the same OSM data, so these
+ * coordinates are where the sim actually draws its pylons -- there is no
+ * SimConnect API that will report scenery positions, and this is the closest
+ * thing to asking the sim directly.
+ *
+ * Worth a query of its own rather than reusing a line's geometry: measured
+ * against real data near CYSE, only about a quarter of a `power=line` way's
+ * vertices are tagged `power=tower`. The rest are shape points where the
+ * line simply changes direction, with nothing standing there at all.
+ *
+ * Its own `out` budget, deliberately: towers outnumber lines by hundreds to
+ * one, so a shared budget returns nothing but towers and starves the ways.
+ */
+export async function findPowerTowers(centre: LatLon, radiusNm = 40): Promise<LatLon[]> {
+  const elements = await overpass(
+    `[out:json][timeout:25];node["power"~"^(tower|portal)$"](${bbox(centre, radiusNm)});out 2000;`,
+  );
+  if (!elements) return [];
+  return elements
+    .filter((e) => typeof e.lat === "number" && typeof e.lon === "number")
+    .map((e) => ({ lat: e.lat, lon: e.lon }));
+}
+
 export type Aerodrome = { icao: string; lat: number; lon: number };
 
 /**

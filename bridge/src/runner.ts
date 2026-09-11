@@ -229,11 +229,19 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       // stops drawing a person-sized object a few hundred metres out, so this
       // is what makes the search a real visual search.
       const at = searchTarget ?? { lat: Number(m.scene_lat), lon: Number(m.scene_lon) };
+      // The route the contract actually asks for, where it has one. A line
+      // patrol follows a real transmission line, so its props belong on that
+      // line rather than strung along a bearing picked at random.
+      const route = (m.objectives as Objective[])
+        .map((o) => o as { lat?: number; lon?: number })
+        .filter((o) => Number.isFinite(o.lat) && Number.isFinite(o.lon))
+        .map((o) => ({ lat: Number(o.lat), lon: Number(o.lon) }));
       const placed = director.stage({
         lat: at.lat,
         lon: at.lon,
         type: (m.scene_type ?? 'field') as SceneType,
         role: m.role,
+        path: route,
       });
       director.say(
         spec && spec.kind === 'search'

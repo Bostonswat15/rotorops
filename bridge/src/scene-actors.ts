@@ -257,8 +257,11 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
 
     // --- Emergency work ---------------------------------------------------
     case 'patrol':
-      // Strung out along the line so there's a route to follow, not a dot.
-      return [set(STRUCTURE_HINTS, 5, 0.8), set(VEHICLE_HINTS, 1, 0.05)];
+      // One per section, placed on the real line the contract samples, so
+      // there is something at each waypoint you are graded on rather than a
+      // scatter beside the route. generatePowerlinePatrol samples six
+      // points, hence six.
+      return [set(STRUCTURE_HINTS, 6, 0.8), set(VEHICLE_HINTS, 1, 0.05)];
     case 'firefighting':
       // MMH_Fire and the smoke effect are standalone objects here, so a
       // fire contract can have a fire in it rather than only the trucks
@@ -510,7 +513,23 @@ export class SceneDirector {
    * a powerline patrol as a line of structures, rather than everything stacked
    * on one point.
    */
-  stage(scene: { lat: number; lon: number; type: SceneType | string; role?: string }): number {
+  stage(scene: {
+    lat: number;
+    lon: number;
+    type: SceneType | string;
+    role?: string;
+    /**
+     * The route this contract actually asks you to fly, when it has one.
+     *
+     * A powerline patrol follows a real transmission line out of OSM, but
+     * staging knew only the start point and strung its props along a random
+     * bearing at 0.8 nm intervals -- so the pilot flew the conductor while
+     * the towers sat a mile and a half sideways in a field. Given the
+     * waypoints, a line layer puts its objects where you are actually
+     * required to go.
+     */
+    path?: { lat: number; lon: number }[];
+  }): number {
     const role = scene.role ?? '';
     const type = (scene.type as SceneType) ?? 'field';
 
@@ -624,15 +643,25 @@ export class SceneDirector {
       for (let i = 0; i < layer.count; i++) {
         const title = titles[i % titles.length];
         usedTitles.add(title);
-        const spread =
-          layer.spreadNm === 0
-            ? { lat: scene.lat, lon: scene.lon }
-            : layer.spreadNm > 0.3
-              ? offset(scene.lat, scene.lon, layer.spreadNm * i, lineBearing) // a line
-              : offset(
-                  scene.lat, scene.lon,
-                  layer.spreadNm * (0.4 + Math.random()), Math.random() * 360,
-                );
+        const wantsLine = layer.spreadNm > 0.3;
+        const route = scene.path ?? [];
+        let spread: { lat: number; lon: number };
+        if (layer.spreadNm === 0) {
+          spread = { lat: scene.lat, lon: scene.lon };
+        } else if (wantsLine && route.length >= 2) {
+          // Walk the real route, spacing objects evenly across it, with a
+          // little jitter so they don't sit dead on the waypoint the
+          // objective is already marking.
+          const at = route[Math.min(route.length - 1, Math.round((i / Math.max(1, layer.count - 1)) * (route.length - 1)))];
+          spread = offset(at.lat, at.lon, 0.02 * Math.random(), Math.random() * 360);
+        } else if (wantsLine) {
+          spread = offset(scene.lat, scene.lon, layer.spreadNm * i, lineBearing); // a synthetic line
+        } else {
+          spread = offset(
+            scene.lat, scene.lon,
+            layer.spreadNm * (0.4 + Math.random()), Math.random() * 360,
+          );
+        }
 
         try {
           const pos = new InitPosition();
@@ -643,7 +672,7 @@ export class SceneDirector {
           pos.altitude = 0;
           pos.pitch = 0;
           pos.bank = 0;
-          pos.heading = layer.spreadNm > 0.3 ? lineBearing : Math.random() * 360;
+          pos.heading = wantsLine ? lineBearing : Math.random() * 360;
           pos.onGround = true;
           pos.airspeed = 0;
 

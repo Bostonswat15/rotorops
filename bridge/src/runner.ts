@@ -262,9 +262,46 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     });
   }
 
+  /**
+   * Say out loud why the current objective is not ticking.
+   *
+   * The hint already goes to the app, but "it just says go back to it" is
+   * exactly the report that needs numbers rather than a phrase -- distance
+   * against the zone that actually counts, and altitude against the ceiling.
+   * Throttled hard: this runs on every telemetry sample.
+   */
+  let lastWhyAt = 0;
+  let lastWhyId: string | null = null;
+  function logWhyPending(s: Record<string, number | string>) {
+    const o = objectives.current as unknown as Record<string, any> | null;
+    if (!o) return;
+    const now = Date.now();
+    // On a change of objective say it immediately; otherwise every 15 s.
+    if (o.id === lastWhyId && now - lastWhyAt < 15_000) return;
+    lastWhyAt = now;
+    lastWhyId = o.id;
+    const hint = objectives.snapshotProgress().find((p) => p.id === o.id)?.hint ?? null;
+    if (typeof o.lat === 'number' && typeof o.lon === 'number') {
+      const d = distanceNm(n(s.lat), n(s.lon), o.lat, o.lon);
+      const parts = [
+        `"${o.label}"`,
+        `${d.toFixed(2)} nm away`,
+        typeof o.radius_nm === 'number' ? `zone ${(Math.max(0.5, o.radius_nm * 1.35)).toFixed(2)} nm` : null,
+        typeof o.max_agl_ft === 'number'
+          ? `agl ${Math.round(n(s.agl))} ft / max ${o.max_agl_ft}`
+          : null,
+        n(s.onGround) === 1 ? 'on ground' : 'airborne',
+      ].filter(Boolean);
+      log(`Pending: ${parts.join(' · ')}${hint ? ` — ${hint}` : ''}`);
+    } else if (hint) {
+      log(`Pending: "${o.label}" — ${hint}`);
+    }
+  }
+
   function trackObjectives(s: Record<string, number | string>) {
     if (!objectiveMission || !objectives.isLoaded) return;
     const justDone = objectives.update(s);
+    if (justDone.length === 0) logWhyPending(s);
 
     for (const id of justDone) {
       const label =

@@ -35,9 +35,10 @@ const CASUALTY_STATION = 3;
 export type SceneType =
   | 'vessel' | 'oil_rig' | 'cliff' | 'beach' | 'ridgeline' | 'forest'
   | 'riverbank' | 'highway' | 'field' | 'rooftop' | 'confined'
-  // Not terrain: an industry site (a camp, mill, quarry or well) and a
-  // charter run's destination airport. Both arrive here as scene_type.
-  | 'industry' | 'charter';
+  // Not terrain. An industry site (camp, mill, quarry, well); a charter
+  // run's destination; a fixed-wing contract's destination field; and a
+  // check ride's practice area. All four arrive here as scene_type.
+  | 'industry' | 'charter' | 'airport' | 'checkride';
 
 /**
  * What to place, driven by the job rather than just the terrain.
@@ -71,6 +72,25 @@ const FIRE_HINTS = ['fire', 'engine', 'tender', 'pumper'];
 const VEHICLE_HINTS = ['truck', 'van', 'suv', 'car', 'pickup', 'jeep', 'bus'];
 const BOAT_HINTS = ['fishing', 'trawler', 'yacht', 'boat', 'sail', 'ferry', 'cargo'];
 const STRUCTURE_HINTS = ['tower', 'pylon', 'pole', 'mast', 'antenna', 'crane', 'generator'];
+/** Emergency response: what turns up when something has gone wrong on a road. */
+const RESPONSE_HINTS = ['police', 'patrol', 'sheriff', 'ambulance', 'fire', 'tow', 'recovery'];
+/**
+ * Small enough to be worth searching for.
+ *
+ * A casualty on a ridge or a cliff has no vehicle beside them -- what makes a
+ * search a search is a small object you have to actually spot. MSFS enumerates
+ * no reliable person object, so this reaches for the smallest, most
+ * out-of-place things an install tends to carry, and the generic fallback
+ * covers a install that has none of them.
+ */
+const CASUALTY_HINTS = [
+  'raft', 'dinghy', 'kayak', 'canoe', 'tent', 'backpack', 'quad', 'atv',
+  'snowmobile', 'motorcycle', 'bike', 'cart',
+];
+/** People gathered where people gather: a pad, an estate, a viewpoint. */
+const PAX_HINTS = ['car', 'suv', 'van', 'limo', 'bus', 'minibus'];
+/** Farm/parked plant, for a supply run into somewhere remote. */
+const OUTPOST_HINTS = ['hut', 'shed', 'cabin', 'trailer', 'tank', 'barrel', 'crate', 'tractor'];
 
 /**
  * Optional user overrides, read once from
@@ -99,30 +119,25 @@ export function setSceneOverrides(next: SceneOverrides | null) {
   overrides = next ?? {};
 }
 
-/** Role first -- the job decides the props. Scene type is the fallback. */
+/**
+ * Role first -- the job decides the props. Scene type is the fallback.
+ *
+ * Every role the game generates is answered explicitly, so nothing drops
+ * through to "one random car in a field" by accident. Returning null is a
+ * decision too: a real airport dresses itself, and there is no prop worth
+ * putting on an oil platform that the sim's own scenery doesn't already have.
+ */
 function planFor(role: string, scene: SceneType): StagePlan | null {
   switch (role) {
+    // --- Work with a load on the hook ------------------------------------
     case 'logistics':
+    case 'supply':
       // A camp being resupplied: a cluster of stores on the ground. Not frozen --
       // these are the loads you hook.
       return { pool: 'ground', hints: CARGO_HINTS, count: 4, spreadNm: 0.05, freeze: false };
     case 'construction':
       // Load to lift, plus something being built next to it.
       return { pool: 'ground', hints: [...CARGO_HINTS, ...STRUCTURE_HINTS], count: 3, spreadNm: 0.04, freeze: false };
-    case 'patrol':
-      // Strung out along the line so there's a route to follow, not a dot.
-      return { pool: 'ground', hints: [...STRUCTURE_HINTS, ...VEHICLE_HINTS], count: 5, spreadNm: 0.8 };
-    case 'firefighting':
-      return { pool: 'ground', hints: [...FIRE_HINTS, ...VEHICLE_HINTS], count: 3, spreadNm: 0.3 };
-    case 'medevac':
-      return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 2, spreadNm: 0.02 };
-    case 'sar':
-      if (scene === 'vessel' || scene === 'riverbank') {
-        return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0 };
-      }
-      // Ground search: a couple of vehicles at the staging point.
-      if (scene === 'cliff' || scene === 'ridgeline') return null;
-      return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 2, spreadNm: 0.03 };
     case 'industry':
       // A lumber camp, quarry, well or mill. Nothing in the sim marks these
       // -- they are real OSM land use, or a spot the company chose to build
@@ -130,14 +145,62 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // and take it on trust. Clustered and frozen: this is the site itself,
       // not the load (the load is a payload objective, not an object).
       return { pool: 'ground', hints: [...SITE_HINTS, ...CARGO_HINTS], count: 5, spreadNm: 0.06 };
+
+    // --- Emergency work ---------------------------------------------------
+    case 'patrol':
+      // Strung out along the line so there's a route to follow, not a dot.
+      return { pool: 'ground', hints: [...STRUCTURE_HINTS, ...VEHICLE_HINTS], count: 5, spreadNm: 0.8 };
+    case 'firefighting':
+      return { pool: 'ground', hints: [...FIRE_HINTS, ...VEHICLE_HINTS], count: 4, spreadNm: 0.3 };
+    case 'medevac':
+      // A roadside scene should look like one: the casualty's own vehicle,
+      // plus whatever turned up to help.
+      if (scene === 'highway')
+        return { pool: 'ground', hints: [...RESPONSE_HINTS, ...VEHICLE_HINTS], count: 5, spreadNm: 0.04 };
+      return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 3, spreadNm: 0.03 };
+    case 'sar':
+      if (scene === 'vessel' || scene === 'riverbank') {
+        return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0 };
+      }
+      // A casualty up a cliff or along a ridge used to get nothing at all,
+      // on the grounds that no vehicle belongs there -- which left the one
+      // contract type built around *looking* for someone with nothing to
+      // find. Something small and out of place is the whole point.
+      if (scene === 'cliff' || scene === 'ridgeline' || scene === 'confined')
+        return { pool: 'ground', hints: CASUALTY_HINTS, count: 2, spreadNm: 0.015 };
+      if (scene === 'beach')
+        return { pool: 'ground', hints: [...CASUALTY_HINTS, ...VEHICLE_HINTS], count: 2, spreadNm: 0.02 };
+      // Ground search: a couple of vehicles at the staging point.
+      return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 3, spreadNm: 0.03 };
+    case 'offshore':
+      // The platform itself is scenery where the sim has it, but a rig with
+      // nothing alongside reads as abandoned -- and in plenty of regions
+      // there is no platform modelled at all, leaving open water.
+      return { pool: 'boat', hints: BOAT_HINTS, count: 2, spreadNm: 0.08 };
+
+    // --- People work ------------------------------------------------------
+    case 'executive':
+    case 'tourism':
+    case 'training':
+      return { pool: 'ground', hints: PAX_HINTS, count: 2, spreadNm: 0.02 };
+    case 'survey':
+      // Something to actually survey, spread along the track.
+      return { pool: 'ground', hints: [...STRUCTURE_HINTS, ...SITE_HINTS], count: 4, spreadNm: 0.5 };
+
+    // --- Nothing to add ---------------------------------------------------
     case 'charter_cargo':
     case 'charter_pax':
-      // Both ends of a charter are real airports, which have their own
-      // scenery and traffic already. Spawning a lone pickup on the apron
-      // adds nothing.
+    case 'charter':
+    case 'freight':
+    case 'positioning':
+      // These all begin and end at real airports, which have their own
+      // scenery and traffic. Spawning a lone pickup on the apron adds
+      // nothing.
       return null;
-    case 'offshore':
-      return null; // platforms are scenery
+    case 'checkride':
+      // A graded flight in an open practice area. Props would only be
+      // clutter to manoeuvre around, and the examiner is the objectives.
+      return null;
     default:
       break;
   }
@@ -146,10 +209,16 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
   if (scene === 'vessel' || scene === 'riverbank') {
     return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0 };
   }
-  if (scene === 'cliff' || scene === 'ridgeline' || scene === 'rooftop' || scene === 'oil_rig') {
-    return null;
-  }
-  return { pool: 'ground', hints: VEHICLE_HINTS, count: 1, spreadNm: 0 };
+  if (scene === 'airport' || scene === 'charter' || scene === 'checkride') return null;
+  if (scene === 'oil_rig') return { pool: 'boat', hints: BOAT_HINTS, count: 1, spreadNm: 0.05 };
+  if (scene === 'rooftop') return null; // nothing settles believably on a roof
+  if (scene === 'forest' || scene === 'field')
+    return { pool: 'ground', hints: OUTPOST_HINTS, count: 3, spreadNm: 0.04 };
+  if (scene === 'highway')
+    return { pool: 'ground', hints: [...RESPONSE_HINTS, ...VEHICLE_HINTS], count: 4, spreadNm: 0.04 };
+  if (scene === 'cliff' || scene === 'ridgeline')
+    return { pool: 'ground', hints: CASUALTY_HINTS, count: 2, spreadNm: 0.015 };
+  return { pool: 'ground', hints: VEHICLE_HINTS, count: 2, spreadNm: 0.02 };
 }
 
 /** Every title matching any hint, best hints first. */

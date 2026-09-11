@@ -1212,8 +1212,8 @@ export async function generatePowerlinePatrol(
         : `Inspect section ${i + 1} of ${points.length}`,
     lat: Number(p.lat.toFixed(5)),
     lon: Number(p.lon.toFixed(5)),
-    radius_nm: 0.5,
-    max_agl_ft: 500,
+    radius_nm: 1.2,
+    max_agl_ft: 900,
   }));
 
   objectives.push({

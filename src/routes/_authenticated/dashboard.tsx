@@ -65,6 +65,35 @@ function Dashboard() {
       ? nmBetween(flight.lat, flight.lon, Number(activeMission.scene_lat), Number(activeMission.scene_lon))
       : null;
 
+  // Every objective that has a place on the map, married up with whether the
+  // bridge has ticked it. Drawn so a multi-point contract shows all of its
+  // points and how close counts as reaching one -- a line patrol previously
+  // drew only its first point, with no radius anywhere.
+  const mapWaypoints = (() => {
+    const raw = activeMission?.objectives;
+    if (!Array.isArray(raw)) return [];
+    const doneById = new Map<string, boolean>(
+      (objectives?.items ?? []).map((o) => [o.id, !!o.done] as [string, boolean]),
+    );
+    return raw
+      .map((o: any) => {
+        const lat = Number(o?.lat ?? o?.datum_lat);
+        const lon = Number(o?.lon ?? o?.datum_lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return {
+          id: String(o.id),
+          lat,
+          lon,
+          // Mirrors ZONE_TOLERANCE in the bridge: the drawn ring has to be the
+          // ring that actually counts, or the map is lying about the job.
+          radiusNm: Math.max(0.75, (Number(o.radius_nm) || 0.5) * 1.8),
+          label: typeof o.label === "string" ? o.label : undefined,
+          done: doneById.get(String(o.id)) ?? false,
+        };
+      })
+      .filter((w): w is NonNullable<typeof w> => w !== null);
+  })();
+
   return (
     <div className="space-y-6 p-6 md:p-8">
       {flight && (
@@ -103,6 +132,7 @@ function Dashboard() {
                   }
                 : null
             }
+            waypoints={mapWaypoints}
             search={searchArea}
             sighted={objectives?.sighted ?? null}
             base={

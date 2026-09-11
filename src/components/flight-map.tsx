@@ -1,8 +1,33 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 export type MapPosition = { lat: number; lon: number; heading?: number };
+
+/**
+ * Base layers.
+ *
+ * Satellite matters here in a way it doesn't on a road map: a scene is
+ * usually a clearing, a ridge or a stretch of water with no road near it,
+ * and the drawn map shows none of that. Esri's imagery is the same service
+ * Leaflet's own examples use and needs no key.
+ */
+const BASEMAPS = {
+  map: {
+    label: "Map",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "&copy; OpenStreetMap contributors",
+    maxZoom: 17,
+  },
+  satellite: {
+    label: "Satellite",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution: "Imagery &copy; Esri, Maxar, Earthstar Geographics",
+    maxZoom: 18,
+  },
+} as const;
+
+type BaseMapId = keyof typeof BASEMAPS;
 
 const R_NM = 3440.065;
 const rad = (d: number) => (d * Math.PI) / 180;
@@ -42,6 +67,24 @@ export type FlightMapProps = {
   sighted?: { lat: number; lon: number } | null;
   /** Home field. */
   base?: { lat: number; lon: number; label?: string } | null;
+  /**
+   * Every objective that has a position, with the radius that actually
+   * counts as reaching it.
+   *
+   * A multi-point contract -- a line patrol especially -- used to draw only
+   * its first point, so five of six inspection sections were invisible and
+   * the acceptance radius was invisible everywhere. Flying to an unmarked
+   * point and guessing how close is close enough is what "the zone is too
+   * small" actually feels like from the cockpit.
+   */
+  waypoints?: {
+    id: string;
+    lat: number;
+    lon: number;
+    radiusNm: number;
+    label?: string;
+    done?: boolean;
+  }[];
   /** Breadcrumb of where the aircraft has been this flight. */
   track?: [number, number][];
   className?: string;
@@ -56,7 +99,7 @@ export type FlightMapProps = {
  * blank panel.
  */
 export function FlightMap({
-  aircraft, scene, search, sighted, base, track = [], className,
+  aircraft, scene, search, sighted, base, waypoints = [], track = [], className,
 }: FlightMapProps) {
   const holder = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
@@ -68,9 +111,16 @@ export function FlightMap({
     base?: L.CircleMarker;
     track?: L.Polyline;
     legTo?: L.Polyline;
+    waypoints?: L.LayerGroup;
+    route?: L.Polyline;
   }>({});
-  // Stop recentring once the user has panned somewhere deliberately.
+  const tiles = useRef<L.TileLayer | null>(null);
+  // Stop recentring once the user has panned somewhere deliberately. Mirrored
+  // into state as well so the Follow control can show whether it is currently
+  // on, rather than being a button with no visible effect.
   const followed = useRef(true);
+  const [following, setFollowing] = useState(true);
+  const [basemap, setBasemap] = useState<BaseMapId>("map");
 
   useEffect(() => {
     if (!holder.current || map.current) return;
@@ -90,13 +140,17 @@ export function FlightMap({
       attributionControl: true,
     });
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 17,
-      attribution: "&copy; OpenStreetMap contributors",
+    const first = BASEMAPS.map;
+    tiles.current = L.tileLayer(first.url, {
+      maxZoom: first.maxZoom,
+      attribution: first.attribution,
     }).addTo(m);
 
+    // Dragging means you want to look at something specific; stop pulling the
+    // view back to the aircraft until Follow is asked for again.
     m.on("dragstart", () => {
       followed.current = false;
+      setFollowing(false);
     });
 
     map.current = m;
@@ -112,6 +166,67 @@ export function FlightMap({
     // Built once; everything after is imperative updates below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Swapping the base layer leaves every overlay -- aircraft, track, scene,
+  // search ring -- exactly where it is: only the tile layer is replaced.
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const next = BASEMAPS[basemap];
+    tiles.current?.remove();
+    tiles.current = L.tileLayer(next.url, {
+      maxZoom: next.maxZoom,
+      attribution: next.attribution,
+    }).addTo(m);
+    tiles.current.bringToBack();
+  }, [basemap]);
+
+  // Objective markers: redrawn as a group whenever the set or their done
+  // state changes, which is cheap at these counts and far simpler than
+  // diffing individual circles.
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    layers.current.waypoints?.remove();
+    layers.current.route?.remove();
+    layers.current.waypoints = undefined;
+    layers.current.route = undefined;
+    if (waypoints.length === 0) return;
+
+    const group = L.layerGroup().addTo(m);
+    // The order they must be flown, so a line patrol reads as a route
+    // rather than a scatter of rings.
+    if (waypoints.length > 1) {
+      layers.current.route = L.polyline(
+        waypoints.map((w) => [w.lat, w.lon] as [number, number]),
+        { color: "#f5a623", weight: 2, opacity: 0.45, dashArray: "4 8" },
+      ).addTo(m);
+    }
+
+    waypoints.forEach((w, i) => {
+      const colour = w.done ? "#4ade80" : "#f5a623";
+      // Real distance, so you can judge from the map whether you are inside
+      // it rather than guessing.
+      L.circle([w.lat, w.lon], {
+        radius: w.radiusNm * 1852,
+        color: colour,
+        weight: 2,
+        opacity: w.done ? 0.5 : 0.9,
+        fillColor: colour,
+        fillOpacity: w.done ? 0.05 : 0.12,
+      }).addTo(group);
+      L.circleMarker([w.lat, w.lon], {
+        radius: 5,
+        color: colour,
+        weight: 2,
+        fillColor: colour,
+        fillOpacity: 0.9,
+      })
+        .addTo(group)
+        .bindTooltip(w.label ?? `Point ${i + 1}`, { direction: "top", offset: [0, -6] });
+    });
+    layers.current.waypoints = group;
+  }, [waypoints]);
 
   // Scene and base are fixed for the duration of a contract.
   useEffect(() => {
@@ -301,17 +416,53 @@ export function FlightMap({
         }
         .rotorops-scene-label::before { border-top-color: #f5a623 !important; }
       `}</style>
-    <div
-      ref={holder}
-      // isolate keeps Leaflet's internal z-index values (200-1000+, for
-      // tiles, markers, its zoom control) from ever painting over a dropdown
-      // or dialog elsewhere on the page -- see location-picker.tsx for the
-      // report that traced this down.
-      className={`isolate ${className ?? "h-80 w-full rounded-lg border border-border"}`}
-      // Leaflet paints its own background; without this the panel flashes white
-      // in dark mode before the first tiles arrive.
-      style={{ background: "#0b1220" }}
-    />
+    <div className="relative isolate">
+      <div
+        ref={holder}
+        className={className ?? "h-80 w-full rounded-lg border border-border"}
+        // Leaflet paints its own background; without this the panel flashes white
+        // in dark mode before the first tiles arrive.
+        style={{ background: "#0b1220" }}
+      />
+      {/*
+        Above the map, so z-index is relative to the isolate wrapper rather
+        than fighting Leaflet's own panes (which run to 1000+).
+      */}
+      <div className="pointer-events-none absolute right-2 top-2 z-[500] flex gap-1">
+        <button
+          type="button"
+          onClick={() => {
+            followed.current = true;
+            setFollowing(true);
+            if (aircraft && map.current) {
+              map.current.panTo([aircraft.lat, aircraft.lon], { animate: true });
+            }
+          }}
+          className={`pointer-events-auto rounded px-2 py-1 text-xs font-medium shadow-md transition-colors ${
+            following
+              ? "bg-primary text-primary-foreground"
+              : "bg-card/95 text-muted-foreground hover:text-foreground"
+          }`}
+          title={following ? "Following the aircraft — drag the map to stop" : "Recentre and follow the aircraft"}
+        >
+          {following ? "Following" : "Follow"}
+        </button>
+        {(Object.keys(BASEMAPS) as BaseMapId[]).map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setBasemap(id)}
+            className={`pointer-events-auto rounded px-2 py-1 text-xs font-medium shadow-md transition-colors ${
+              basemap === id
+                ? "bg-primary text-primary-foreground"
+                : "bg-card/95 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {BASEMAPS[id].label}
+          </button>
+        ))}
+      </div>
+    </div>
     </>
   );
 }

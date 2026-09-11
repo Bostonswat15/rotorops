@@ -67,6 +67,25 @@ export type Objective =
   /** Pass over a point at low level -- route inspection work. */
   | { id: string; kind: 'overfly'; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number };
 
+/**
+ * How much slack to allow around a positional objective.
+ *
+ * The generated radii -- 0.3-0.6 nm to reach a scene, 0.5 nm over an
+ * inspection point -- are tight enough that a contract can be flown correctly
+ * and still refuse to tick, which reads as the objective being broken rather
+ * than missed. Applied here rather than at generation so contracts already
+ * sitting on the board get the same slack as newly generated ones.
+ *
+ * Deliberately NOT applied to 'search': hunting for a casualty inside a
+ * stated radius is the mechanic, not an obstacle, and widening it silently
+ * would let the one contract type built around looking for something complete
+ * itself early.
+ */
+const ZONE_TOLERANCE = 1.8;
+/** A floor as well, so a very tight radius is still flyable. */
+const MIN_ZONE_NM = 0.75;
+const zone = (radiusNm: number) => Math.max(MIN_ZONE_NM, radiusNm * ZONE_TOLERANCE);
+
 type Snap = Record<string, number | string>;
 
 const num = (v: unknown, fallback = 0): number =>
@@ -199,7 +218,7 @@ export class ObjectiveTracker {
     switch (o.kind) {
       case 'reach': {
         const d = distanceNm(lat, lon, o.lat, o.lon);
-        if (d <= o.radius_nm) {
+        if (d <= zone(o.radius_nm)) {
           this.done.add(o.id);
           completed.push(o.id);
         } else {
@@ -267,10 +286,10 @@ export class ObjectiveTracker {
         // Inspection work: being overhead isn't enough, you have to be low.
         const d = distanceNm(lat, lon, o.lat, o.lon);
         const lowEnough = agl > 0 && agl <= o.max_agl_ft;
-        if (d <= o.radius_nm && lowEnough) {
+        if (d <= zone(o.radius_nm) && lowEnough) {
           this.done.add(o.id);
           completed.push(o.id);
-        } else if (d > o.radius_nm) {
+        } else if (d > zone(o.radius_nm)) {
           this.hint = `${d.toFixed(1)} nm to the next section`;
         } else {
           this.hint = `overhead — descend below ${o.max_agl_ft} ft AGL`;
@@ -368,8 +387,8 @@ export class ObjectiveTracker {
         if (!this.slungOnce) {
           this.hint = 'nothing on the hook';
         } else if (carrying) {
-          this.hint = d <= o.radius_nm ? 'release the load' : `${d.toFixed(1)} nm to the drop`;
-        } else if (d <= o.radius_nm) {
+          this.hint = d <= zone(o.radius_nm) ? 'release the load' : `${d.toFixed(1)} nm to the drop`;
+        } else if (d <= zone(o.radius_nm)) {
           this.done.add(o.id);
           completed.push(o.id);
           this.slungOnce = false;
@@ -402,7 +421,7 @@ export class ObjectiveTracker {
             ? this.searchTarget
             : { lat: o.lat, lon: o.lon };
         const d = distanceNm(lat, lon, site.lat, site.lon);
-        if (onGround && d <= o.radius_nm) {
+        if (onGround && d <= zone(o.radius_nm)) {
           this.done.add(o.id);
           completed.push(o.id);
         } else {
@@ -425,7 +444,7 @@ export class ObjectiveTracker {
           break;
         }
         const d = distanceNm(lat, lon, target.lat, target.lon);
-        if (d <= o.radius_nm) {
+        if (d <= zone(o.radius_nm)) {
           this.done.add(o.id);
           completed.push(o.id);
         } else {

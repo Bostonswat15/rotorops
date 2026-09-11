@@ -288,14 +288,19 @@ export class ObjectiveTracker {
       case 'overfly': {
         // Inspection work: being overhead isn't enough, you have to be low.
         const d = distanceNm(lat, lon, o.lat, o.lon);
-        const lowEnough = agl > 0 && agl <= o.max_agl_ft;
+        // On the ground counts: you cannot get lower than the ground, and
+        // agl reads 0 there -- the old `agl > 0` guard turned standing at the
+        // tower into "not low enough" and told the pilot to descend. The
+        // guard existed because agl also reads 0 before telemetry settles, so
+        // the onGround flag carries that distinction instead of the altitude.
+        const lowEnough = onGround || (agl > 0 && agl <= o.max_agl_ft);
         if (d <= zone(o.radius_nm) && lowEnough) {
           this.done.add(o.id);
           completed.push(o.id);
         } else if (d > zone(o.radius_nm)) {
           this.hint = `${d.toFixed(1)} nm to the next section`;
         } else {
-          this.hint = `overhead — descend below ${o.max_agl_ft} ft AGL`;
+          this.hint = `overhead at ${Math.round(agl)} ft — descend below ${o.max_agl_ft} ft AGL`;
         }
         break;
       }

@@ -15,6 +15,7 @@ import {
 } from './api.ts';
 import { readConfig, writeConfig, CONFIG_PATH, isPackaged, readSceneObjects } from './config.ts';
 import { SceneDirector, setSceneOverrides, type SceneOverrides } from './scene-actors.ts';
+import { writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 
@@ -119,6 +120,21 @@ async function cmdProbe(filter?: string) {
 
       if (!cat.boats && !cat.ground) {
         console.log('  none reported -- scene objects will not appear');
+      } else if (filter === 'dump' || filter === 'all') {
+        // Nearly two thousand titles is far too much for a terminal, but it
+        // is exactly what is needed to choose props deliberately instead of
+        // guessing one keyword at a time.
+        const every = director.sampleTitles(1e9);
+        const out = 'simobjects.txt';
+        writeFileSync(
+          out,
+          `# SimObjects reported by this install\n\n## BOAT (${every.boats.length})\n` +
+            every.boats.join('\n') +
+            `\n\n## GROUND (${every.ground.length})\n` +
+            every.ground.join('\n') +
+            '\n',
+        );
+        console.log(`\n  Wrote ${every.boats.length + every.ground.length} title(s) to ${out}`);
       } else if (filter) {
         // With well over a thousand titles, listing them all is useless --
         // searching for the kind of prop you need is what's actually wanted.
@@ -140,6 +156,35 @@ async function cmdProbe(filter?: string) {
           console.log(`\n  GROUND (first 25):\n    ${sample.ground.join('\n    ')}`);
         }
         console.log('\n  Search for a kind of object:  npm run probe -- fire');
+        console.log('  Write the full list to a file:  npm run probe -- dump');
+      }
+
+      // Whatever the mode, say whether scene-objects.json still matches this
+      // install. A file copied from the example (or written before a mod was
+      // removed) names objects that are no longer there, and the only symptom
+      // otherwise is a scene that quietly comes up short in the air.
+      if (custom) {
+        const every = director.sampleTitles(1e9);
+        const all = new Set([...every.boats, ...every.ground]);
+        const named: string[] = [];
+        const walk = (o: any) => {
+          if (!o || typeof o !== 'object') return;
+          if (Array.isArray(o.titles)) named.push(...o.titles);
+          if (Array.isArray(o.layers)) o.layers.forEach(walk);
+        };
+        for (const group of [custom.roles, custom.scenes]) {
+          for (const key of Object.keys(group ?? {})) walk((group as any)[key]);
+        }
+        const unique = [...new Set(named)];
+        const gone = unique.filter((t) => !all.has(t));
+        console.log('\n--- scene-objects.json ---');
+        console.log(`  ${unique.length} object(s) named, ${unique.length - gone.length} present in this install`);
+        if (gone.length) {
+          console.log('  NOT in this install (these now fall back to the built-in scene):');
+          for (const t of gone) console.log(`    ${t}`);
+        } else {
+          console.log('  every named object is present.');
+        }
       }
       sim.close();
       process.exit(0);

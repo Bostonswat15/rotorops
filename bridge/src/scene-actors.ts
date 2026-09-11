@@ -125,8 +125,31 @@ const OUTPOST_HINTS = ['hut', 'shed', 'cabin', 'trailer', 'tank', 'barrel', 'cra
  *                                "count": 4, "spreadNm": 0.05 } },
  *     "scenes": { "vessel":    { "pool": "boat",   "titles": ["My Trawler"] } }
  *   }
+ *
+ * Or compose one out of parts, which is what the built-in plans do:
+ *
+ *   {
+ *     "roles": { "medevac": { "layers": [
+ *       { "titles": ["EDPro_Person_Laying_down_008"], "count": 1 },
+ *       { "titles": ["MMHAmbulance"], "count": 1, "spreadNm": 0.02 }
+ *     ] } }
+ *   }
+ *
+ * A title the install does not actually have is ignored with a warning,
+ * and an override left with nothing usable falls back to the built-in
+ * plan rather than staging an empty scene.
  */
-export type SceneOverride = Partial<StageLayer> & { titles?: string[] };
+export type SceneOverride = Partial<StageLayer> & {
+  titles?: string[];
+  /**
+   * Compose a custom scene out of several elements, the same way the
+   * built-in plans do. Each layer draws from its own titles/hints, so
+   * "the casualty, and the ambulance that came for them" is expressible
+   * by hand and not just in code. When present this wins over the flat
+   * titles/hints fields above.
+   */
+  layers?: (Partial<StageLayer> & { titles?: string[] })[];
+};
 export type SceneOverrides = {
   roles?: Record<string, SceneOverride>;
   scenes?: Record<string, SceneOverride>;
@@ -400,31 +423,78 @@ export class SceneDirector {
     const role = scene.role ?? '';
     const type = (scene.type as SceneType) ?? 'field';
 
-    // A user override for this role or scene replaces the built-in plan
-    // outright -- a hand-authored scene is one layer, deliberately: if you
-    // have gone to the trouble of naming objects, you do not also want the
-    // built-in composition fighting you.
+    // A user override for this role or scene replaces the built-in plan --
+    // but only as far as it actually works. An override naming objects this
+    // install does not have used to collapse the scene to a single degenerate
+    // layer; now it falls back to the built-in plan, so a stale file (a copy
+    // of the example, say, listing models from a mod you don't run) degrades
+    // to a working scene instead of an empty field.
     const override = overrides.roles?.[role] ?? overrides.scenes?.[type];
     const base = planFor(role, type);
     if (!base && !override) return 0;
 
-    const layers: StageLayer[] = override
-      ? [{
+    const known = new Set([...this.boats, ...this.ground]);
+    /** Titles this install genuinely has, per layer. Empty means "use hints". */
+    const usable = (ts: string[] | undefined): string[] => {
+      const wanted = ts ?? [];
+      const missing = wanted.filter((t) => !known.has(t));
+      if (missing.length > 0) {
+        this.log(`configured object(s) not in this install: ${missing.join(', ')}`);
+      }
+      return wanted.filter((t) => known.has(t));
+    };
+
+    /** Per-layer explicit titles, aligned with `layers` below. */
+    let layerTitles: string[][] = [];
+    let layers: StageLayer[];
+
+    const fallback = (): StageLayer[] => {
+      layerTitles = [];
+      return base ?? [];
+    };
+
+    if (override?.layers?.length) {
+      // A hand-composed scene: each layer keeps its own titles.
+      const built = override.layers.map((l) => ({
+        layer: {
+          pool: l.pool ?? override.pool ?? 'ground',
+          hints: l.hints ?? [],
+          count: l.count ?? 1,
+          spreadNm: l.spreadNm ?? override.spreadNm ?? 0.02,
+          freeze: l.freeze ?? override.freeze ?? true,
+        } as StageLayer,
+        titles: usable(l.titles),
+      }));
+      // Keep only layers that can actually place something.
+      const alive = built.filter((b) => b.titles.length > 0 || b.layer.hints.length > 0);
+      if (alive.length === 0) {
+        this.log(`override for ${role || type} named nothing this install has -- using the built-in scene`);
+        layers = fallback();
+      } else {
+        layers = alive.map((b) => b.layer);
+        layerTitles = alive.map((b) => b.titles);
+      }
+    } else if (override) {
+      const configured = usable(override.titles);
+      const hints = override.hints ?? [];
+      if (configured.length === 0 && hints.length === 0) {
+        this.log(`override for ${role || type} named nothing this install has -- using the built-in scene`);
+        layers = fallback();
+      } else {
+        layers = [{
           pool: override.pool ?? base?.[0]?.pool ?? 'ground',
-          hints: override.hints ?? base?.[0]?.hints ?? [],
+          hints,
           count: override.count ?? base?.[0]?.count ?? 1,
           spreadNm: override.spreadNm ?? base?.[0]?.spreadNm ?? 0,
           freeze: override.freeze ?? base?.[0]?.freeze ?? true,
-        }]
-      : base!;
-
-    const explicit = override?.titles ?? [];
-    const known = new Set([...this.boats, ...this.ground]);
-    const missing = explicit.filter((t) => !known.has(t));
-    if (missing.length > 0) {
-      this.log(`configured object(s) not found in this install: ${missing.join(', ')}`);
+        }];
+        layerTitles = [configured];
+      }
+    } else {
+      layers = base!;
     }
-    const configured = explicit.filter((t) => known.has(t));
+
+    if (layers.length === 0) return 0;
 
     // One bearing for the whole scene, so layers strung along a line share it
     // rather than each picking their own and crossing.
@@ -434,7 +504,8 @@ export class SceneDirector {
     /** Titles already used at this scene, so layers don't repeat each other. */
     const usedTitles = new Set<string>();
 
-    for (const layer of layers) {
+    for (const [li, layer] of layers.entries()) {
+      const configured = layerTitles[li] ?? [];
       const pool = layer.pool === 'boat' ? this.boats : this.ground;
       if (pool.length === 0 && configured.length === 0) {
         this.log(`no ${layer.pool} SimObjects in this install -- skipping that part of the scene`);

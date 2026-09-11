@@ -271,22 +271,25 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // mmh_roadsideAccident is exactly this scene in one object; the
         // casualties, the responders and the stopped traffic build around it.
         return [
-          set(RESPONSE_HINTS, 2, 0.02),
-          set(PERSON_HINTS, 2, 0.01),
-          set(RESCUE_KIT_HINTS, 1, 0.01),
+          set(RESPONSE_HINTS, 2, 0.015),
+          set(PERSON_HINTS, 2, 0.004),
+          set(RESCUE_KIT_HINTS, 1, 0.006),
           set(VEHICLE_HINTS, 3, 0.05),
         ];
       }
       return [
-        set(PERSON_HINTS, 1, 0.01),
-        set(RESCUE_KIT_HINTS, 1, 0.01),
+        // Tight on the datum: the casualty is the reason for the contract and
+        // the smallest thing in the scene, so scattering them 18 m into the
+        // grass made the one object that matters the hardest to find.
+        set(PERSON_HINTS, 1, 0.003),
+        set(RESCUE_KIT_HINTS, 1, 0.005),
         set(MEDICAL_HINTS, 2, 0.02),
         set(VEHICLE_HINTS, 1, 0.03),
       ];
     case 'sar':
       if (scene === 'vessel' || scene === 'riverbank') {
         // A hull going down, and people in the water beside it.
-        return [afloat(DISTRESS_BOAT_HINTS, 1, 0), set(PERSON_HINTS, 2, 0.01)];
+        return [afloat(DISTRESS_BOAT_HINTS, 1, 0), set(PERSON_HINTS, 2, 0.005)];
       }
       // A casualty up a cliff or along a ridge used to get nothing at all,
       // on the grounds that no vehicle belongs up there -- which left the one
@@ -298,13 +301,13 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // and it is the difference between a search you can fly and one you
         // give up on.
         return [
-          set(PERSON_HINTS, 2, 0.008),
-          set(SIGNAL_HINTS, 1, 0.01),
-          set(KIT_HINTS, 1, 0.01),
+          set(PERSON_HINTS, 2, 0.004),
+          set(SIGNAL_HINTS, 1, 0.008),
+          set(KIT_HINTS, 1, 0.008),
         ];
       }
       if (scene === 'beach') {
-        return [set(PERSON_HINTS, 2, 0.01), set(KIT_HINTS, 1, 0.015), set(VEHICLE_HINTS, 1, 0.03)];
+        return [set(PERSON_HINTS, 2, 0.005), set(KIT_HINTS, 1, 0.01), set(VEHICLE_HINTS, 1, 0.03)];
       }
       if (scene === 'forest' || scene === 'field') {
         // Downed aircraft: the install carries wrecks with burning variants,
@@ -312,14 +315,14 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // hovering over trees than a parked van.
         return [
           set(WRECK_HINTS, 1, 0),
-          set(PERSON_HINTS, 2, 0.012),
-          set(SIGNAL_HINTS, 1, 0.01),
+          set(PERSON_HINTS, 2, 0.006),
+          set(SIGNAL_HINTS, 1, 0.008),
         ];
       }
       // Ground search: the casualty, and the search party staged nearby.
       return [
-        set(PERSON_HINTS, 2, 0.01),
-        set(RESCUE_KIT_HINTS, 1, 0.015),
+        set(PERSON_HINTS, 2, 0.005),
+        set(RESCUE_KIT_HINTS, 1, 0.008),
         set(MEDICAL_HINTS, 1, 0.03),
         set(VEHICLE_HINTS, 2, 0.04),
       ];
@@ -363,7 +366,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
   if (scene === 'rooftop') return null; // nothing settles believably on a roof
   if (scene === 'forest' || scene === 'field') return [set(OUTPOST_HINTS, 3, 0.04)];
   if (scene === 'highway') return [set(RESPONSE_HINTS, 2, 0.03), set(VEHICLE_HINTS, 2, 0.04)];
-  if (scene === 'cliff' || scene === 'ridgeline') return [set(PERSON_HINTS, 1, 0.008), set(KIT_HINTS, 1, 0.01)];
+  if (scene === 'cliff' || scene === 'ridgeline') return [set(PERSON_HINTS, 1, 0.004), set(KIT_HINTS, 1, 0.008)];
   return [set(VEHICLE_HINTS, 2, 0.02)];
 }
 

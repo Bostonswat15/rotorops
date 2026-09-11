@@ -34,7 +34,10 @@ const CASUALTY_STATION = 3;
 
 export type SceneType =
   | 'vessel' | 'oil_rig' | 'cliff' | 'beach' | 'ridgeline' | 'forest'
-  | 'riverbank' | 'highway' | 'field' | 'rooftop' | 'confined';
+  | 'riverbank' | 'highway' | 'field' | 'rooftop' | 'confined'
+  // Not terrain: an industry site (a camp, mill, quarry or well) and a
+  // charter run's destination airport. Both arrive here as scene_type.
+  | 'industry' | 'charter';
 
 /**
  * What to place, driven by the job rather than just the terrain.
@@ -57,6 +60,12 @@ type StagePlan = {
 };
 
 const CARGO_HINTS = ['cargo', 'pallet', 'crate', 'container', 'box', 'freight', 'sling', 'barrel'];
+/** A working site: something stacked, something parked, something built. */
+const SITE_HINTS = [
+  'container', 'crate', 'pallet', 'barrel', 'tank', 'silo', 'shed', 'hut',
+  'trailer', 'excavator', 'digger', 'loader', 'tractor', 'crane', 'generator',
+  'truck', 'pickup',
+];
 const MEDICAL_HINTS = ['ambulance', 'medic', 'rescue', 'emergency'];
 const FIRE_HINTS = ['fire', 'engine', 'tender', 'pumper'];
 const VEHICLE_HINTS = ['truck', 'van', 'suv', 'car', 'pickup', 'jeep', 'bus'];
@@ -114,6 +123,19 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // Ground search: a couple of vehicles at the staging point.
       if (scene === 'cliff' || scene === 'ridgeline') return null;
       return { pool: 'ground', hints: [...MEDICAL_HINTS, ...VEHICLE_HINTS], count: 2, spreadNm: 0.03 };
+    case 'industry':
+      // A lumber camp, quarry, well or mill. Nothing in the sim marks these
+      // -- they are real OSM land use, or a spot the company chose to build
+      // on -- so without something placed here you fly to an empty clearing
+      // and take it on trust. Clustered and frozen: this is the site itself,
+      // not the load (the load is a payload objective, not an object).
+      return { pool: 'ground', hints: [...SITE_HINTS, ...CARGO_HINTS], count: 5, spreadNm: 0.06 };
+    case 'charter_cargo':
+    case 'charter_pax':
+      // Both ends of a charter are real airports, which have their own
+      // scenery and traffic already. Spawning a lone pickup on the apron
+      // adds nothing.
+      return null;
     case 'offshore':
       return null; // platforms are scenery
     default:

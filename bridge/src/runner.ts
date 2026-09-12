@@ -16,7 +16,7 @@ import {
   type BridgeState, type BridgeAircraft, type BridgeMission, type ResolveResult,
 } from './api.ts';
 import { readSceneObjects } from './config.ts';
-import { fetchRoadNear } from './roads.ts';
+import { roadWithRetry } from './roads.ts';
 
 /** How close to the filed destination counts as arriving there. */
 const ARRIVAL_TOLERANCE_NM = 3;
@@ -299,19 +299,25 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         .filter((o) => Number.isFinite(o.lat) && Number.isFinite(o.lon))
         .map((o) => ({ lat: Number(o.lat), lon: Number(o.lon) }));
       const sceneType = (m.scene_type ?? 'field') as SceneType;
-      const stageScene = (road?: LatLon[]) =>
-        director!.stage({ lat: at.lat, lon: at.lon, type: sceneType, role: m.role, path: route, road });
+      const stageScene = (road?: LatLon[], only?: 'road' | 'offroad') =>
+        director!.stage({ lat: at.lat, lon: at.lon, type: sceneType, role: m.role, path: route, road, only });
 
-      // A roadside scene waits for the real road so its traffic can be
-      // lined up on the carriageway instead of scattered into the water and
-      // trees around it. Everything else stages straight away.
+      // A roadside scene puts its casualty and kit down now, and lines its
+      // traffic up on the real carriageway once the road is known -- which
+      // can take minutes when OSM is busy, and is instant from the cache
+      // after that. Everything else stages straight away.
       let placed = 0;
       if (sceneType === 'highway') {
+        placed = stageScene(undefined, 'offroad');
         const gen = stageGen;
-        void fetchRoadNear(at.lat, at.lon).then((road) => {
+        void roadWithRetry(at.lat, at.lon, () => gen === stageGen && !!director, log).then((road) => {
           if (gen !== stageGen || !director) return;
-          if (!road) log('No road geometry for this scene -- keeping its vehicles tight on the road point.');
-          stageScene(road ?? undefined);
+          if (!road) {
+            log('No road at this scene (or OSM unreachable after retrying) -- vehicles left out rather than piled up.');
+            return;
+          }
+          const n = stageScene(road, 'road');
+          if (n > 0) log(`Lined ${n} vehicle(s) up on the road.`);
         });
       } else {
         placed = stageScene();

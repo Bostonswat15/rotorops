@@ -877,6 +877,12 @@ export class SceneDirector {
     path?: { lat: number; lon: number }[];
     /** The drivable way at the scene, for layers marked onRoad. */
     road?: { lat: number; lon: number }[];
+    /**
+     * Stage only part of the scene. A roadside scene puts its people down
+     * straight away ('offroad') and its vehicles once the real road is known
+     * ('road') -- which may be minutes later if OSM is having a bad moment.
+     */
+    only?: 'road' | 'offroad';
   }): number {
     const role = scene.role ?? '';
     const type = (scene.type as SceneType) ?? 'field';
@@ -978,7 +984,17 @@ export class SceneDirector {
     /** Titles already used at this scene, so layers don't repeat each other. */
     const usedTitles = new Set<string>();
 
+    let roadless = 0;
     for (const [li, layer] of layers.entries()) {
+      if (scene.only === 'road' && !layer.onRoad) continue;
+      if (scene.only === 'offroad' && layer.onRoad) continue;
+      // A vehicle that belongs on the road and has no road to go on is left
+      // out. Holding it tight on the scene point instead piled five of them
+      // into a 10 m heap -- an empty verge reads far better than that.
+      if (layer.onRoad && (scene.road?.length ?? 0) < 2) {
+        roadless += layer.count;
+        continue;
+      }
       const configured = layerTitles[li] ?? [];
       const pool =
         layer.pool === 'boat' ? this.boats : layer.pool === 'effect' ? this.planes : this.ground;
@@ -1029,10 +1045,6 @@ export class SceneDirector {
           const p = placeAlongRoad(road, { lat: scene.lat, lon: scene.lon }, step * 14, nearSide ? 2.5 : -2.5);
           spread = { lat: p.lat, lon: p.lon };
           heading = nearSide ? p.heading : (p.heading + 180) % 360;
-        } else if (layer.onRoad) {
-          // No road geometry: hold tight on the scene point, which is on the
-          // road, rather than risk the water and trees around it.
-          spread = offset(scene.lat, scene.lon, 0.006 * (0.4 + Math.random()), Math.random() * 360);
         } else if (layer.spreadNm === 0) {
           spread = { lat: scene.lat, lon: scene.lon };
         } else if (wantsLine && route.length >= 2) {
@@ -1078,6 +1090,9 @@ export class SceneDirector {
       }
     }
 
+    if (roadless > 0) {
+      this.log(`left ${roadless} roadside vehicle(s) out: no road geometry for this scene`);
+    }
     if (placed > 0) {
       this.log(`Requested ${placed} object(s): ${requested.join(', ')}`);
       // Anything the sim silently refuses never gets an id back, so say so

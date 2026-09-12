@@ -11,6 +11,9 @@
  * is what makes an OSM polyline a fair stand-in for where the tarmac is.
  */
 
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { CONFIG_DIR } from './config.ts';
 import type { LatLon } from './search.ts';
 
 const ENDPOINTS = [
@@ -24,12 +27,10 @@ const DRIVABLE =
   'motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|' +
   'motorway_link|trunk_link|primary_link|secondary_link|tertiary_link';
 
+type Lookup = { kind: 'road'; line: LatLon[] } | { kind: 'none' } | { kind: 'error' };
+
 /**
- * The polyline of the drivable way nearest a point, or null.
- *
- * Null covers both "no road here" and "OSM could not be reached" -- the
- * caller's fallback is the same either way (keep the scene tight on its own
- * point, which generation already placed on a road).
+ * One lookup, telling apart "no road here" from "OSM could not be reached".
  *
  * Both mirrors are asked at once and the first good answer wins. Measured
  * from this machine, each mirror in turn hung for 12 s or rate-limited with a
@@ -37,7 +38,7 @@ const DRIVABLE =
  * after the other spent the whole budget on whichever was having a bad
  * moment. The loser is cancelled as soon as there is a winner.
  */
-export async function fetchRoadNear(lat: number, lon: number, radiusM = 200): Promise<LatLon[] | null> {
+async function lookup(lat: number, lon: number, radiusM: number): Promise<Lookup> {
   const query =
     `[out:json][timeout:10];` +
     `way(around:${Math.round(radiusM)},${lat},${lon})["highway"~"^(${DRIVABLE})$"];` +
@@ -47,14 +48,90 @@ export async function fetchRoadNear(lat: number, lon: number, radiusM = 200): Pr
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const ways = await Promise.any(ENDPOINTS.map((url) => queryMirror(url, query, controller.signal)));
-    return ways.length === 0 ? null : nearestLine(ways, { lat, lon });
+    return ways.length === 0 ? { kind: 'none' } : { kind: 'road', line: nearestLine(ways, { lat, lon }) };
   } catch {
     // Every mirror failed or timed out.
-    return null;
+    return { kind: 'error' };
   } finally {
     clearTimeout(timer);
     controller.abort();
   }
+}
+
+/** The polyline of the drivable way nearest a point, or null for either kind of miss. */
+export async function fetchRoadNear(lat: number, lon: number, radiusM = 200): Promise<LatLon[] | null> {
+  const r = await lookup(lat, lon, radiusM);
+  return r.kind === 'road' ? r.line : null;
+}
+
+// --- Cache -------------------------------------------------------------------
+
+const CACHE_PATH = join(CONFIG_DIR, 'road-cache.json');
+/** Scene point -> its road, or [] for a confirmed "no road here". */
+type Cache = Record<string, [number, number][]>;
+const keyOf = (lat: number, lon: number) => `${lat.toFixed(5)},${lon.toFixed(5)}`;
+
+function readCache(): Cache {
+  try {
+    return JSON.parse(readFileSync(CACHE_PATH, 'utf8')) as Cache;
+  } catch {
+    return {};
+  }
+}
+
+function remember(lat: number, lon: number, line: LatLon[] | null) {
+  try {
+    const cache = readCache();
+    cache[keyOf(lat, lon)] = (line ?? []).map((p) => [p.lat, p.lon]);
+    mkdirSync(CONFIG_DIR, { recursive: true });
+    writeFileSync(CACHE_PATH, JSON.stringify(cache));
+  } catch {
+    // A cache that cannot be written just means asking again next time.
+  }
+}
+
+/** Waits between attempts: now, then backing off to a couple of minutes. */
+const RETRY_DELAYS_MS = [0, 15_000, 30_000, 60_000, 120_000];
+
+/**
+ * The road at a scene, surviving a bad moment on OSM.
+ *
+ * A single 10 s attempt made one slow request decide the whole scene:
+ * measured, the lookup timed out, the fallback piled five vehicles into a
+ * 10 m heap, and a scene that had a perfectly good road looked broken. Now a
+ * failure is retried with backoff for a few minutes, and a real answer --
+ * including "there is no road here" -- is written to disk, so a restart or a
+ * re-arm places the scene instantly and never asks OSM twice.
+ *
+ * `stillWanted` lets the caller give up early, when the scene it was for has
+ * been cleared. Resolves to null when there is no road or the retries ran
+ * out; the caller leaves the vehicles out either way.
+ */
+export async function roadWithRetry(
+  lat: number,
+  lon: number,
+  stillWanted: () => boolean,
+  log: (message: string) => void,
+): Promise<LatLon[] | null> {
+  const cached = readCache()[keyOf(lat, lon)];
+  if (cached) return cached.length >= 2 ? cached.map(([la, lo]) => ({ lat: la, lon: lo })) : null;
+
+  for (const [attempt, delay] of RETRY_DELAYS_MS.entries()) {
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    if (!stillWanted()) return null;
+    const r = await lookup(lat, lon, 200);
+    if (r.kind === 'road') {
+      remember(lat, lon, r.line);
+      return r.line;
+    }
+    if (r.kind === 'none') {
+      remember(lat, lon, null);
+      return null;
+    }
+    const next = RETRY_DELAYS_MS[attempt + 1];
+    if (next !== undefined) log(`Road lookup failed (OSM busy) -- retrying in ${next / 1000} s.`);
+  }
+  return null;
 }
 
 /** One mirror's answer. Throws on anything but a usable response, so Promise.any skips it. */

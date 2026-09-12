@@ -72,8 +72,13 @@ export const OPTIONAL_DATA: Datum[] = [
   // Indexed by sling index.
   { key: 'slingCableBroken', name: 'SLING CABLE BROKEN:1', unit: 'Bool', type: 'i32' },
   { key: 'hoistDeployed', name: 'SLING HOIST PERCENT DEPLOYED:1', unit: 'percent', type: 'f64' },
-  // Not indexed, despite reading like it should be.
+  // Registered both ways deliberately. The SDK documents this one as indexed,
+  // but the unindexed name resolves too -- and a var that resolves and always
+  // reads 0 is indistinguishable from one that is being asked wrongly. Reading
+  // both means a disagreement between them is visible rather than silently
+  // taken as "nothing attached".
   { key: 'slingObjectAttached', name: 'SLING OBJECT ATTACHED', unit: 'Bool', type: 'i32' },
+  { key: 'slingObjectAttached1', name: 'SLING OBJECT ATTACHED:1', unit: 'Bool', type: 'i32' },
   { key: 'slingHookPickup', name: 'SLING HOOK IN PICKUP MODE', unit: 'Bool', type: 'i32' },
   { key: 'numSlingCables', name: 'NUM SLING CABLES', unit: 'Number', type: 'i32' },
   // The stock MSFS 2024 H125 Cargo flies with a visible rope but reports zero

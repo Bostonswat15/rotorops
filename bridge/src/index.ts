@@ -362,6 +362,7 @@ async function cmdSling(mode?: string) {
     const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
     const cables = n(s.numSlingCables);
     const attached = n(s.slingObjectAttached);
+    const attached1 = n(s.slingObjectAttached1);
     const pickup = n(s.slingHookPickup);
     const hoist = n(s.hoistDeployed);
     const broken = n(s.slingCableBroken);
@@ -378,7 +379,7 @@ async function cmdSling(mode?: string) {
     const delta = weight !== null && baseWeight !== null ? weight - baseWeight : null;
 
     const line =
-      `cables=${cables ?? '-'}  attached=${attached ?? '-'}  ` +
+      `cables=${cables ?? '-'}  attached=${attached ?? '-'}/${attached1 ?? '-'}  ` +
       `pickupMode=${pickup ?? '-'}  hoist=${hoist === null ? '-' : hoist.toFixed(0) + '%'}  ` +
       `broken=${broken ?? '-'}  ` +
       `cableLen=${cableLen === null ? '-' : cableLen.toFixed(1) + 'ft'}  ` +

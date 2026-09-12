@@ -491,10 +491,23 @@ export function FlightMap({
         }
         .rotorops-scene-label::before { border-top-color: #f5a623 !important; }
       `}</style>
-    <div className="relative isolate">
+    {/*
+      The caller's sizing goes on this wrapper, not on the map element inside.
+      The controls below are positioned against it, so when it had no sizing of
+      its own it collapsed to nothing and they floated over the page with the
+      map nowhere -- which looks like Leaflet failing to paint and is really a
+      zero-height box. A fixed height (h-96) hid it; `flex-1` did not, because
+      flex-1 on the inner element means nothing when its parent is not a flex
+      container.
+    */}
+    <div
+      className={`relative isolate overflow-hidden ${
+        className ?? "h-80 w-full rounded-lg border border-border"
+      }`}
+    >
       <div
         ref={holder}
-        className={className ?? "h-80 w-full rounded-lg border border-border"}
+        className="h-full w-full"
         // Leaflet paints its own background; without this the panel flashes white
         // in dark mode before the first tiles arrive.
         style={{ background: "#0b1220" }}

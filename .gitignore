@@ -41,3 +41,6 @@ dist-ssr
 desktop/dist/
 bridge/dist/
 bridge/simobjects.txt
+
+# One-off migration repair bundles, regenerated from supabase/migrations.
+apply-migrations.sql

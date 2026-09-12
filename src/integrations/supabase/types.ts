@@ -413,6 +413,7 @@ export type Database = {
       }
       economy_transactions: {
         Row: {
+          aircraft_id: string | null
           amount: number
           company_id: string
           created_at: string
@@ -421,6 +422,7 @@ export type Database = {
           type: string
         }
         Insert: {
+          aircraft_id?: string | null
           amount: number
           company_id: string
           created_at?: string
@@ -429,6 +431,7 @@ export type Database = {
           type: string
         }
         Update: {
+          aircraft_id?: string | null
           amount?: number
           company_id?: string
           created_at?: string
@@ -437,6 +440,13 @@ export type Database = {
           type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "economy_transactions_aircraft_id_fkey"
+            columns: ["aircraft_id"]
+            isOneToOne: false
+            referencedRelation: "aircraft"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "economy_transactions_company_id_fkey"
             columns: ["company_id"]

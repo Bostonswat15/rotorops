@@ -17,6 +17,7 @@ import {
   generateMissionFromTemplate,
   isAircraftEligible,
   companyHasCerts,
+  fleetWing,
   TAG_LABELS,
 } from "@/lib/game-data";
 import { useCompanyRole } from "@/hooks/use-company";
@@ -46,7 +47,8 @@ function MissionsPage() {
   const [roleFilter, setRoleFilter] = useState<string>("all");
   // Helicopters and aeroplanes fly completely different work, so the board is
   // split rather than mixed -- you are usually shopping for one or the other.
-  const [wing, setWing] = useState<"rotary" | "fixed">("rotary");
+  // Null until someone picks a tab; the fleet decides until then.
+  const [pickedWing, setWing] = useState<"rotary" | "fixed" | null>(null);
   const [manualFor, setManualFor] = useState<any | null>(null);
   const { canManage } = useCompanyRole();
 
@@ -62,6 +64,8 @@ function MissionsPage() {
     queryKey: ["aircraft"],
     queryFn: async () => (await supabase.from("aircraft").select("*")).data ?? [],
   });
+  // A plane company shouldn't land on the helicopter half of its own board.
+  const wing = pickedWing ?? fleetWing(aircraft);
   const { data: bases } = useQuery({
     queryKey: ["bases"],
     queryFn: async () => (await supabase.from("bases").select("*")).data ?? [],

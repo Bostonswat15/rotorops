@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ShoppingCart, Fuel, Gauge, Package, Users, Anchor, ArrowUpDown, Wrench, KeyRound, Search, X } from "lucide-react";
-import { AIRCRAFT_ARCHETYPES, TAG_LABELS, type AircraftArchetype, type WingType } from "@/lib/game-data";
+import { AIRCRAFT_ARCHETYPES, TAG_LABELS, fleetWing, type AircraftArchetype, type WingType } from "@/lib/game-data";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
 
 export const Route = createFileRoute("/_authenticated/market")({
@@ -107,7 +107,14 @@ function MarketPage() {
   const { data: company } = useCompany();
   const { canManage } = useCompanyRole();
   const [sort, setSort] = useState("price");
-  const [wing, setWing] = useState<WingType>("rotary");
+  // Null until someone picks a tab; the fleet decides until then, so a plane
+  // company opens on planes. Same query key as the mission board, so it's cached.
+  const [pickedWing, setWing] = useState<WingType | null>(null);
+  const { data: fleet } = useQuery({
+    queryKey: ["aircraft"],
+    queryFn: async () => (await supabase.from("aircraft").select("*")).data ?? [],
+  });
+  const wing: WingType = pickedWing ?? fleetWing(fleet);
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState("");
   /** Chosen configuration per model, keyed by family. Empty means the base. */

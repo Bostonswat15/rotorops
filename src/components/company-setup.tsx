@@ -4,21 +4,44 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Helicopter } from "lucide-react";
+import { Helicopter, Plane } from "lucide-react";
 import { toast } from "sonner";
-import { AIRCRAFT_ARCHETYPES } from "@/lib/game-data";
+import { AIRCRAFT_ARCHETYPES, type AircraftArchetype, type WingType } from "@/lib/game-data";
+
+// What a new company can start with. Helicopters keep the three they always
+// had; planes get every stock fixed-wing airframe, cheapest first, so the list
+// reads trainer to jet.
+const STARTERS: Record<WingType, AircraftArchetype[]> = {
+  rotary: AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === "rotary").slice(0, 3),
+  fixed: AIRCRAFT_ARCHETYPES.filter((a) => a.wing === "fixed").sort(
+    (a, b) => a.acquisition_cost - b.acquisition_cost,
+  ),
+};
+
+const DEFAULT_BASE: Record<WingType, string> = {
+  rotary: "Main Heliport",
+  fixed: "Main Airfield",
+};
 
 export function CompanySetup({ onCreated }: { onCreated: () => void }) {
   const [name, setName] = useState("");
-  const [baseName, setBaseName] = useState("Main Heliport");
+  const [wing, setWing] = useState<WingType>("rotary");
+  const [baseName, setBaseName] = useState(DEFAULT_BASE.rotary);
   const [icao, setIcao] = useState("KLAX");
   const [difficulty, setDifficulty] = useState("normal");
   const [realism, setRealism] = useState("balanced");
-  const [starter, setStarter] = useState("R44-II");
+  const [starter, setStarter] = useState(STARTERS.rotary[0].internal_id);
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
   const [mode, setMode] = useState<"found" | "join">("found");
+
+  function chooseWing(next: WingType) {
+    setWing(next);
+    setStarter(STARTERS[next][0].internal_id);
+    // Only swap a base name nobody has typed over.
+    if (baseName === DEFAULT_BASE[wing]) setBaseName(DEFAULT_BASE[next]);
+  }
 
   // Company, base, starter airframe and opening capital are created together
   // server-side -- a half-built company can't be left behind by a failed step.
@@ -26,7 +49,7 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
     e.preventDefault();
     setLoading(true);
     try {
-      const arch = AIRCRAFT_ARCHETYPES.find((a) => a.internal_id === starter)!;
+      const arch = STARTERS[wing].find((a) => a.internal_id === starter)!;
       const { error } = await supabase.rpc("create_company", {
         _name: name,
         _difficulty: difficulty,
@@ -60,13 +83,19 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
     }
   }
 
+  const HeaderIcon = mode === "found" && wing === "fixed" ? Plane : Helicopter;
+
   return (
     <div className="min-h-screen overflow-auto bg-background px-4 py-10">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6 flex items-center gap-2">
-          <Helicopter className="h-6 w-6 text-primary" />
+          <HeaderIcon className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-semibold">
-            {mode === "found" ? "Found your helicopter company" : "Join a company"}
+            {mode === "join"
+              ? "Join a company"
+              : wing === "fixed"
+                ? "Found your fixed-wing company"
+                : "Found your helicopter company"}
           </h1>
         </div>
 
@@ -104,6 +133,34 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
           onSubmit={submit}
           className={`space-y-6 rounded-xl border border-border bg-card p-6 ${mode === "join" ? "hidden" : ""}`}
         >
+          <div>
+            <Label className="mb-2 block">What do you fly?</Label>
+            <RadioGroup
+              value={wing}
+              onValueChange={(v) => chooseWing(v as WingType)}
+              className="grid grid-cols-2 gap-2"
+            >
+              {(
+                [
+                  ["rotary", "Helicopters", "Rescues, lifts, medevac and scene work"],
+                  ["fixed", "Planes", "Freight, charters, air ambulance and survey"],
+                ] as const
+              ).map(([v, l, sub]) => (
+                <label
+                  key={v}
+                  className="flex cursor-pointer flex-col rounded-md border border-border bg-background p-3 has-[:checked]:border-primary has-[:checked]:bg-accent"
+                >
+                  <RadioGroupItem value={v} className="sr-only" />
+                  <span className="font-medium">{l}</span>
+                  <span className="text-xs text-muted-foreground">{sub}</span>
+                </label>
+              ))}
+            </RadioGroup>
+            <p className="mt-2 text-xs text-muted-foreground">
+              This picks your first aircraft. Either kind can be bought later from the Market.
+            </p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <Label>Company name</Label>
@@ -154,9 +211,13 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
           </div>
 
           <div>
-            <Label className="mb-2 block">Starter helicopter</Label>
-            <RadioGroup value={starter} onValueChange={setStarter} className="grid gap-2 md:grid-cols-2">
-              {AIRCRAFT_ARCHETYPES.slice(0, 3).map((a) => (
+            <Label className="mb-2 block">
+              Starter {wing === "fixed" ? "plane" : "helicopter"}
+            </Label>
+            {/* The plane list is every stock airframe, so it scrolls rather than
+                pushing Launch a long way down the page. */}
+            <RadioGroup value={starter} onValueChange={setStarter} className="grid max-h-96 gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+              {STARTERS[wing].map((a) => (
                 <label key={a.internal_id} className="flex cursor-pointer flex-col rounded-md border border-border bg-background p-3 has-[:checked]:border-primary has-[:checked]:bg-accent">
                   <RadioGroupItem value={a.internal_id} className="sr-only" />
                   <span className="font-medium">{a.display_name}</span>

@@ -128,6 +128,26 @@ export { CATALOG_ARCHETYPES } from "./aircraft-catalog";
 // Kept under the original name so every caller is unchanged.
 export const AIRCRAFT_ARCHETYPES: AircraftArchetype[] = CATALOG_ARCHETYPES_IMPL;
 
+/**
+ * Which half of the Market and mission board a fleet belongs on.
+ *
+ * Owned aircraft carry no wing column -- only the catalogue knows -- so it is
+ * looked up by internal_id. Custom and modded airframes aren't in the catalogue
+ * and count as rotary, like everything that predates planes. Only an all-plane
+ * fleet flips to fixed; a mixed fleet keeps the helicopter-first default.
+ */
+export function fleetWing(
+  aircraft: readonly { internal_id?: string | null }[] | null | undefined,
+): WingType {
+  if (!aircraft?.length) return "rotary";
+  const fixed = new Set(
+    AIRCRAFT_ARCHETYPES.filter((a) => a.wing === "fixed").map((a) => a.internal_id),
+  );
+  return aircraft.every((a) => a.internal_id != null && fixed.has(a.internal_id))
+    ? "fixed"
+    : "rotary";
+}
+
 export type MissionTemplate = {
   role: string;
   title: string;

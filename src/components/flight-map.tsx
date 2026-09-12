@@ -98,6 +98,40 @@ export type FlightMapProps = {
  * background, so the display degrades to a usable tactical plot rather than a
  * blank panel.
  */
+/**
+ * A 100 px scale bar in nautical miles.
+ *
+ * Distances in this app -- zone radii, range to a waypoint, aircraft range --
+ * are all nautical, and Leaflet's built-in control does statute miles or
+ * kilometres only. A ring drawn at its true radius is unreadable without
+ * something to measure it against, which is how an 0.8 nm zone on a view a
+ * mile and a half wide reads as the zone having grown.
+ */
+function nmScale() {
+  const Ctl = L.Control.extend({
+    options: { position: "bottomleft" as L.ControlPosition },
+    onAdd(map: L.Map) {
+      const el = L.DomUtil.create("div");
+      el.style.cssText =
+        "width:100px;box-sizing:border-box;padding:1px 4px;text-align:center;" +
+        "background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.4);" +
+        "border-top:none;font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;";
+      const draw = () => {
+        const y = map.getSize().y / 2;
+        const a = map.containerPointToLatLng([0, y]);
+        const b = map.containerPointToLatLng([100, y]);
+        const nm = a.distanceTo(b) / 1852;
+        el.textContent = `${nm < 1 ? nm.toFixed(2) : nm.toFixed(1)} nm`;
+      };
+      map.on("zoomend", draw);
+      map.on("move", draw);
+      draw();
+      return el;
+    },
+  });
+  return new Ctl();
+}
+
 export function FlightMap({
   aircraft, scene, search, sighted, base, waypoints = [], track = [], className,
 }: FlightMapProps) {
@@ -145,6 +179,16 @@ export function FlightMap({
       maxZoom: first.maxZoom,
       attribution: first.attribution,
     }).addTo(m);
+
+    // A zone drawn at its true radius is only readable against a distance.
+    // Following the aircraft holds the view about a mile and a half across,
+    // which makes an 0.8 nm ring fill the screen and look as though the zone
+    // itself grew -- the ring is to scale, and the scale was the missing half
+    // of the picture.
+    // Leaflet's own scale control offers statute miles or kilometres, and
+    // this app measures everything else in nautical miles. Mixing the two on
+    // one screen is worse than no scale at all.
+    nmScale().addTo(m);
 
     // Dragging means you want to look at something specific; stop pulling the
     // view back to the aircraft until Follow is asked for again.

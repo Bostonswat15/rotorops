@@ -272,6 +272,23 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         role: m.role,
         path: route,
       });
+
+      // A sling job has two ends. The scene above gets the site the load is
+      // going to; the pickup gets the load itself, on the apron at base,
+      // because otherwise the contract asks you to hook up something that
+      // was never put anywhere.
+      const pickup = (m.objectives as Objective[]).find(
+        (o) => o.kind === 'sling' && typeof (o as { lat?: number }).lat === 'number',
+      ) as { lat: number; lon: number } | undefined;
+      if (pickup) {
+        const n = director.stage({
+          lat: pickup.lat,
+          lon: pickup.lon,
+          type: 'field',
+          role: 'sling_pickup',
+        });
+        if (n > 0) log(`Staged ${n} object(s) at the pickup.`);
+      }
       director.say(
         spec && spec.kind === 'search'
           ? `RotorOps — ${m.title}. Search datum ${m.scene_name ?? 'set'}, ` +

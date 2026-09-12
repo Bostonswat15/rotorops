@@ -244,6 +244,13 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     case 'construction':
       // Load to lift, plus the site it is going to.
       return [load(CARGO_HINTS, 2, 0.03), set([...STRUCTURE_HINTS, ...SITE_HINTS], 3, 0.04)];
+    case 'sling_pickup':
+      // The apron at base, where the load is rigged and waiting. Staged
+      // separately from the scene because a sling job now has two ends: the
+      // delivery point gets the site it is going to, this gets the thing you
+      // are there to collect. Tight spread -- it wants to read as a rigged
+      // load beside the aircraft, not freight scattered across the airfield.
+      return [load(CARGO_HINTS, 3, 0.02), set(VEHICLE_HINTS, 1, 0.03)];
     case 'industry':
       // A lumber camp, quarry, well or mill. Nothing in the sim marks these
       // -- they are real OSM land use, or a spot the company chose to build

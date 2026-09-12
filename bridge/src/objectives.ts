@@ -53,6 +53,14 @@ export type Objective =
        * is the fallback that works across every helicopter.
        */
       min_delta_lb?: number;
+      /**
+       * Where the load is waiting, when it is waiting somewhere specific.
+       *
+       * Construction and logistics loads are rigged on the apron at base and
+       * flown out, so the hook-up has a position. A firefighting bucket has
+       * none -- it is dipped in whatever water is near the fire.
+       */
+      lat?: number; lon?: number; radius_nm?: number;
     }
   /** Put the underslung load down where it was asked for. */
   | { id: string; kind: 'sling_release'; label: string; lat: number; lon: number; radius_nm: number }
@@ -387,6 +395,18 @@ export class ObjectiveTracker {
       }
 
       case 'sling': {
+        // A positioned load has to be hooked where it is sitting. Without
+        // this the weight fallback would tick anywhere -- including at the
+        // delivery point, which would complete the pickup and the drop on
+        // one spot and leave nothing to actually carry.
+        if (typeof o.lat === 'number' && typeof o.lon === 'number') {
+          const d = distanceNm(lat, lon, o.lat, o.lon);
+          if (d > zone(o.radius_nm ?? 0.5)) {
+            this.slingBase = null;
+            this.hint = `${d.toFixed(1)} nm to the load`;
+            break;
+          }
+        }
         // First reading once this objective is live is the empty baseline.
         if (this.slingBase === null) this.slingBase = payload;
         const gained = payload - this.slingBase;
@@ -412,7 +432,11 @@ export class ObjectiveTracker {
         } else if (num(s.slingHookPickup) === 1) {
           this.hint = 'hook is down — position over the load';
         } else {
-          this.hint = 'get the hook onto the load';
+          // Say how, not just what. A SimObject spawned by the bridge cannot
+          // be attached to the hook by the sim -- the staged crates are there
+          // to fly to, and the weight aboard is what the contract actually
+          // measures.
+          this.hint = `over the load — hook it, or take ${need} lb aboard`;
         }
         break;
       }

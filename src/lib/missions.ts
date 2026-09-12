@@ -108,7 +108,19 @@ export type Objective =
    * exposes no native sling -- which includes the stock MSFS 2024 H125 Cargo,
    * rope and all.
    */
-  | { id: string; kind: "sling"; label: string; min_delta_lb?: number }
+  | {
+      id: string; kind: "sling"; label: string; min_delta_lb?: number;
+      /**
+       * Where the load is waiting, when it is waiting somewhere specific.
+       *
+       * Sling work that hooks up and sets down at the same point is not a
+       * job -- it is a hover exercise. Construction and logistics loads are
+       * rigged on the apron at base and flown out, so the hook-up has a
+       * position of its own. A firefighting bucket has none: you dip it in
+       * whatever water is near the fire, so that one stays unpositioned.
+       */
+      lat?: number; lon?: number; radius_nm?: number;
+    }
   /** Set the load down where it was asked for. */
   | { id: string; kind: "sling_release"; label: string; lat: number; lon: number; radius_nm: number }
   /** Weight comes aboard -- a casualty, a crew, cargo. */
@@ -134,6 +146,8 @@ export type Step =
   | "hover_scene"
   | "hoist_recover"
   | "sling_attach"
+  /** Hook up on the apron at base, rather than wherever the scene is. */
+  | "sling_pickup"
   | "sling_release"
   | "take_on_load"
   | "land_scene"
@@ -880,7 +894,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     required_tags: ["heavy_lift"], required_certs: ["heavy_lift"],
     min_payload: 3000, base_payout: 17500, scene_range: [8, 30],
     difficulty: 4, weather_factor: 3,
-    steps: ["reach_scene", "sling_attach", "hover_scene", "sling_release", "return_base"],
+    steps: ["sling_pickup", "reach_scene", "hover_scene", "sling_release", "return_base"],
     hover_agl: 150, hover_seconds: 40,
   },
   {
@@ -891,7 +905,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     required_tags: ["heavy_lift"], required_certs: ["heavy_lift"],
     min_payload: 2200, base_payout: 15000, scene_range: [5, 25],
     difficulty: 5, weather_factor: 3,
-    steps: ["reach_scene", "sling_attach", "hover_scene", "sling_release", "return_base"],
+    steps: ["sling_pickup", "reach_scene", "hover_scene", "sling_release", "return_base"],
     hover_agl: 120, hover_seconds: 45,
   },
   {
@@ -902,7 +916,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     required_tags: ["medium_utility", "heavy_lift"], required_certs: [],
     min_payload: 1600, base_payout: 8200, scene_range: [20, 70],
     difficulty: 3, weather_factor: 3,
-    steps: ["reach_scene", "sling_attach", "hover_scene", "sling_release", "return_base"],
+    steps: ["sling_pickup", "reach_scene", "hover_scene", "sling_release", "return_base"],
     hover_agl: 180, hover_seconds: 25,
   },
 
@@ -1029,10 +1043,24 @@ export function generateSceneMission(
         });
         break;
       case "sling_attach":
+        // Unpositioned: a bucket is dipped wherever the water is.
         objectives.push({
           id: "sling", kind: "sling",
-          label: "Hook up the underslung load",
+          label: "Fill the bucket",
           min_delta_lb: Math.max(200, Math.round(t.min_payload * 0.15)),
+        });
+        break;
+      case "sling_pickup":
+        // The load is rigged on the apron at base and flown out from there.
+        // Hooking up at the scene and setting down at the same scene was not
+        // a job at all -- there was nothing to carry anywhere, and nothing
+        // for the sim to put on the ground at the pickup because the pickup
+        // and the delivery were one point.
+        objectives.push({
+          id: "sling", kind: "sling",
+          label: `Hook up the load at ${base.icao ?? "base"}`,
+          min_delta_lb: Math.max(200, Math.round(t.min_payload * 0.15)),
+          lat: base.lat, lon: base.lon, radius_nm: 0.5,
         });
         break;
       case "sling_release":

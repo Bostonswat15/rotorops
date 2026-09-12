@@ -3,9 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { ShoppingCart, Fuel, Gauge, Package, Users, Anchor, ArrowUpDown, Wrench, KeyRound } from "lucide-react";
+import { ShoppingCart, Fuel, Gauge, Package, Users, Anchor, ArrowUpDown, Wrench, KeyRound, Search, X } from "lucide-react";
 import { AIRCRAFT_ARCHETYPES, TAG_LABELS, type AircraftArchetype, type WingType } from "@/lib/game-data";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
 
@@ -58,6 +59,37 @@ type Model = {
   variants: AircraftArchetype[];
 };
 
+/**
+ * Everything about an aircraft worth typing into a search box.
+ *
+ * Tags are included by their label as well as their raw name, so "search and
+ * rescue" finds the same airframes as "sar" -- the board shows the label, and
+ * searching for what you can see should work. The sim title is in here too:
+ * if MSFS tells you it loaded "H125 Cargo", that string should find the thing
+ * you can buy to match it.
+ */
+function haystack(a: AircraftArchetype): string {
+  return [
+    a.display_name,
+    a.family,
+    a.variant,
+    a.sim_title,
+    a.internal_id,
+    a.engine_type.replace("_", " "),
+    ...a.tags,
+    ...a.tags.map((t) => TAG_LABELS[t] ?? ""),
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+/** Every whitespace-separated term has to appear somewhere. */
+function matchesQuery(a: AircraftArchetype, terms: string[]): boolean {
+  if (terms.length === 0) return true;
+  const hay = haystack(a);
+  return terms.every((t) => hay.includes(t));
+}
+
 function groupByModel(list: AircraftArchetype[]): Model[] {
   const out = new Map<string, Model>();
   for (const a of list) {
@@ -77,6 +109,7 @@ function MarketPage() {
   const [sort, setSort] = useState("price");
   const [wing, setWing] = useState<WingType>("rotary");
   const [busy, setBusy] = useState<string | null>(null);
+  const [q, setQ] = useState("");
   /** Chosen configuration per model, keyed by family. Empty means the base. */
   const [fit, setFit] = useState<Record<string, string>>({});
 
@@ -126,11 +159,45 @@ function MarketPage() {
     () => AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === wing),
     [wing],
   );
-  const models = useMemo(() => groupByModel(inWing), [inWing]);
+  const terms = useMemo(() => q.toLowerCase().split(/\s+/).filter(Boolean), [q]);
 
-  /** The configuration currently showing for a model. */
+  // Filtered by model, not by configuration: a card survives if any of its
+  // fits matches, and it keeps all of them in the dropdown. Searching "hoist"
+  // should show you the H145 and let you see the fits that lack one, not hide
+  // them and leave you thinking every H145 has a winch.
+  const models = useMemo(
+    () =>
+      groupByModel(inWing).filter((m) => m.variants.some((v) => matchesQuery(v, terms))),
+    [inWing, terms],
+  );
+
+  /**
+   * The configuration currently showing for a model.
+   *
+   * Falls back to the first fit the search matched rather than the base one,
+   * so searching "cargo" opens the H125 on Cargo instead of on Standard and
+   * leaving you to find it in the dropdown yourself.
+   */
   const chosen = (m: Model) =>
-    m.variants.find((v) => v.internal_id === fit[m.key]) ?? m.variants[0];
+    m.variants.find((v) => v.internal_id === fit[m.key]) ??
+    m.variants.find((v) => matchesQuery(v, terms)) ??
+    m.variants[0];
+
+  // A search that finds nothing here but plenty on the other tab is the most
+  // likely way to get an empty board, so say so instead of showing nothing.
+  /** Configurations behind the models on the board, search included. */
+  const fits = models.reduce((n, m) => n + m.variants.length, 0);
+
+  const otherWing: WingType = wing === "rotary" ? "fixed" : "rotary";
+  const elsewhere = useMemo(
+    () =>
+      terms.length === 0
+        ? 0
+        : groupByModel(
+            AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === otherWing),
+          ).filter((m) => m.variants.some((v) => matchesQuery(v, terms))).length,
+    [otherWing, terms],
+  );
 
   // Sorted on the showing configuration, so changing the fit can reorder the
   // board -- which is the honest answer when the fit is what changed the price.
@@ -152,8 +219,8 @@ function MarketPage() {
           <h1 className="mt-1 text-3xl font-semibold">Aircraft Market</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {sorted.length} {wing === "fixed" ? "fixed-wing" : "rotary"} models
-            {inWing.length > sorted.length && ` · ${inWing.length} configurations`} · cash on
-            hand {money(cash)}
+            {fits > sorted.length && ` · ${fits} configurations`}
+            {terms.length > 0 && " matching"} · cash on hand {money(cash)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -176,6 +243,25 @@ function MarketPage() {
             >
               Planes ({fixedCount})
             </button>
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search name, fit, tag or MSFS title"
+              className="w-64 pl-8 pr-8"
+            />
+            {q !== "" && (
+              <button
+                type="button"
+                onClick={() => setQ("")}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         <Select value={sort} onValueChange={setSort}>
           <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
@@ -297,6 +383,23 @@ function MarketPage() {
           );
         })}
       </div>
+
+      {sorted.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+          <p>No {wing === "fixed" ? "fixed-wing" : "rotary"} model matches "{q}".</p>
+          {elsewhere > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-3"
+              onClick={() => setWing(otherWing)}
+            >
+              {elsewhere} match{elsewhere === 1 ? "" : "es"} under{" "}
+              {otherWing === "fixed" ? "Planes" : "Helicopters"}
+            </Button>
+          )}
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Cost per hour combines operating cost and fuel at $0.90/lb — the same figures

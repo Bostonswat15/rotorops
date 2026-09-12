@@ -190,7 +190,16 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       // objectives being broken.
       if (objectiveMission || !warnedNoArm) {
         warnedNoArm = true;
-        if (!aircraft) {
+        if (!state) {
+          // Distinct from a naming mismatch, and the fix is nothing to do
+          // with the aircraft: with no fleet to compare against, every title
+          // looks unrecognised, so saying "not in the fleet" sends you to
+          // link an aircraft that is already linked.
+          warn(
+            'Your fleet could not be read from the server, so nothing can be ' +
+              'tracked no matter what you are flying. See the state refresh error above.',
+          );
+        } else if (!aircraft) {
           warn(
             `Loaded aircraft "${currentSimTitle || 'unknown'}" is not in the fleet, ` +
               'so no contract can be tracked. Link it on Settings -> Sim Link.',
@@ -404,13 +413,21 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
   // Announce the loaded aircraft once per change rather than every second.
   let lastReportedTitle: string | null = null;
+  let lastReportedMatch: string | null = null;
   let currentSimTitle: string | null = null;
   function reportAircraftChange(simTitle: string) {
     if (!simTitle) return;
     currentSimTitle = simTitle;
-    if (simTitle === lastReportedTitle) return;
-    lastReportedTitle = simTitle;
     const ac = state ? matchAircraft(state.aircraft, simTitle) : null;
+    const matchId = ac?.id ?? null;
+    // Re-announce when the match changes, not only when the title does.
+    // Buying the aircraft, or linking the title to one you already own,
+    // fixes the match without the title ever changing -- and the app went
+    // on saying "not in your fleet" until the aircraft was reloaded in the
+    // sim, which reads as the link having silently failed.
+    if (simTitle === lastReportedTitle && matchId === lastReportedMatch) return;
+    lastReportedTitle = simTitle;
+    lastReportedMatch = matchId;
     emit({
       type: 'sim-aircraft',
       simTitle,

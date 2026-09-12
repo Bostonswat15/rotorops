@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ShoppingCart, Fuel, Gauge, Package, Users, Anchor, ArrowUpDown, Wrench, KeyRound } from "lucide-react";
 import { AIRCRAFT_ARCHETYPES, TAG_LABELS, type AircraftArchetype, type WingType } from "@/lib/game-data";
@@ -42,6 +42,34 @@ function breakEvenHours(a: AircraftArchetype) {
   return Math.max(1, Math.round((netOwnCost - leaseUp) / rate));
 }
 
+/**
+ * One model, with every configuration the sim ships for it.
+ *
+ * MSFS treats an H125 Cargo and an H125 Rescue as different aircraft, and so
+ * does this app -- each has its own sim title to match against and its own
+ * capabilities, so each has to stay a separate archetype. But six near-
+ * identical cards is not how anyone shops for a helicopter, so the market
+ * collapses them into one card with a fit to choose.
+ */
+type Model = {
+  key: string;
+  name: string;
+  /** Catalogue order, which puts the base configuration first. */
+  variants: AircraftArchetype[];
+};
+
+function groupByModel(list: AircraftArchetype[]): Model[] {
+  const out = new Map<string, Model>();
+  for (const a of list) {
+    // No family means the model ships one way: it is a group of one.
+    const key = a.family ?? a.internal_id;
+    const g = out.get(key);
+    if (g) g.variants.push(a);
+    else out.set(key, { key, name: a.family ?? a.display_name, variants: [a] });
+  }
+  return [...out.values()];
+}
+
 function MarketPage() {
   const qc = useQueryClient();
   const { data: company } = useCompany();
@@ -49,6 +77,8 @@ function MarketPage() {
   const [sort, setSort] = useState("price");
   const [wing, setWing] = useState<WingType>("rotary");
   const [busy, setBusy] = useState<string | null>(null);
+  /** Chosen configuration per model, keyed by family. Empty means the base. */
+  const [fit, setFit] = useState<Record<string, string>>({});
 
   const cash = Number(company?.cash ?? 0);
 
@@ -83,16 +113,35 @@ function MarketPage() {
     qc.invalidateQueries();
   }
 
-  const rotaryCount = AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === "rotary").length;
-  const fixedCount = AIRCRAFT_ARCHETYPES.length - rotaryCount;
-  const inWing = AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === wing);
+  // Counted as models rather than airframes: the tab says how many machines
+  // there are to choose between, not how many configurations they add up to.
+  const [rotaryCount, fixedCount] = useMemo(
+    () =>
+      (["rotary", "fixed"] as WingType[]).map(
+        (w) => groupByModel(AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === w)).length,
+      ),
+    [],
+  );
+  const inWing = useMemo(
+    () => AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === wing),
+    [wing],
+  );
+  const models = useMemo(() => groupByModel(inWing), [inWing]);
 
-  const sorted = [...inWing].sort((x, y) => {
+  /** The configuration currently showing for a model. */
+  const chosen = (m: Model) =>
+    m.variants.find((v) => v.internal_id === fit[m.key]) ?? m.variants[0];
+
+  // Sorted on the showing configuration, so changing the fit can reorder the
+  // board -- which is the honest answer when the fit is what changed the price.
+  const sorted = [...models].sort((mx, my) => {
+    const x = chosen(mx);
+    const y = chosen(my);
     if (sort === "price") return x.acquisition_cost - y.acquisition_cost;
     if (sort === "hourly") return hourlyTotal(x) - hourlyTotal(y);
     if (sort === "payload") return y.payload_lbs - x.payload_lbs;
     if (sort === "range") return y.max_range_nm - x.max_range_nm;
-    return x.display_name.localeCompare(y.display_name);
+    return mx.name.localeCompare(my.name);
   });
 
   return (
@@ -102,8 +151,9 @@ function MarketPage() {
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Acquisition</p>
           <h1 className="mt-1 text-3xl font-semibold">Aircraft Market</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {sorted.length} {wing === "fixed" ? "fixed-wing" : "rotary"} airframes · cash on hand{" "}
-            {money(cash)}
+            {sorted.length} {wing === "fixed" ? "fixed-wing" : "rotary"} models
+            {inWing.length > sorted.length && ` · ${inWing.length} configurations`} · cash on
+            hand {money(cash)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -147,14 +197,15 @@ function MarketPage() {
       )}
 
       <div className="grid gap-4 xl:grid-cols-2">
-        {sorted.map((a) => {
+        {sorted.map((m) => {
+          const a = chosen(m);
           const hourly = hourlyTotal(a);
           const affordable = cash >= a.acquisition_cost;
           return (
-            <div key={a.internal_id} className="rounded-lg border border-border bg-card p-5">
+            <div key={m.key} className="rounded-lg border border-border bg-card p-5">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold">{a.display_name}</h2>
+                  <h2 className="text-lg font-semibold">{m.name}</h2>
                   <p className="text-xs text-muted-foreground">
                     {a.sim_title ? `MSFS: ${a.sim_title}` : a.internal_id} · {a.engine_type.replace("_", " ")}
                   </p>
@@ -164,6 +215,28 @@ function MarketPage() {
                   <p className="text-xs text-muted-foreground">{money(hourly)}/hr all-in</p>
                 </div>
               </div>
+
+              {m.variants.length > 1 && (
+                <div className="mt-4">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Configuration · {m.variants.length} available
+                  </p>
+                  <Select
+                    value={a.internal_id}
+                    onValueChange={(v) => setFit((f) => ({ ...f, [m.key]: v }))}
+                  >
+                    <SelectTrigger className="mt-1 w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {m.variants.map((v) => (
+                        <SelectItem key={v.internal_id} value={v.internal_id}>
+                          {v.variant ?? v.display_name} · {money(v.acquisition_cost)}
+                          {v.hoist ? " · hoist" : v.sling_load ? " · sling" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
                 <Spec icon={Gauge} label="Cruise" value={`${a.cruise_kts} kts`} />

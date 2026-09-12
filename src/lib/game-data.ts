@@ -100,6 +100,10 @@ export type AircraftArchetype = {
   /** Rotary unless stated. Decides which half of the mission board applies. */
   wing?: WingType;
   display_name: string;
+  /** Model this is a configuration of, when the sim ships several. */
+  family?: string;
+  /** Short name for the configuration within that family. */
+  variant?: string;
   sim_title: string;
   category: string;
   engine_type: "piston" | "turbine" | "twin_turbine";

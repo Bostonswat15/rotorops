@@ -180,6 +180,24 @@ export class FlightTracker extends EventEmitter {
     return Math.max(0, (now - this.startTime) / 3600);
   }
 
+  /**
+   * End the flight now, from the last sample, without waiting for shutdown.
+   *
+   * The normal end is engines off on the ground. That suits a return to base
+   * and nothing else: a medevac hands over on a hospital pad with the rotors
+   * turning, and ending a session from the sim menu disconnects before an
+   * engines-off sample ever arrives. Either way a contract whose objectives
+   * were all complete sat unresolved indefinitely. The caller decides when the
+   * job is done; this just closes out the telemetry.
+   *
+   * Returns false when there is nothing to finish.
+   */
+  finishNow(): boolean {
+    if (!this.active || !this.hasFlown) return false;
+    this.finish(this.lastSnap, false);
+    return true;
+  }
+
   private finish(s: Snap, crashed: boolean) {
     const lat = num(s.lat, this.lastLat);
     const lon = num(s.lon, this.lastLon);

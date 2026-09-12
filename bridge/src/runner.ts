@@ -474,6 +474,56 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     }
   }
 
+  /**
+   * Log the flight as soon as the job is done and the aircraft is down.
+   *
+   * The flight tracker only ends a flight on engines-off, which fits a return
+   * to base and nothing else. A medevac hands over on a hospital pad with the
+   * rotors turning; ending the session from the sim menu disconnects before
+   * any engines-off sample arrives. Measured: every objective complete, a
+   * touchdown logged at the hospital, and then nothing -- the contract sat
+   * unresolved on the board indefinitely.
+   *
+   * So once every objective is done and the aircraft has been still on the
+   * ground for a few seconds, the flight is closed out from telemetry so far.
+   * Shutting down still works as before; whichever comes first wins, and
+   * `resolvedFor` stops the same contract being submitted twice. Anything
+   * flown afterwards -- the ferry home -- is tracked as a new flight with no
+   * contract attached, which is what it is.
+   */
+  const RESOLVE_HOLD_MS = 5000;
+  let settledSince: number | null = null;
+  let resolvedFor: string | null = null;
+  function maybeResolve(s: Record<string, number | string>) {
+    const m = objectiveMission;
+    if (!m || !objectives.isLoaded || !objectives.allComplete || resolvedFor === m.id) {
+      settledSince = null;
+      return;
+    }
+    if (!(n(s.onGround) === 1 && n(s.groundSpeed) < 2)) {
+      settledSince = null;
+      return;
+    }
+    const now = Date.now();
+    if (settledSince === null) {
+      settledSince = now;
+      return;
+    }
+    if (now - settledSince < RESOLVE_HOLD_MS) return;
+
+    resolvedFor = m.id;
+    settledSince = null;
+    if (tracker?.finishNow()) {
+      log(`"${m.title}" complete and the aircraft is settled -- logging the flight now.`);
+      director?.say('Contract complete — logging the flight.', 8);
+    } else {
+      warn(
+        `"${m.title}" is complete, but no flight is being tracked to log ` +
+          '(the bridge may have started mid-flight). Use Log manually on the Mission Board.',
+      );
+    }
+  }
+
   function trackObjectives(s: Record<string, number | string>) {
     if (!objectiveMission || !objectives.isLoaded) return;
     maybeSignal(s);
@@ -528,6 +578,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
     if (justDone.length && objectives.allComplete) {
       log(`All objectives complete for "${objectiveMission.title}".`);
+      director?.say('All objectives complete — set down and stop to log the flight.', 10);
       emit({
         type: 'objectives-complete',
         missionId: objectiveMission.id,
@@ -677,6 +728,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       reportPosition(s);
       tracker!.onSnapshot(s);
       trackObjectives(s);
+      maybeResolve(s);
     });
     sim.on('touchdown', (fpm, g) => {
       tracker!.onTouchdown(fpm, g);

@@ -514,7 +514,7 @@ function MissionsPage() {
                   <Objectives mission={m} />
                   <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
                     <PlaneTakeoff className="h-3.5 w-3.5 text-primary" />
-                    <span className="flex-1 text-xs text-muted-foreground">Awaiting flight — the bridge will log it on engine shutdown.</span>
+                    <span className="flex-1 text-xs text-muted-foreground">Awaiting flight — logged once every objective is done and you're down and stopped, or on engine shutdown.</span>
                     <Button size="sm" variant="secondary" onClick={() => setManualFor(m)}>Log manually</Button>
                     <Button size="sm" variant="ghost" onClick={() => cancelDispatch(m)}>Cancel</Button>
                   </div>

@@ -85,8 +85,15 @@ export type Objective =
  * itself early.
  */
 const ZONE_TOLERANCE = 1.35;
-/** A floor as well, so a very tight radius is still flyable. */
-const MIN_ZONE_NM = 0.5;
+/**
+ * A floor as well, so a very tight radius is still flyable.
+ *
+ * Lowered from 0.5 when patrol sections were halved: at 0.5 the floor was
+ * doing the work rather than the multiplier, and halving the radius would
+ * have been clamped straight back up to within a fifth of where it started.
+ * 0.35 nm is about 650 m, which is still findable in a helicopter.
+ */
+const MIN_ZONE_NM = 0.35;
 const zone = (radiusNm: number) => Math.max(MIN_ZONE_NM, radiusNm * ZONE_TOLERANCE);
 
 type Snap = Record<string, number | string>;

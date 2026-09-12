@@ -101,7 +101,7 @@ function Dashboard() {
           lon,
           // Mirrors ZONE_TOLERANCE in the bridge: the drawn ring has to be the
           // ring that actually counts, or the map is lying about the job.
-          radiusNm: Math.max(0.5, (Number(o.radius_nm) || 0.5) * 1.35),
+          radiusNm: Math.max(0.35, (Number(o.radius_nm) || 0.5) * 1.35),
           label: typeof o.label === "string" ? o.label : undefined,
           done: doneById.get(String(o.id)) ?? false,
         };

@@ -1212,7 +1212,11 @@ export async function generatePowerlinePatrol(
         : `Inspect section ${i + 1} of ${points.length}`,
     lat: Number(p.lat.toFixed(5)),
     lon: Number(p.lon.toFixed(5)),
-    radius_nm: 0.6,
+    // Half what it was. At 0.6 (0.81 nm once the tolerance is applied) a
+    // section ticked from half a mile off the conductor, which is not
+    // inspecting it. 0.3 lands at 0.405 nm -- still a comfortable margin at
+    // 90 kts, but you have to be over the line.
+    radius_nm: 0.3,
     max_agl_ft: 900,
   }));
 

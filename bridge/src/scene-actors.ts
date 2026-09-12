@@ -139,7 +139,12 @@ const DISTRESS_BOAT_HINTS = ['sink', 'raft', 'emergency', 'fishing', 'trawler', 
  * which is the right answer for a vessel in distress offshore and an absurd
  * one for a swiftwater rescue in a river.
  */
-const SMALL_CRAFT_HINTS = ['emergencyraft', 'raft', 'dinghy', 'canoe', 'kayak'];
+const SMALL_CRAFT_HINTS = [
+  'emergencyraft', 'raft', 'dinghy', 'canoe', 'kayak',
+  // Stock tail: no base-game life raft exists, but a small boat is a far
+  // better answer for a river than the freighter this used to place.
+  'boat01', 'fishing boat', 'yacht0',
+];
 /**
  * Things strung out along a line to fly past.
  *
@@ -214,7 +219,33 @@ export type SceneOverride = Partial<StageLayer> & {
 export type SceneOverrides = {
   roles?: Record<string, SceneOverride>;
   scenes?: Record<string, SceneOverride>;
+  /**
+   * Place only objects that ship with the sim.
+   *
+   * The scene system spawns by title through SimConnect -- it never copies or
+   * ships anyone's content -- but a keyword match will happily reach for a
+   * model that came from a paid add-on, and then a scene that looks right
+   * here looks empty on an install without it. On by default so the built-in
+   * scenes depend on nothing but the base game.
+   *
+   * Stock has vehicles, plant, fire and medic trucks and the whole ship
+   * library. It has no people, no smoke or flare, no wrecks and no tents, so
+   * the layers that want those place nothing until this is turned off.
+   */
+  stockOnly?: boolean;
+  /**
+   * Title prefixes treated as add-on content, case-insensitive.
+   *
+   * A blocklist rather than an allowlist because SimConnect reports a title
+   * and nothing about where it came from -- there is no flag that says "this
+   * shipped with the sim". Overridable so an add-on this does not know about
+   * can be excluded without a new build.
+   */
+  thirdPartyPrefixes?: string[];
 };
+
+/** Add-on families seen in the wild. Extend via thirdPartyPrefixes. */
+const DEFAULT_THIRD_PARTY = ['edpro_', 'mmh', 'onair_', 'neofly', 'miltech'];
 
 let overrides: SceneOverrides = {};
 
@@ -451,6 +482,27 @@ export class SceneDirector {
   private log: (m: string) => void;
   private boats: string[] = [];
   private ground: string[] = [];
+  /** Add-on titles dropped at enumeration, for the one-line report. */
+  private excluded = 0;
+
+  /**
+   * Keep only what the base game provides, unless told otherwise.
+   *
+   * Applied at enumeration rather than at match time so every later
+   * decision -- hints, overrides, the probe listing -- sees the same pool.
+   * An explicit title in scene-objects.json still wins: naming a model is
+   * saying you have it.
+   */
+  private stockOf(titles: string[]): string[] {
+    if (overrides.stockOnly === false) return titles;
+    const bad = (overrides.thirdPartyPrefixes ?? DEFAULT_THIRD_PARTY).map((p) => p.toLowerCase());
+    const kept = titles.filter((t) => {
+      const l = t.toLowerCase();
+      return !bad.some((p) => l.startsWith(p));
+    });
+    this.excluded += titles.length - kept.length;
+    return kept;
+  }
   /**
    * Flyable aircraft this install actually has.
    *
@@ -499,9 +551,9 @@ export class SceneDirector {
         .map((x: any) => x.aircraftTitle)
         .filter(Boolean);
       if (recv.requestID === REQ_ENUM_BOAT) {
-        this.boats = [...new Set([...this.boats, ...titles])];
+        this.boats = [...new Set([...this.boats, ...this.stockOf(titles)])];
       } else if (recv.requestID === REQ_ENUM_GROUND) {
-        this.ground = [...new Set([...this.ground, ...titles])];
+        this.ground = [...new Set([...this.ground, ...this.stockOf(titles)])];
       } else if (recv.requestID === REQ_ENUM_HELI) {
         this.helicopters = [...new Set([...this.helicopters, ...titles])];
       } else if (recv.requestID === REQ_ENUM_PLANE) {
@@ -568,6 +620,8 @@ export class SceneDirector {
     return {
       boats: this.boats.length,
       ground: this.ground.length,
+      /** Add-on titles filtered out, so the log can say so. */
+      excluded: this.excluded,
       helicopters: this.helicopters.length,
       planes: this.planes.length,
     };

@@ -8,6 +8,15 @@
     "leave out here, you lose. Titles this install lacks are ignored with a",
     "warning; if none survive, the built-in scene is used instead."
   ],
+  "_stockOnly": [
+    "Scenes place only objects that ship with the sim by default. Stock has
+vehicles, plant, fire and medic trucks and the whole ship library -- but no
+people, no smoke or flare, no wrecks and no rescue kit, so rescue scenes are
+sparse until you turn this off or name your own models below.",
+    "Set false to use every object installed, add-ons included."
+  ],
+  "stockOnly": true,
+
   "roles": {
     "medevac": {
       "layers": [

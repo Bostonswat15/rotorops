@@ -607,6 +607,13 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       setTimeout(() => {
         const c = director?.catalogue;
         if (c) log(`Scene objects available: ${c.boats} boats, ${c.ground} ground.`);
+        if (c?.excluded) {
+          log(
+            `${c.excluded} add-on object(s) excluded: scenes use only what ships with the ` +
+              'sim. Stock has no people, smoke or wrecks, so rescue scenes will be sparse. ' +
+              'Set "stockOnly": false in scene-objects.json to use everything installed.',
+          );
+        }
         const sample = director?.sampleTitles(12);
         if (sample?.ground.length) log(`Ground objects: ${sample.ground.join(' | ')}`);
         if (sample?.boats.length) log(`Boat objects: ${sample.boats.join(' | ')}`);

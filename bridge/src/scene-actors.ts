@@ -14,6 +14,7 @@
  */
 
 import simconnect from 'node-simconnect';
+import { placeAlongRoad } from './roads.ts';
 
 const {
   SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPosition,
@@ -95,6 +96,15 @@ type StageLayer = {
    * an object id.
    */
   titles?: string[];
+  /**
+   * Queue along the real road rather than scattering around the scene.
+   *
+   * Scatter works on grass and fails on a carriageway: a random bearing
+   * put a lorry in the lake beside the bypass. With a road polyline these
+   * are lined up on it like stopped traffic; without one they stay tight
+   * on the scene point, which generation already put on a real road.
+   */
+  onRoad?: boolean;
   /** Flight-model values to set once placed, for effect emitters. */
   fx?: FxDrive;
 };
@@ -352,6 +362,8 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     count: number,
     spreadNm: number,
   ): StageLayer => ({ pool: 'ground', titles, hints, count, spreadNm });
+  /** Line a layer up on the real road instead of scattering it. */
+  const road = (layer: StageLayer): StageLayer => ({ ...layer, onRoad: true });
   const afloat = (hints: string[], count: number, spreadNm: number): StageLayer =>
     ({ pool: 'boat', hints, count, spreadNm });
   /**
@@ -447,10 +459,10 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // mmh_roadsideAccident is exactly this scene in one object; the
         // casualties, the responders and the stopped traffic build around it.
         return [
-          set(RESPONSE_HINTS, 2, 0.015),
+          road(set(RESPONSE_HINTS, 2, 0.015)),
           named(PERSON_TITLES, PERSON_HINTS, 2, 0.004),
           set(RESCUE_KIT_HINTS, 1, 0.006),
-          set(VEHICLE_HINTS, 3, 0.05),
+          road(set(VEHICLE_HINTS, 3, 0.05)),
         ];
       }
       return [
@@ -552,7 +564,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
   if (scene === 'oil_rig') return [afloat(BOAT_HINTS, 1, 0.05)];
   if (scene === 'rooftop') return null; // nothing settles believably on a roof
   if (scene === 'forest' || scene === 'field') return [set(OUTPOST_HINTS, 3, 0.04)];
-  if (scene === 'highway') return [set(RESPONSE_HINTS, 2, 0.03), set(VEHICLE_HINTS, 2, 0.04)];
+  if (scene === 'highway') return [road(set(RESPONSE_HINTS, 2, 0.03)), road(set(VEHICLE_HINTS, 2, 0.04))];
   if (scene === 'cliff' || scene === 'ridgeline') return [named(PERSON_TITLES, PERSON_HINTS, 1, 0.004), set(KIT_HINTS, 1, 0.008)];
   return [set(VEHICLE_HINTS, 2, 0.02)];
 }
@@ -863,6 +875,8 @@ export class SceneDirector {
      * required to go.
      */
     path?: { lat: number; lon: number }[];
+    /** The drivable way at the scene, for layers marked onRoad. */
+    road?: { lat: number; lon: number }[];
   }): number {
     const role = scene.role ?? '';
     const type = (scene.type as SceneType) ?? 'field';
@@ -957,6 +971,8 @@ export class SceneDirector {
     // One bearing for the whole scene, so layers strung along a line share it
     // rather than each picking their own and crossing.
     const lineBearing = Math.random() * 360;
+    /** Next free spot on the road, shared across layers so nothing overlaps. */
+    let roadSlot = 0;
     let placed = 0;
     const requested: string[] = [];
     /** Titles already used at this scene, so layers don't repeat each other. */
@@ -1001,7 +1017,23 @@ export class SceneDirector {
         const wantsLine = layer.spreadNm > 0.3;
         const route = scene.path ?? [];
         let spread: { lat: number; lon: number };
-        if (layer.spreadNm === 0) {
+        let heading: number | null = null;
+        const road = scene.road ?? [];
+        if (layer.onRoad && road.length >= 2) {
+          // First at the scene, then alternating ahead and behind it, 14 m
+          // apart, alternating lanes -- and anything in the far lane turned
+          // to face oncoming, so it reads as traffic stopped both ways.
+          const k = roadSlot++;
+          const step = Math.ceil(k / 2) * (k % 2 === 1 ? 1 : -1);
+          const nearSide = k % 2 === 0;
+          const p = placeAlongRoad(road, { lat: scene.lat, lon: scene.lon }, step * 14, nearSide ? 2.5 : -2.5);
+          spread = { lat: p.lat, lon: p.lon };
+          heading = nearSide ? p.heading : (p.heading + 180) % 360;
+        } else if (layer.onRoad) {
+          // No road geometry: hold tight on the scene point, which is on the
+          // road, rather than risk the water and trees around it.
+          spread = offset(scene.lat, scene.lon, 0.006 * (0.4 + Math.random()), Math.random() * 360);
+        } else if (layer.spreadNm === 0) {
           spread = { lat: scene.lat, lon: scene.lon };
         } else if (wantsLine && route.length >= 2) {
           // Walk the real route, spacing objects evenly across it, with a
@@ -1032,7 +1064,7 @@ export class SceneDirector {
           pos.altitude = 0;
           pos.pitch = 0;
           pos.bank = 0;
-          pos.heading = wantsLine ? lineBearing : Math.random() * 360;
+          pos.heading = heading ?? (wantsLine ? lineBearing : Math.random() * 360);
           pos.onGround = true;
           pos.airspeed = 0;
 

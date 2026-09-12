@@ -16,6 +16,7 @@ import {
   type BridgeState, type BridgeAircraft, type BridgeMission, type ResolveResult,
 } from './api.ts';
 import { readSceneObjects } from './config.ts';
+import { fetchRoadNear } from './roads.ts';
 
 /** How close to the filed destination counts as arriving there. */
 const ARRIVAL_TOLERANCE_NM = 3;
@@ -161,6 +162,12 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
   let casualtyLb = 0;
   /** When the aircraft became ready to take someone aboard, for the boarding hold. */
   let boardSince: number | null = null;
+  /**
+   * Bumped whenever the scene is cleared. A road lookup that comes back
+   * after the scene was cleared and restaged must not place anything, or
+   * the old scene lands on top of the new one.
+   */
+  let stageGen = 0;
   /** Where the SAR casualty really is. Derived here; never sent to the server. */
   let searchTarget: LatLon | null = null;
   /** Most recent telemetry, for capability checks when a contract arms. */
@@ -276,6 +283,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     // Put the job in the world, and brief the pilot inside the sim.
     if (director && m.scene_lat != null && m.scene_lon != null) {
       director.clear();
+      stageGen++;
       casualtyLb = 0;
       boardSince = null;
       director.setCasualtyWeight(0);
@@ -290,13 +298,24 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         .map((o) => o as { lat?: number; lon?: number })
         .filter((o) => Number.isFinite(o.lat) && Number.isFinite(o.lon))
         .map((o) => ({ lat: Number(o.lat), lon: Number(o.lon) }));
-      const placed = director.stage({
-        lat: at.lat,
-        lon: at.lon,
-        type: (m.scene_type ?? 'field') as SceneType,
-        role: m.role,
-        path: route,
-      });
+      const sceneType = (m.scene_type ?? 'field') as SceneType;
+      const stageScene = (road?: LatLon[]) =>
+        director!.stage({ lat: at.lat, lon: at.lon, type: sceneType, role: m.role, path: route, road });
+
+      // A roadside scene waits for the real road so its traffic can be
+      // lined up on the carriageway instead of scattered into the water and
+      // trees around it. Everything else stages straight away.
+      let placed = 0;
+      if (sceneType === 'highway') {
+        const gen = stageGen;
+        void fetchRoadNear(at.lat, at.lon).then((road) => {
+          if (gen !== stageGen || !director) return;
+          if (!road) log('No road geometry for this scene -- keeping its vehicles tight on the road point.');
+          stageScene(road ?? undefined);
+        });
+      } else {
+        placed = stageScene();
+      }
 
       // A sling job has two ends. The scene above gets the site the load is
       // going to; the pickup gets the load itself, on the apron at base,

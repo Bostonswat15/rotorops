@@ -205,10 +205,12 @@ export function FlightMap({
 
     waypoints.forEach((w, i) => {
       const colour = w.done ? "#4ade80" : "#f5a623";
-      // One ring, drawn at the real acceptance distance so you can judge from
-      // the map whether you are inside it. A centre dot was tried as well and
-      // read as a second, tighter zone you had to hit -- two rings around one
-      // point invite the question of which one counts.
+      // The ring is drawn at the real acceptance distance, so it shrinks to a
+      // few pixels once you zoom out far enough to see a 20 nm patrol -- true
+      // to scale and useless as a marker. The numbered badge is the marker:
+      // fixed pixel size, visible at every zoom, and unmistakably a label for
+      // the point rather than a second, tighter zone to hit. That distinction
+      // is why this is a badge and not the centre dot tried before.
       L.circle([w.lat, w.lon], {
         radius: w.radiusNm * 1852,
         color: colour,
@@ -216,6 +218,27 @@ export function FlightMap({
         opacity: w.done ? 0.5 : 0.9,
         fillColor: colour,
         fillOpacity: w.done ? 0.05 : 0.12,
+      }).addTo(group);
+
+      L.marker([w.lat, w.lon], {
+        icon: L.divIcon({
+          className: "rotorops-waypoint",
+          html: `<div style="
+            width:24px;height:24px;box-sizing:border-box;
+            display:flex;align-items:center;justify-content:center;
+            border-radius:50%;
+            background:${colour};
+            border:2px solid rgba(0,0,0,.55);
+            color:#0b0b0b;
+            font:600 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+            opacity:${w.done ? 0.75 : 1};
+            box-shadow:0 0 6px rgba(0,0,0,.8);
+          ">${w.done ? "&#10003;" : i + 1}</div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+        // Below the aircraft, which has to stay readable over a cluster.
+        zIndexOffset: -100,
       })
         .addTo(group)
         .bindTooltip(w.label ?? `Point ${i + 1}`, { direction: "top" });

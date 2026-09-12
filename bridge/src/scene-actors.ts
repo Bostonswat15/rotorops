@@ -263,7 +263,13 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // there is something at each waypoint you are graded on rather than a
       // scatter beside the route. generatePowerlinePatrol samples six
       // points, hence six.
-      return [set(STRUCTURE_HINTS, 6, 0.8), set(VEHICLE_HINTS, 1, 0.05)];
+      //
+      // The service truck is a line layer too, not a 0.05 nm scatter around
+      // the scene origin. The origin of a patrol is its first tower, which is
+      // where the pilot starts -- so the one vehicle in the scene reliably
+      // spawned a hundred metres under the aircraft on arrival, which reads
+      // as the sim glitching rather than as a crew working the line.
+      return [set(STRUCTURE_HINTS, 6, 0.8), set(VEHICLE_HINTS, 1, 0.8)];
     case 'firefighting':
       // MMH_Fire and the smoke effect are standalone objects here, so a
       // fire contract can have a fire in it rather than only the trucks
@@ -681,7 +687,12 @@ export class SceneDirector {
           // Walk the real route, spacing objects evenly across it, with a
           // little jitter so they don't sit dead on the waypoint the
           // objective is already marking.
-          const at = route[Math.min(route.length - 1, Math.round((i / Math.max(1, layer.count - 1)) * (route.length - 1)))];
+          //
+          // A single object goes to the middle of the route rather than the
+          // start: with count 1 the even spacing degenerates to index 0, and
+          // the start of a route is exactly where the pilot is standing.
+          const frac = layer.count === 1 ? 0.5 : i / (layer.count - 1);
+          const at = route[Math.min(route.length - 1, Math.round(frac * (route.length - 1)))];
           spread = offset(at.lat, at.lon, 0.02 * Math.random(), Math.random() * 360);
         } else if (wantsLine) {
           spread = offset(scene.lat, scene.lon, layer.spreadNm * i, lineBearing); // a synthetic line

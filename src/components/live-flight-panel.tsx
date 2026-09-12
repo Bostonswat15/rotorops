@@ -172,6 +172,21 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
 
       <LiveObjectives state={objectives} fill={fill} />
 
+      {/*
+        Every objective ticked is not the same as the contract being logged.
+        The bridge closes it out once the aircraft is down and still -- but
+        after a restart it has no flown segment to submit, and said so only
+        in a log file nobody reads mid-flight. Say it where the pilot is
+        looking, including the way out.
+      */}
+      {objectives && objectives.items.length > 0 && objectives.items.every((o) => o.done) && (
+        <p className="rounded-lg border border-success/40 bg-card px-4 py-3 text-sm text-success">
+          All objectives complete. Set down and hold still for a few seconds and the flight is
+          logged. If the contract is still on the board after that, use{" "}
+          <span className="font-medium">Log manually</span> on the Mission Board.
+        </p>
+      )}
+
       <FlightMap
         aircraft={{ lat: flight.lat, lon: flight.lon, heading: flight.heading }}
         scene={

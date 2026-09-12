@@ -711,7 +711,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         if (c?.excluded) {
           log(
             `${c.excluded} add-on object(s) excluded: scenes use only what ships with the ` +
-              'sim. Stock has no people, smoke or wrecks, so rescue scenes will be sparse. ' +
+              'sim, plus any title a scene names outright (people, effect emitters). ' +
               'Set "stockOnly": false in scene-objects.json to use everything installed.',
           );
         }

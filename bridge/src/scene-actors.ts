@@ -18,7 +18,7 @@ import { placeAlongRoad } from './roads.ts';
 
 const {
   SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPosition,
-  EventFlag, RawBuffer,
+  EventFlag, RawBuffer, Waypoint,
 } = simconnect as any;
 
 const REQ_ENUM_BOAT = 900;
@@ -33,6 +33,7 @@ const EVENT_FREEZE_ALT = 941;
 const EVENT_FREEZE_ATT = 942;
 const DEF_PAYLOAD = 920;
 const DEF_FX = 921;
+const DEF_WALK = 922;
 
 /**
  * How to switch a visual-effect object on.
@@ -597,6 +598,41 @@ function offset(lat: number, lon: number, distanceNm: number, bearingDeg: number
   return { lat: deg(la2), lon: (((deg(lo2) + 540) % 360) - 180) };
 }
 
+/**
+ * Does this model loop a walk cycle whatever it is doing?
+ *
+ * The Animated Humans pack ("ahqw ...") ships one AutoPlay walk clip per
+ * person and nothing to stop it, so these need a path to walk rather than a
+ * freeze. Everything else -- vehicles, effects, static figures -- is still
+ * pinned.
+ */
+export function walksInPlace(title: string): boolean {
+  return /^ahqw /i.test(title);
+}
+
+/**
+ * A small loop around a spot for someone to pace: five points 6-14 m out.
+ *
+ * Tight on purpose. A casualty has to stay where the search put them -- the
+ * hover over them allows 0.25 nm -- and a loop the size of the pack's own
+ * reference scripts keeps them within a few paces of it. Seeded, so the same
+ * object walks the same loop if its path is ever set again.
+ */
+export function walkLoopPoints(
+  centre: { lat: number; lon: number },
+  seed: number,
+): { lat: number; lon: number }[] {
+  let st = seed >>> 0 || 1;
+  const next = () => (st = (Math.imul(st, 1664525) + 1013904223) >>> 0) / 2 ** 32;
+  const kx = Math.cos((centre.lat * Math.PI) / 180) * 111_320;
+  const ky = 110_540;
+  return Array.from({ length: 5 }, (_, k) => {
+    const a = ((k * 72 + (next() - 0.5) * 40) * Math.PI) / 180;
+    const d = 6 + next() * 8;
+    return { lat: centre.lat + (Math.cos(a) * d) / ky, lon: centre.lon + (Math.sin(a) * d) / kx };
+  });
+}
+
 export class SceneDirector {
   private handle: any;
   private log: (m: string) => void;
@@ -646,9 +682,17 @@ export class SceneDirector {
    * read by the time the ids came back, so the last layer's setting won for
    * every object in the batch.
    */
-  private pending: { title: string; freeze: boolean; fx?: FxDrive }[] = [];
+  private pending: {
+    title: string;
+    freeze: boolean;
+    fx?: FxDrive;
+    /** Where a walker should pace, instead of being pinned. */
+    walk?: { lat: number; lon: number };
+  }[] = [];
   /** The effect data definition is registered once, lazily. */
   private fxDefined = false;
+  /** The walking-path data definition, registered once, lazily. */
+  private walkDefined = false;
   /** What actually made it into the world, for reporting. */
   private placedById = new Map<number, string>();
 
@@ -694,7 +738,8 @@ export class SceneDirector {
       this.placedById.set(recv.objectID, title);
       this.log(`Placed "${title}" (id ${recv.objectID}).`);
 
-      if (req?.freeze === false) this.log(`  left liftable (sling load)`);
+      if (req?.walk) this.walkLoop(recv.objectID, req.walk);
+      else if (req?.freeze === false) this.log(`  left liftable (sling load)`);
       else this.freeze(recv.objectID);
       if (req?.fx) {
         const fx = req.fx;
@@ -710,6 +755,47 @@ export class SceneDirector {
         setTimeout(() => this.driveFx(id, fx, true), 6000);
       }
     });
+  }
+
+  /**
+   * Give a walker somewhere to walk.
+   *
+   * These models loop a walk cycle no matter what (a single AutoPlay clip), so
+   * pinning one in place -- as everything else is pinned -- left people
+   * marching on the spot. The pack itself drives them round a short wrapping
+   * waypoint loop at 2.6 kts, and SimConnect can do the same through the AI
+   * WAYPOINT LIST. Left under AI control on purpose: releasing control is
+   * what stops an object following waypoints at all.
+   *
+   * Falls back to pinning if the path is refused. Walking on the spot is
+   * better than a casualty wandering off into the trees.
+   */
+  private walkLoop(objectId: number, centre: { lat: number; lon: number }) {
+    try {
+      if (!this.walkDefined) {
+        this.handle.addToDataDefinition(DEF_WALK, 'AI WAYPOINT LIST', 'number', SimConnectDataType.WAYPOINT);
+        this.walkDefined = true;
+      }
+      const flags =
+        SimConnectConstants.WAYPOINT_ON_GROUND |
+        SimConnectConstants.WAYPOINT_SPEED_REQUESTED |
+        SimConnectConstants.WAYPOINT_WRAP_TO_FIRST;
+      const wps = walkLoopPoints(centre, objectId).map((p) => {
+        const w = new Waypoint();
+        w.latitude = p.lat;
+        w.longitude = p.lon;
+        w.altitude = 0;
+        w.flags = flags;
+        w.speed = 2.6;
+        w.throttle = 0;
+        return w;
+      });
+      this.handle.setDataOnSimObject(DEF_WALK, objectId, wps);
+      this.log(`  walking a ${wps.length}-point loop`);
+    } catch (e) {
+      this.log(`  could not give it a path (${(e as Error).message}) -- pinning instead`);
+      this.freeze(objectId);
+    }
   }
 
   /**
@@ -827,7 +913,7 @@ export class SceneDirector {
       pos.heading = 0;
       pos.onGround = true;
       pos.airspeed = 0;
-      this.pending.push({ title, freeze, fx });
+      this.pending.push({ title, freeze, fx, walk: walksInPlace(title) ? { lat, lon } : undefined });
       this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
       return true;
     } catch (e) {
@@ -1080,7 +1166,12 @@ export class SceneDirector {
           pos.onGround = true;
           pos.airspeed = 0;
 
-          this.pending.push({ title, freeze: layer.freeze !== false, fx: layer.fx });
+          this.pending.push({
+            title,
+            freeze: layer.freeze !== false,
+            fx: layer.fx,
+            walk: walksInPlace(title) ? spread : undefined,
+          });
           this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
           requested.push(title);
           placed++;

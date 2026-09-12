@@ -50,7 +50,16 @@ export type SceneType =
  * `spreadNm` turn a single marker into a site.
  */
 type StageLayer = {
-  pool: 'boat' | 'ground';
+  /**
+   * Which enumeration to draw from.
+   *
+   * 'effect' is the AIRCRAFT list. Visual-effect packs ship their emitters as
+   * airplane-category SimObjects -- a smoke column is an 'aircraft' as far as
+   * the sim is concerned -- so the only way to reach one is through the list
+   * that also holds every flyable aeroplane. Hints for this pool have to be
+   * specific, or a scene ends up spawning a Caravan.
+   */
+  pool: 'boat' | 'ground' | 'effect';
   hints: string[];
   count: number;
   spreadNm: number;
@@ -121,6 +130,17 @@ const FIRE_HINTS = [
 ];
 /** Smoke and flare, for marking a scene you are meant to find. */
 const SIGNAL_HINTS = ['smokeeffect', 'flareeffect', 'smoke', 'flare'];
+/**
+ * Visual-effect emitters, matched against the AIRCRAFT enumeration.
+ *
+ * Deliberately narrow. This pool also holds every flyable aeroplane, so a
+ * loose hint like 'smoke' on its own would eventually match a livery and put
+ * a Caravan on a hillside. Named packs first, generic terms only as a tail
+ * that is still unlikely to collide.
+ */
+const SMOKE_FX_HINTS = ['30west smoke', 'smokeeffect', 'smoke column', 'smokestack'];
+/** An arcing conductor: a fault worth flying a line to find. */
+const POWERLINE_FX_HINTS = ['30west powerline', '30west electric'];
 const VEHICLE_HINTS = ['truck', 'van', 'suv', 'car', 'pickup', 'jeep', 'bus'];
 const BOAT_HINTS = ['fishing', 'trawler', 'yacht', 'boat', 'sail', 'ferry', 'cargo'];
 /**
@@ -274,6 +294,9 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     ({ pool: 'ground', hints, count, spreadNm });
   const afloat = (hints: string[], count: number, spreadNm: number): StageLayer =>
     ({ pool: 'boat', hints, count, spreadNm });
+  /** A visual effect emitter, which ships as an airplane-category object. */
+  const fx = (hints: string[], count: number, spreadNm: number): StageLayer =>
+    ({ pool: 'effect', hints, count, spreadNm });
 
   switch (role) {
     // --- Work with a load on the hook ------------------------------------
@@ -288,7 +311,11 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // Smoke popped by the casualty when they hear you, placed exactly on
       // them -- zero spread, because the whole point is that it marks the
       // spot. One object: two plumes reads as two casualties.
-      return [set(SIGNAL_HINTS, 1, 0)];
+      //
+      // Two layers, either of which may come up empty. A visual-effect pack
+      // gives a real rising column; a ground object is a static model that
+      // reads well enough from a mile out. Whichever the install has.
+      return [fx(SMOKE_FX_HINTS, 1, 0), set(SIGNAL_HINTS, 1, 0)];
     case 'sling_pickup':
       // The apron at base, where the load is rigged and waiting. Staged
       // separately from the scene because a sling job now has two ends: the
@@ -326,7 +353,11 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       //
       // One service vehicle stays, mid-route, because a crew working the line
       // is the one thing the sim will not draw for you.
-      return [set(VEHICLE_HINTS, 1, 0.8)];
+      //
+      // An arcing conductor where the pack provides one: a line patrol is
+      // flown to find a fault, and until now there was never a fault to
+      // find. Mid-route, like the truck, so it is something you come upon.
+      return [fx(POWERLINE_FX_HINTS, 1, 0.8), set(VEHICLE_HINTS, 1, 0.8)];
     case 'firefighting':
       // MMH_Fire and the smoke effect are standalone objects here, so a
       // fire contract can have a fire in it rather than only the trucks
@@ -669,7 +700,7 @@ export class SceneDirector {
     const base = planFor(role, type);
     if (!base && !override) return 0;
 
-    const known = new Set([...this.boats, ...this.ground]);
+    const known = new Set([...this.boats, ...this.ground, ...this.planes]);
     /** Titles this install genuinely has, per layer. Empty means "use hints". */
     const usable = (ts: string[] | undefined): string[] => {
       const wanted = ts ?? [];
@@ -742,7 +773,8 @@ export class SceneDirector {
 
     for (const [li, layer] of layers.entries()) {
       const configured = layerTitles[li] ?? [];
-      const pool = layer.pool === 'boat' ? this.boats : this.ground;
+      const pool =
+        layer.pool === 'boat' ? this.boats : layer.pool === 'effect' ? this.planes : this.ground;
       if (pool.length === 0 && configured.length === 0) {
         this.log(`no ${layer.pool} SimObjects in this install -- skipping that part of the scene`);
         continue;

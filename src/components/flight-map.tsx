@@ -140,6 +140,8 @@ export function FlightMap({
   const layers = useRef<{
     aircraft?: L.Marker;
     scene?: L.CircleMarker;
+    /** The faint ring under the scene marker; moves and goes with it. */
+    sceneHalo?: L.CircleMarker;
     search?: L.Circle;
     sighted?: L.CircleMarker;
     base?: L.CircleMarker;
@@ -312,7 +314,7 @@ export function FlightMap({
       const pos: [number, number] = [scene.lat, scene.lon];
       if (!layers.current.scene) {
         // A halo underneath gives the site presence at low zoom.
-        L.circleMarker(pos, {
+        layers.current.sceneHalo = L.circleMarker(pos, {
           radius: 26,
           color: "#f5a623",
           weight: 1,
@@ -335,8 +337,20 @@ export function FlightMap({
             className: "rotorops-scene-label",
           });
       } else {
+        // The panel stays mounted from one contract to the next, so this is
+        // also where a new contract's scene arrives. Moving the marker alone
+        // left the old contract's name on it -- "Datum — Black Point" over a
+        // Swiftwater search at Miller's Crossing -- and left the halo behind
+        // at the old site.
         layers.current.scene.setLatLng(pos);
+        layers.current.scene.setTooltipContent(scene.label ?? "Scene");
+        layers.current.sceneHalo?.setLatLng(pos);
       }
+    } else if (layers.current.scene) {
+      layers.current.scene.remove();
+      layers.current.sceneHalo?.remove();
+      layers.current.scene = undefined;
+      layers.current.sceneHalo = undefined;
     }
 
     // The tasked area. Radius is real distance, so it scales with the map and
@@ -375,6 +389,7 @@ export function FlightMap({
           .bindTooltip(base.label ?? "Base", { permanent: false });
       } else {
         layers.current.base.setLatLng(pos);
+        layers.current.base.setTooltipContent(base.label ?? "Base");
       }
     }
 

@@ -31,6 +31,7 @@ ALTER TABLE public.pilot_skills ENABLE ROW LEVEL SECURITY;
 -- No INSERT/UPDATE/DELETE policy at all: the only ways XP or perks change
 -- are rotorops_resolve_flight (earning) and unlock_pilot_perk (spending),
 -- both SECURITY DEFINER below.
+DROP POLICY IF EXISTS "pilot skills read" ON public.pilot_skills;
 CREATE POLICY "pilot skills read" ON public.pilot_skills FOR SELECT TO authenticated
   USING (public.is_company_member(company_id));
 

@@ -252,7 +252,13 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       log(`"${m.title}" needs a sling. This aircraft reports no sling cables, so the`);
       log('load will be judged by the weight it puts on the airframe instead.');
     }
-    if (kinds.has('hoist') && lastSnapshot && lastSnapshot.hoistDeployed === undefined) {
+    // Judged by whether the sim exposes the hoist variable at all, not by the
+    // latest snapshot. The optional readings arrive once a second, and a
+    // contract arms within a second of connecting -- so the first snapshot
+    // simply had no hoist reading yet, and an HH-65B Dolphin SAR was told on
+    // screen it "has no hoist" moments after the bridge had logged the hoist
+    // variable as available.
+    if (kinds.has('hoist') && sim && !sim.availableOptional.includes('SLING HOIST PERCENT DEPLOYED:1')) {
       warn(`"${m.title}" needs a hoist, but this aircraft reports no hoist.`);
       director?.say('WARNING: this aircraft has no hoist — the casualty cannot be winched.', 12);
     }

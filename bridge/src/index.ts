@@ -385,6 +385,54 @@ async function cmdSling(mode?: string) {
         warn(`send failed: ${(e as Error).message}`);
       }
     }, 5000);
+  } else if (mode === 'hoist') {
+    // Which hoist commands does this sim accept, and does the hoist move?
+    //
+    // The bridge never drives the hoist; the objective only watches SLING
+    // HOIST PERCENT DEPLOYED. Before building on that, find out whether the
+    // loaded aircraft's hoist responds at all. Mapped one per second so a
+    // NAME_UNRECOGNIZED exception lands right after the name that caused it.
+    const names = [
+      'HOIST_DEPLOYED_TOGGLE', 'HOIST_DEPLOYED_SET',
+      'HOIST_SWITCH_EXTEND', 'HOIST_SWITCH_RETRACT', 'HOIST_SWITCH_SET',
+    ];
+    const id = (name: string) => 960 + names.indexOf(name);
+    const send = (name: string, data = 0) => {
+      try {
+        sim.connection.transmitClientEvent(0, id(name), data, 1, 16);
+        log(`-> ${name}${data ? ` ${data}` : ''}`);
+      } catch (e) {
+        warn(`send ${name} failed: ${(e as Error).message}`);
+      }
+    };
+    names.forEach((name, i) =>
+      setTimeout(() => {
+        log(`mapping ${name} (an exception right after this line means the sim does not know it)`);
+        try {
+          sim.connection.mapClientEventToSimEvent(id(name), name);
+        } catch (e) {
+          warn(`could not map ${name}: ${(e as Error).message}`);
+        }
+      }, i * 1000),
+    );
+
+    const start = names.length * 1000 + 2000;
+    setTimeout(() => {
+      log('Arming the hoist, then extending for 15 s. Watch hoist= below.');
+      send('HOIST_DEPLOYED_TOGGLE');
+      send('HOIST_DEPLOYED_SET', 1);
+    }, start);
+    for (let t = 0; t < 15; t++) setTimeout(() => send('HOIST_SWITCH_EXTEND'), start + 2000 + t * 1000);
+    setTimeout(() => {
+      log('Retracting for 15 s.');
+      send('HOIST_SWITCH_SET', 0);
+    }, start + 18_000);
+    for (let t = 0; t < 15; t++) setTimeout(() => send('HOIST_SWITCH_RETRACT'), start + 19_000 + t * 1000);
+    setTimeout(() => {
+      send('HOIST_SWITCH_SET', 0);
+      log('Hoist test done. If hoist= never moved off 0%, the hoist on this aircraft does not answer these commands --');
+      log('try its own cockpit control or your keybind with plain "sling" mode running. Ctrl+C to stop.');
+    }, start + 35_000);
   } else {
     log('Watching sling state. Try your sling keybind, or run with "fire" to');
     log('trigger SLING_PICKUP_RELEASE from here. Ctrl+C to stop.');

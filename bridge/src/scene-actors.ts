@@ -143,10 +143,10 @@ const SMALL_CRAFT_HINTS = ['emergencyraft', 'raft', 'dinghy', 'canoe', 'kayak'];
 /**
  * Things strung out along a line to fly past.
  *
- * This install has no pylon, tower or mast model beyond a single mast
- * truck, so a powerline patrol leans on service vehicles along the route
- * rather than the towers themselves -- honest about what is available
- * instead of substituting a baggage tug for a transmission tower.
+ * No SimObject in a stock install is a transmission tower, and none needs to
+ * be: the sim renders real pylons from OSM as terrain, which SimConnect can
+ * neither enumerate nor place. So this list is for sites that genuinely have
+ * no scenery of their own, and a powerline patrol no longer uses it at all.
  */
 const STRUCTURE_HINTS = [
   'mast', 'crane', 'tower', 'pylon', 'pole', 'antenna', 'generator',
@@ -280,17 +280,22 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
 
     // --- Emergency work ---------------------------------------------------
     case 'patrol':
-      // One per section, placed on the real line the contract samples, so
-      // there is something at each waypoint you are graded on rather than a
-      // scatter beside the route. generatePowerlinePatrol samples six
-      // points, hence six.
+      // No towers placed, deliberately.
       //
-      // The service truck is a line layer too, not a 0.05 nm scatter around
-      // the scene origin. The origin of a patrol is its first tower, which is
-      // where the pilot starts -- so the one vehicle in the scene reliably
-      // spawned a hundred metres under the aircraft on arrival, which reads
-      // as the sim glitching rather than as a crew working the line.
-      return [set(STRUCTURE_HINTS, 6, 0.8), set(VEHICLE_HINTS, 1, 0.8)];
+      // The sim already draws them. MSFS builds transmission lines from the
+      // same OSM data the contract samples its waypoints from, so the real
+      // pylons are standing on the route before anything is spawned -- which
+      // is the whole reason the waypoints snap to OSM tower coordinates.
+      //
+      // Six placed structures on top of that was not dressing a scene, it was
+      // littering one: nothing in this install matches a lattice tower, so
+      // STRUCTURE_HINTS fell through to a Skyship mast truck and a small
+      // crane truck, and a patrol strung six crane trucks across the
+      // wilderness beside the conductor it was inspecting.
+      //
+      // One service vehicle stays, mid-route, because a crew working the line
+      // is the one thing the sim will not draw for you.
+      return [set(VEHICLE_HINTS, 1, 0.8)];
     case 'firefighting':
       // MMH_Fire and the smoke effect are standalone objects here, so a
       // fire contract can have a fire in it rather than only the trucks

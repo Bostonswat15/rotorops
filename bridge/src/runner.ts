@@ -516,12 +516,35 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     if (tracker?.finishNow()) {
       log(`"${m.title}" complete and the aircraft is settled -- logging the flight now.`);
       director?.say('Contract complete — logging the flight.', 8);
-    } else {
-      warn(
-        `"${m.title}" is complete, but no flight is being tracked to log ` +
-          '(the bridge may have started mid-flight). Use Log manually on the Mission Board.',
-      );
+      return;
     }
+
+    // No flown segment to close out -- the bridge was restarted after the job
+    // was flown, so the flight tracker only knows about sitting on the pad.
+    // This used to stop with a warning in a log file, which from the cockpit
+    // looked like a finished contract that would never clear. The objectives
+    // are the evidence the work was done, so submit on the strength of them:
+    // telemetry from this sample, with no time or fuel it cannot vouch for.
+    const stamp = new Date().toISOString();
+    log(`"${m.title}" complete (resumed after a restart) -- logging it now.`);
+    director?.say('Contract complete — logging it.', 8);
+    void onFlight({
+      departure: m.origin ?? null,
+      arrival: null,
+      duration_hr: 0,
+      fuel_used: 0,
+      payload: Math.round(n(s.payload)),
+      touchdown_fpm: null,
+      crashed: false,
+      incidents: [],
+      distance_flown_nm: 0,
+      sim_title: String(s.title ?? currentSimTitle ?? ''),
+      max_g: null,
+      end_lat: n(s.lat),
+      end_lon: n(s.lon),
+      started_at: stamp,
+      ended_at: stamp,
+    });
   }
 
   function trackObjectives(s: Record<string, number | string>) {
@@ -650,13 +673,41 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       if (d !== null && d <= ARRIVAL_TOLERANCE_NM) arrival = mission.destination;
     }
 
+    // A contract whose objectives are all done has, by definition, finished
+    // where it was meant to. The server judges arrival by comparing ICAO
+    // codes, and a scene contract's destination is the base -- while its last
+    // objective is a landing at a hospital or a clearing, whose nearest
+    // airfield is often something else entirely (measured: CXUR1 beside the
+    // Squamish pad, against a destination of CYSE). That turned a flawless
+    // medevac into an "off-contract landing": a failed contract and a
+    // reputation hit. The objective list is a far better witness than the
+    // nearest ICAO, so when it says the job is done, the arrival stands.
+    //
+    // Checked two ways: the server's saved state, and the tracker here, in
+    // case the last objective was ticked a moment ago and has not been
+    // written back yet.
+    const objectivesMet =
+      !!mission &&
+      ((objectiveMission?.id === mission.id && objectives.allComplete) ||
+        (Array.isArray(mission.objectives) &&
+          mission.objectives.length > 0 &&
+          mission.objectives.every((o: { id: string }) => mission.objectives_state?.[o.id]?.done)));
+    let payload = t.payload;
+    if (objectivesMet && mission) {
+      if (mission.destination) arrival = mission.destination;
+      // "Take the load aboard" already proved the load was carried. The
+      // weight it put on is gone by now after a restart or a handover, so do
+      // not let the payload check fail a job the objective already passed.
+      payload = Math.max(payload, mission.min_payload ?? 0);
+    }
+
     try {
       const result = await submitFlight(token, ac.id, mission?.id ?? null, {
         departure: t.departure ?? mission?.origin ?? null,
         arrival,
         duration_hr: t.duration_hr,
         fuel_used: t.fuel_used,
-        payload: t.payload,
+        payload,
         touchdown_fpm: t.touchdown_fpm,
         crashed: t.crashed,
         incidents: t.incidents,

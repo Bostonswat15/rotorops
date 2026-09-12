@@ -20,6 +20,7 @@ import { Route as AuthenticatedMarketRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedMaintenanceRouteImport } from './routes/_authenticated/maintenance'
 import { Route as AuthenticatedIndustriesRouteImport } from './routes/_authenticated/industries'
 import { Route as AuthenticatedFlightLogsRouteImport } from './routes/_authenticated/flight-logs'
+import { Route as AuthenticatedFlightRouteImport } from './routes/_authenticated/flight'
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCrewRouteImport } from './routes/_authenticated/crew'
@@ -80,6 +81,11 @@ const AuthenticatedFlightLogsRoute = AuthenticatedFlightLogsRouteImport.update({
   path: '/flight-logs',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedFlightRoute = AuthenticatedFlightRouteImport.update({
+  id: '/flight',
+  path: '/flight',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedFinanceRoute = AuthenticatedFinanceRouteImport.update({
   id: '/finance',
   path: '/finance',
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/crew': typeof AuthenticatedCrewRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/finance': typeof AuthenticatedFinanceRoute
+  '/flight': typeof AuthenticatedFlightRoute
   '/flight-logs': typeof AuthenticatedFlightLogsRoute
   '/industries': typeof AuthenticatedIndustriesRoute
   '/maintenance': typeof AuthenticatedMaintenanceRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/crew': typeof AuthenticatedCrewRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/finance': typeof AuthenticatedFinanceRoute
+  '/flight': typeof AuthenticatedFlightRoute
   '/flight-logs': typeof AuthenticatedFlightLogsRoute
   '/industries': typeof AuthenticatedIndustriesRoute
   '/maintenance': typeof AuthenticatedMaintenanceRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/_authenticated/crew': typeof AuthenticatedCrewRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/finance': typeof AuthenticatedFinanceRoute
+  '/_authenticated/flight': typeof AuthenticatedFlightRoute
   '/_authenticated/flight-logs': typeof AuthenticatedFlightLogsRoute
   '/_authenticated/industries': typeof AuthenticatedIndustriesRoute
   '/_authenticated/maintenance': typeof AuthenticatedMaintenanceRoute
@@ -161,6 +170,7 @@ export interface FileRouteTypes {
     | '/crew'
     | '/dashboard'
     | '/finance'
+    | '/flight'
     | '/flight-logs'
     | '/industries'
     | '/maintenance'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/crew'
     | '/dashboard'
     | '/finance'
+    | '/flight'
     | '/flight-logs'
     | '/industries'
     | '/maintenance'
@@ -194,6 +205,7 @@ export interface FileRouteTypes {
     | '/_authenticated/crew'
     | '/_authenticated/dashboard'
     | '/_authenticated/finance'
+    | '/_authenticated/flight'
     | '/_authenticated/flight-logs'
     | '/_authenticated/industries'
     | '/_authenticated/maintenance'
@@ -289,6 +301,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedFlightLogsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/flight': {
+      id: '/_authenticated/flight'
+      path: '/flight'
+      fullPath: '/flight'
+      preLoaderRoute: typeof AuthenticatedFlightRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/finance': {
       id: '/_authenticated/finance'
       path: '/finance'
@@ -325,6 +344,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCrewRoute: typeof AuthenticatedCrewRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedFinanceRoute: typeof AuthenticatedFinanceRoute
+  AuthenticatedFlightRoute: typeof AuthenticatedFlightRoute
   AuthenticatedFlightLogsRoute: typeof AuthenticatedFlightLogsRoute
   AuthenticatedIndustriesRoute: typeof AuthenticatedIndustriesRoute
   AuthenticatedMaintenanceRoute: typeof AuthenticatedMaintenanceRoute
@@ -339,6 +359,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCrewRoute: AuthenticatedCrewRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedFinanceRoute: AuthenticatedFinanceRoute,
+  AuthenticatedFlightRoute: AuthenticatedFlightRoute,
   AuthenticatedFlightLogsRoute: AuthenticatedFlightLogsRoute,
   AuthenticatedIndustriesRoute: AuthenticatedIndustriesRoute,
   AuthenticatedMaintenanceRoute: AuthenticatedMaintenanceRoute,

@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Helicopter, LayoutDashboard, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award } from "lucide-react";
+import { Helicopter, LayoutDashboard, Navigation, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CompanySetup } from "@/components/company-setup";
 
@@ -22,6 +22,7 @@ export const Route = createFileRoute("/_authenticated")({
 // matching below needs it to be a string.
 const NAV: { to: NonNullable<LinkProps["to"]>; icon: any; label: string }[] = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { to: "/flight", icon: Navigation, label: "In Flight" },
   { to: "/aircraft", icon: Plane, label: "Aircraft" },
   { to: "/market", icon: ShoppingCart, label: "Market" },
   { to: "/missions", icon: Briefcase, label: "Missions" },

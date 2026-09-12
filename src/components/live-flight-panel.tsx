@@ -1,0 +1,266 @@
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { fetchCurrentCompany } from "@/lib/company";
+import { FlightMap } from "@/components/flight-map";
+import { useLiveFlight, useBridgeObjectives } from "@/hooks/use-live-flight";
+import { searchAreaOf } from "@/lib/missions";
+import { desktop, type BridgeStatus } from "@/lib/desktop";
+
+/**
+ * The live flight readout: telemetry, objective list, and the map.
+ *
+ * Extracted from the dashboard so the same panel can fill a screen of its own.
+ * Reading a hint off a 384 px map while flying is not realistic; on a second
+ * monitor the full-screen version is the point of having a bridge at all.
+ *
+ * Self-contained on purpose. It fetches the contract being flown and the base
+ * rather than taking them as props, so a route can drop it in and get a working
+ * panel -- the dashboard's own query is for the cards around it, and the two
+ * have no reason to stay coupled.
+ */
+export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
+  const { flight, track } = useLiveFlight();
+  const objectives = useBridgeObjectives();
+  const [simAircraft, setSimAircraft] = useState<BridgeStatus["simAircraft"]>(null);
+
+  // Only needed to explain why objectives are not arming, so it rides along
+  // with the status stream rather than getting its own poll.
+  useEffect(() => {
+    const app = desktop();
+    if (!app) return;
+    let live = true;
+    app.status().then((st) => live && setSimAircraft(st?.simAircraft ?? null)).catch(() => {});
+    const off = app.onStatus((st) => live && setSimAircraft(st?.simAircraft ?? null));
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
+
+  const { data } = useQuery({
+    queryKey: ["live-flight-context"],
+    // The scene only moves when a contract is dispatched or finished, so this
+    // is slow polling to catch those. The aircraft position arrives on the
+    // bridge's own stream and does not wait for it.
+    refetchInterval: flight ? 15000 : false,
+    queryFn: async () => {
+      const c = await fetchCurrentCompany();
+      if (!c) return null;
+      const [active, bases] = await Promise.all([
+        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress"),
+        supabase.from("bases").select("*").eq("company_id", c.id),
+      ]);
+      return { active: active.data ?? [], bases: bases.data ?? [] };
+    },
+  });
+
+  const activeMission = data?.active[0] ?? null;
+  const homeBase =
+    data?.bases.find((b: any) => b.latitude != null && b.longitude != null) ?? null;
+
+  if (!flight) {
+    // On the dashboard this panel simply is not there when nothing is flying.
+    // On a screen of its own, an empty screen would read as broken.
+    return fill ? (
+      <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+        <div>
+          <p>No flight in progress.</p>
+          <p className="mt-1">
+            Load an aircraft in MSFS with the bridge connected and this fills in by itself.
+          </p>
+        </div>
+      </div>
+    ) : null;
+  }
+
+  // Public half of a SAR tasking: where they were last seen, and how far they
+  // could have got. Never where they are.
+  const searchArea = activeMission ? searchAreaOf(activeMission.objectives) : null;
+  const sceneRange =
+    activeMission?.scene_lat != null
+      ? nmBetween(
+          flight.lat,
+          flight.lon,
+          Number(activeMission.scene_lat),
+          Number(activeMission.scene_lon),
+        )
+      : null;
+
+  // Every objective that has a place on the map, married up with whether the
+  // bridge has ticked it.
+  const mapWaypoints = (() => {
+    const raw = activeMission?.objectives;
+    if (!Array.isArray(raw)) return [];
+    const doneById = new Map<string, boolean>(
+      (objectives?.items ?? []).map((o) => [o.id, !!o.done] as [string, boolean]),
+    );
+    return raw
+      .map((o: any) => {
+        const lat = Number(o?.lat ?? o?.datum_lat);
+        const lon = Number(o?.lon ?? o?.datum_lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        return {
+          id: String(o.id),
+          lat,
+          lon,
+          // Mirrors ZONE_TOLERANCE in the bridge: the drawn ring has to be the
+          // ring that actually counts, or the map is lying about the job.
+          radiusNm: Math.max(0.25, (Number(o.radius_nm) || 0.5) * 1.35),
+          label: typeof o.label === "string" ? o.label : undefined,
+          done: doneById.get(String(o.id)) ?? false,
+        };
+      })
+      .filter((w): w is NonNullable<typeof w> => w !== null);
+  })();
+
+  return (
+    <div
+      className={
+        fill ? "flex h-full flex-col gap-3 p-3" : "rounded-lg border border-primary/40 bg-card p-4"
+      }
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-widest text-primary">
+            {flight.hours != null ? "In flight" : flight.onGround ? "On the ground" : "Airborne"}
+          </p>
+          <p className={`mt-1 font-medium ${fill ? "text-lg" : ""}`}>
+            {flight.simTitle ?? "Aircraft"}
+            {activeMission ? ` · ${activeMission.title}` : " · positioning"}
+          </p>
+        </div>
+        <div className={`flex flex-wrap font-mono ${fill ? "gap-6 text-base" : "gap-4 text-sm"}`}>
+          <Readout label="GS" value={`${Math.round(flight.groundSpeed)} kt`} />
+          <Readout label="AGL" value={`${Math.round(flight.agl)} ft`} />
+          {flight.hours != null && <Readout label="Time" value={`${flight.hours.toFixed(2)} h`} />}
+          {flight.fuelUsed != null && (
+            <Readout label="Fuel" value={`${Math.round(flight.fuelUsed)} lb`} />
+          )}
+          {flight.distance != null && (
+            <Readout label="Track" value={`${flight.distance.toFixed(1)} nm`} />
+          )}
+          {sceneRange != null && <Readout label="To scene" value={`${sceneRange.toFixed(1)} nm`} />}
+        </div>
+      </div>
+
+      {/*
+        The map draws its rings from the database, so a contract whose
+        objectives never armed in the bridge looks entirely normal here and
+        simply never ticks. Worth saying plainly rather than leaving someone to
+        fly a whole patrol that was never being watched.
+      */}
+      {activeMission && !objectives && (
+        <p className="rounded-lg border border-warning/40 bg-card px-4 py-3 text-sm text-warning">
+          "{activeMission.title}" is in progress, but the sim bridge is not tracking it,
+          so nothing will tick.{" "}
+          {simAircraft && !simAircraft.matchedName
+            ? `The aircraft loaded in the sim ("${simAircraft.simTitle}") is not in your fleet — link it on Settings → Sim Link.`
+            : "Check that the contract is dispatched to the aircraft you are flying."}
+        </p>
+      )}
+
+      <LiveObjectives state={objectives} fill={fill} />
+
+      <FlightMap
+        aircraft={{ lat: flight.lat, lon: flight.lon, heading: flight.heading }}
+        scene={
+          activeMission?.scene_lat != null
+            ? {
+                lat: Number(activeMission.scene_lat),
+                lon: Number(activeMission.scene_lon),
+                label: searchArea
+                  ? `Datum — ${activeMission.scene_name ?? "search"}`
+                  : (activeMission.scene_name ?? "Scene"),
+              }
+            : null
+        }
+        waypoints={mapWaypoints}
+        search={searchArea}
+        sighted={objectives?.sighted ?? null}
+        base={
+          homeBase
+            ? { lat: Number(homeBase.latitude), lon: Number(homeBase.longitude), label: homeBase.name }
+            : null
+        }
+        track={track}
+        // Filling the screen means the map takes whatever is left after the
+        // readouts and the objective list, rather than a fixed 384 px. min-h-0
+        // matters: without it a flex child refuses to shrink below its content
+        // and the map pushes the page into a scroll instead of fitting.
+        className={
+          fill
+            ? "min-h-0 w-full flex-1 rounded-lg border border-border"
+            : "h-96 w-full rounded-lg border border-border"
+        }
+      />
+    </div>
+  );
+}
+
+function Readout({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p>{value}</p>
+    </div>
+  );
+}
+
+const NM_R = 3440.065;
+function nmBetween(aLat: number, aLon: number, bLat: number, bLon: number) {
+  const r = (d: number) => (d * Math.PI) / 180;
+  const dLat = r(bLat - aLat);
+  const dLon = r(bLon - aLon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(r(aLat)) * Math.cos(r(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * NM_R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** What the bridge is currently waiting for. */
+function LiveObjectives({
+  state,
+  fill = false,
+}: {
+  state: BridgeStatus["objectives"];
+  fill?: boolean;
+}) {
+  if (!state || state.items.length === 0) return null;
+  const nextIdx = state.items.findIndex((o) => !o.done);
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground">
+        {state.missionTitle}
+      </p>
+      <ol className="mt-2 space-y-1">
+        {state.items.map((o, i) => {
+          const isNext = i === nextIdx;
+          return (
+            <li
+              key={o.id}
+              className={`flex items-center gap-2 ${fill ? "text-base" : "text-sm"} ${
+                o.done ? "text-success" : isNext ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
+              <span className="font-mono">{o.done ? "✓" : isNext ? "▸" : "·"}</span>
+              <span className={isNext ? "font-medium" : ""}>{o.label}</span>
+              {isNext && o.hint && (
+                <span className="ml-auto font-mono text-xs text-warning">{o.hint}</span>
+              )}
+              {isNext && o.progress > 0 && o.progress < 1 && (
+                <span className="h-1 w-16 overflow-hidden rounded bg-muted">
+                  <span
+                    className="block h-full bg-primary"
+                    style={{ width: `${Math.round(o.progress * 100)}%` }}
+                  />
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}

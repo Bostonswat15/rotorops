@@ -113,12 +113,22 @@ export async function roadWithRetry(
   stillWanted: () => boolean,
   log: (message: string) => void,
 ): Promise<LatLon[] | null> {
-  const cached = readCache()[keyOf(lat, lon)];
-  if (cached) return cached.length >= 2 ? cached.map(([la, lo]) => ({ lat: la, lon: lo })) : null;
+  const fromCache = (): LatLon[] | null | undefined => {
+    const c = readCache()[keyOf(lat, lon)];
+    if (!c) return undefined;
+    return c.length >= 2 ? c.map(([la, lo]) => ({ lat: la, lon: lo })) : null;
+  };
 
   for (const [attempt, delay] of RETRY_DELAYS_MS.entries()) {
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     if (!stillWanted()) return null;
+    // Checked before every attempt, not just the first. A contract arms twice
+    // in quick succession at startup, so two lookups race: measured, the one
+    // that was cancelled by the re-arm still came back and cached the road,
+    // while the live one kept retrying a busy OSM with the answer already on
+    // disk.
+    const cached = fromCache();
+    if (cached !== undefined) return cached;
     const r = await lookup(lat, lon, 200);
     if (r.kind === 'road') {
       remember(lat, lon, r.line);

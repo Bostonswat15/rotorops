@@ -18,7 +18,7 @@ import { placeAlongRoad } from './roads.ts';
 
 const {
   SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPosition,
-  EventFlag, RawBuffer, Waypoint,
+  EventFlag, RawBuffer, Waypoint, SimConnectPeriod,
 } = simconnect as any;
 
 const REQ_ENUM_BOAT = 900;
@@ -34,6 +34,12 @@ const EVENT_FREEZE_ATT = 942;
 const DEF_PAYLOAD = 920;
 const DEF_FX = 921;
 const DEF_WALK = 922;
+/** Position of a walker, read to keep them near their spot and written to bring them back. */
+const DEF_LEASH = 923;
+/** One data request per walker; clear of telemetry's ids (1-113) and everything above. */
+const REQ_LEASH_BASE = 5000;
+/** How far a walker may stray before being brought back and pinned. */
+const LEASH_M = 40;
 
 /**
  * How to switch a visual-effect object on.
@@ -693,6 +699,11 @@ export class SceneDirector {
   private fxDefined = false;
   /** The walking-path data definition, registered once, lazily. */
   private walkDefined = false;
+  /** The position definition used by the leash, registered once, lazily. */
+  private leashDefined = false;
+  /** Leashed walkers by their data request id. */
+  private leashes = new Map<number, { objectId: number; spot: { lat: number; lon: number }; title: string }>();
+  private nextLeash = 0;
   /** What actually made it into the world, for reporting. */
   private placedById = new Map<number, string>();
 
@@ -727,6 +738,31 @@ export class SceneDirector {
       }
     });
 
+    this.handle.on('simObjectData', (recv: any) => {
+      const l = this.leashes.get(recv.requestID);
+      if (!l) return;
+      const lat = recv.data.readFloat64();
+      const lon = recv.data.readFloat64();
+      const kx = Math.cos((l.spot.lat * Math.PI) / 180) * 111_320;
+      const strayed = Math.hypot((lon - l.spot.lon) * kx, (lat - l.spot.lat) * 110_540);
+      if (strayed <= LEASH_M) return;
+
+      // Too far: stop watching, put them back on their spot, and pin them
+      // there. Marching on the spot beside the smoke is a far better failure
+      // than the casualty wandering out of the scene.
+      this.unleash(recv.requestID);
+      try {
+        const buf = new RawBuffer(16);
+        buf.writeFloat64(l.spot.lat);
+        buf.writeFloat64(l.spot.lon);
+        this.handle.setDataOnSimObject(DEF_LEASH, l.objectId, { buffer: buf, arrayCount: 0, tagged: false });
+      } catch {
+        // If the move is refused they are at least pinned where they stopped.
+      }
+      this.freeze(l.objectId);
+      this.log(`"${l.title}" strayed ${Math.round(strayed)} m from their spot -- brought back and pinned.`);
+    });
+
     this.handle.on('assignedObjectID', (recv: any) => {
       if (recv.requestID !== REQ_SPAWN) return;
 
@@ -738,7 +774,18 @@ export class SceneDirector {
       this.placedById.set(recv.objectID, title);
       this.log(`Placed "${title}" (id ${recv.objectID}).`);
 
-      if (req?.walk) this.walkLoop(recv.objectID, req.walk);
+      if (req?.walk) {
+        const id = recv.objectID;
+        const spot = req.walk;
+        // Three times, like an effect's values: a fresh AI object goes on
+        // initialising after its id comes back, and a path written the
+        // instant it appeared was overwritten -- measured, both hikers got
+        // their loop and walked off anyway.
+        this.walkLoop(id, spot);
+        setTimeout(() => this.walkLoop(id, spot, true), 2000);
+        setTimeout(() => this.walkLoop(id, spot, true), 6000);
+        this.leash(id, spot, title);
+      }
       else if (req?.freeze === false) this.log(`  left liftable (sling load)`);
       else this.freeze(recv.objectID);
       if (req?.fx) {
@@ -758,6 +805,43 @@ export class SceneDirector {
   }
 
   /**
+   * Keep a walker near their spot, whatever their path does.
+   *
+   * The waypoint loop is accepted without complaint and has still been seen
+   * not to hold: both hikers at a cliff rescue walked clean out of the scene.
+   * Nothing short of watching them can guarantee a casualty stays where the
+   * search put them, so their position is read once a second and anyone more
+   * than 40 m out is brought back and pinned.
+   */
+  private leash(objectId: number, spot: { lat: number; lon: number }, title: string) {
+    try {
+      if (!this.leashDefined) {
+        this.handle.addToDataDefinition(DEF_LEASH, 'PLANE LATITUDE', 'degrees', SimConnectDataType.FLOAT64);
+        this.handle.addToDataDefinition(DEF_LEASH, 'PLANE LONGITUDE', 'degrees', SimConnectDataType.FLOAT64);
+        this.leashDefined = true;
+      }
+      const requestId = REQ_LEASH_BASE + this.nextLeash++;
+      this.leashes.set(requestId, { objectId, spot, title });
+      this.handle.requestDataOnSimObject(requestId, DEF_LEASH, objectId, SimConnectPeriod.SECOND);
+    } catch (e) {
+      this.log(`  could not watch "${title}" (${(e as Error).message}) -- pinning instead`);
+      this.freeze(objectId);
+    }
+  }
+
+  /** Stop watching one walker. */
+  private unleash(requestId: number) {
+    const l = this.leashes.get(requestId);
+    if (!l) return;
+    this.leashes.delete(requestId);
+    try {
+      this.handle.requestDataOnSimObject(requestId, DEF_LEASH, l.objectId, SimConnectPeriod.NEVER);
+    } catch {
+      // The object may already be gone, which ends the request anyway.
+    }
+  }
+
+  /**
    * Give a walker somewhere to walk.
    *
    * These models loop a walk cycle no matter what (a single AutoPlay clip), so
@@ -770,14 +854,17 @@ export class SceneDirector {
    * Falls back to pinning if the path is refused. Walking on the spot is
    * better than a casualty wandering off into the trees.
    */
-  private walkLoop(objectId: number, centre: { lat: number; lon: number }) {
+  private walkLoop(objectId: number, centre: { lat: number; lon: number }, quiet = false) {
     try {
       if (!this.walkDefined) {
         this.handle.addToDataDefinition(DEF_WALK, 'AI WAYPOINT LIST', 'number', SimConnectDataType.WAYPOINT);
         this.walkDefined = true;
       }
+      // Altitude is AGL. Sent as a bare 0 it read as sea level -- on a
+      // mountainside, somewhere far below the walker's feet to head for.
       const flags =
         SimConnectConstants.WAYPOINT_ON_GROUND |
+        SimConnectConstants.WAYPOINT_ALTITUDE_IS_AGL |
         SimConnectConstants.WAYPOINT_SPEED_REQUESTED |
         SimConnectConstants.WAYPOINT_WRAP_TO_FIRST;
       const wps = walkLoopPoints(centre, objectId).map((p) => {
@@ -791,7 +878,7 @@ export class SceneDirector {
         return w;
       });
       this.handle.setDataOnSimObject(DEF_WALK, objectId, wps);
-      this.log(`  walking a ${wps.length}-point loop`);
+      if (!quiet) this.log(`  walking a ${wps.length}-point loop`);
     } catch (e) {
       this.log(`  could not give it a path (${(e as Error).message}) -- pinning instead`);
       this.freeze(objectId);
@@ -1213,6 +1300,9 @@ export class SceneDirector {
 
   /** Remove anything this contract put in the world. */
   clear() {
+    // Stop watching before the objects go, so no reading arrives for an id
+    // that is about to be reused by the next scene.
+    for (const requestId of [...this.leashes.keys()]) this.unleash(requestId);
     for (const id of this.spawned) {
       try {
         this.handle.aIRemoveObject(id, REQ_REMOVE);

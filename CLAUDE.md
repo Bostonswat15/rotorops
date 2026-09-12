@@ -1,0 +1,103 @@
+# RotorOps Manager
+
+A career/company-management game for helicopter (and some fixed-wing) flying in **MSFS 2024**:
+contracts, fleet, crew, maintenance, industries, pilot skills. A web app (TanStack Start,
+React 19, Supabase) runs inside an **Electron** shell that also hosts the **SimConnect bridge**,
+which watches the sim, stages scene props, tracks contract objectives and logs flights.
+
+Read `AGENTS.md` too: this repo syncs with Lovable, so never rewrite pushed history.
+
+For running, probing the sim, reading the diagnostics log, migrations and offline testing,
+use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`).
+
+## Layout
+
+| Path | What |
+|---|---|
+| `src/routes/_authenticated/*.tsx` | App pages (file routes). `flight.tsx` is the full-screen In Flight page |
+| `src/components/live-flight-panel.tsx` | Telemetry + objective list + map, used by In Flight |
+| `src/components/flight-map.tsx` | Leaflet map: aircraft, scene, search ring, waypoints, casualty |
+| `src/lib/missions.ts` | Contract templates and generation, placement sites, scene placement |
+| `src/lib/osm.ts` | Overpass queries: site scan (`findSites`), cliffs, power lines/towers, industries |
+| `src/lib/aircraft-catalog.ts` | Buyable aircraft; `simTitle` must match what MSFS reports; `family`/`variant` group the Market |
+| `bridge/src/runner.ts` | Bridge orchestration: arming contracts, staging, boarding, signal smoke, winch call-outs, auto-logging |
+| `bridge/src/objectives.ts` | `ObjectiveTracker` - every objective kind, zones, the simulated winch |
+| `bridge/src/scene-actors.ts` | `SceneDirector` - enumerate, stage, freeze, walkers + leash, effect emitters |
+| `bridge/src/roads.ts` | Nearest OSM road for roadside scenes, racing mirrors, disk cache |
+| `bridge/src/search.ts` | Hidden SAR casualty resolution and detection model |
+| `bridge/src/telemetry.ts`, `simvars.ts`, `flight.ts` | SimConnect session, SimVars, flight start/end |
+| `desktop/main.js` | Electron main: local Nitro server + bridge in-process + IPC status |
+| `supabase/migrations/` | Schema and SECURITY DEFINER RPCs (`rotorops_resolve_flight`, `bridge_state`, `set_base_sites`, ...) |
+| `start.bat` | Launcher (`start.bat reveal` for SAR testing) |
+
+## How things fit
+
+- **Contracts** are generated in the browser (`missions.ts`) from templates plus per-base
+  **placement sites** (roads, rivers, shore, offshore, lakes, cliffs, hospitals) scanned
+  once from OSM and cached on `bases.placement_sites` via `set_base_sites`. Objectives,
+  radii, hover limits and SAR `target_candidates` are **baked in at generation** - existing
+  contracts do not pick up generation changes.
+- **The bridge** polls `bridge_state` every 30 s, arms the contract dispatched to the loaded
+  aircraft (matched by sim title), stages its scene, tracks objectives per telemetry sample,
+  persists each completion, and submits the flight when every objective is done and the
+  aircraft has been settled on the ground for 5 s (or on engine shutdown). It also submits
+  after a restart with no flown segment, trusting the objectives for arrival and payload.
+- **SAR casualty** positions are derived in the bridge from the mission id (never stored
+  server-side). Cliff/river/beach/vessel scenes pick from mapped terrain candidates.
+- **The server** (`rotorops_resolve_flight`) pays out, charges costs, applies wear, XP and
+  reputation. Arrival is judged by ICAO match, which is why the bridge overrides arrival
+  when objectives are complete (scene contracts end at hospitals, not the destination).
+
+## Hard-won facts about MSFS 2024 / SimConnect (measured, not assumed)
+
+- **No helicopter tried has a sim-driven sling or hoist.** H125 Cargo, H125 Rescue, AS365,
+  HH-65B Dolphin SAR all report `NUM SLING CABLES = 0`; `HOIST_SWITCH_EXTEND` is accepted and
+  ignored (`HOIST_DEPLOYED_*` are not even recognised). Hence the **simulated winch** (steady
+  hover 40 s within 0.1 nm, < 200 ft, < 10 kts) and weight-based sling/boarding.
+- **SimConnect cannot see or place scenery.** Pylons, buildings and roads are terrain built
+  from OSM; OSM coordinates are the proxy (patrol waypoints snap to real towers).
+- **Enumeration is incomplete.** `category=Human` objects (Animated Humans `ahqw ...`) are
+  never listed but **spawn fine by title**, so plans name them outright.
+- **Effect packs are airplane-category objects** (enumerate under AIRCRAFT) whose emitters
+  are gated on flight-model values: 30West smoke = throttle bands (grey) or **spoiler handle**
+  1-5% (orange). Write `SPOILERS HANDLE POSITION`, not the surface position.
+- **`setDataOnSimObject` needs `{ buffer: RawBuffer, arrayCount: 0, tagged: false }`** or a
+  `SimConnectData[]`. A bare buffer or `{ value }` throws inside your own catch and looks like
+  the sim refusing. This silently broke casualty weight and smoke for a while.
+- A fresh AI object keeps initialising after its id arrives: **re-send** effect values and
+  waypoint lists at ~2 s and ~6 s.
+- Frozen walkers march on the spot (AutoPlay walk clip). Walkers get an `AI WAYPOINT LIST`
+  loop instead, plus a 40 m **leash** that pins strays.
+- `PLANE ALT ABOVE GROUND` is to terrain, not treetops - low hover limits are impossible in
+  forest.
+- Contracts arm twice at startup (~3 s apart, forced restage). Anything async (road lookups)
+  must check a staging generation and the cache on every retry.
+- Overpass: needs a User-Agent outside the browser, is often overloaded, caps results in id
+  order (use a near-field pass plus a wide pass), and a single union query fails as a whole -
+  keep optional lookups (cliffs) separate.
+
+## Conventions
+
+- Comments explain **why**, often with the measurement that forced the change. Match that.
+- Commits: imperative subject, a body explaining the cause and what was measured, ending with
+  `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`. Commit locally as work lands;
+  **do not push or tag unless the user asks** in that moment.
+- Files are CRLF on disk; scripted edits must detect and preserve line endings.
+- Scene staging defaults to base-game objects (`stockOnly`); explicit titles from packs the
+  user installed are fine. Never recommend buying models without checking stock first.
+- Never request or handle the Supabase service_role key or database password. The publishable
+  key in client code is public by design. `.env` stays gitignored.
+
+## Open items (as of 2026-09-12)
+
+- **49 local commits not pushed**; latest release tag is still `v0.4.3`. Tag only after the
+  user has flown a hoist rescue and a fixed-wing contract, and only when they ask.
+- **Migration to run:** `20260912000000_cliff_sites.sql` (adds the `cliff` key to
+  `set_base_sites`). Until run, cliff rescues fall back to old placement.
+- **Unapproved tuning:** hoist-contract hover limits were raised (Vessel/Swiftwater 150 ft,
+  Cliff/Ridgeline 180 ft, from 80-120 ft). Revert if the user objects.
+- **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
+  candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
+- **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;
+  immediate bridge refresh on dispatch (currently up to 30 s); ridgeline casualties still
+  random (no ridge data); round the fractional cash display.

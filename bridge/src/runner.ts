@@ -339,6 +339,22 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         });
         if (n > 0) log(`Staged ${n} object(s) at the pickup.`);
       }
+
+      // The casualty pops smoke once, during the search. A contract re-armed
+      // after that -- a restart, a reload of the aircraft -- had its scene
+      // rebuilt without it (measured: signalled at 21:42, search done at
+      // 21:43, restarted at 21:52 with no plume), so the one marker for the
+      // hover and hoist still to come was gone. Relight it where they are.
+      if (searchTarget && alreadyDone.includes('search')) {
+        const lit = director.stage({
+          lat: searchTarget.lat,
+          lon: searchTarget.lon,
+          type: 'field',
+          role: 'signal',
+        });
+        signalled = true;
+        if (lit > 0) log('Casualty already found -- smoke relit at their position.');
+      }
       director.say(
         spec && spec.kind === 'search'
           ? `RotorOps — ${m.title}. Search datum ${m.scene_name ?? 'set'}, ` +

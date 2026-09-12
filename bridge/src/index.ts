@@ -283,16 +283,24 @@ async function cmdSpawnTest(kind?: string, exactTitle?: string) {
       };
 
       if (exactTitle) {
-        // A third argument drives an effect emitter: `spawn-test title "30West
-        // smoke" 3` sets spoiler position, which is what its orange plume reads.
-        const drive = Number(process.argv[5]);
-        const ok = director.placeExact(
-          nose.lat,
-          nose.lon,
-          exactTitle,
-          true,
-          Number.isFinite(drive) ? { spoilerPct: drive, throttlePct: drive } : undefined,
-        );
+        // Two optional numbers drive an effect emitter, throttle then
+        // spoiler, because a pack can gate different plumes on each. 30West
+        // puts its grey columns on throttle bands and its orange one on
+        // spoiler position, so driving both at once lights grey over orange
+        // and looks like the orange never worked:
+        //
+        //   spawn-test title "30West smoke" 0 3    orange only
+        //   spawn-test title "30West smoke" 8.5 0  the largest grey column
+        const throttle = Number(process.argv[5]);
+        const spoiler = Number(process.argv[6]);
+        const drive =
+          Number.isFinite(throttle) || Number.isFinite(spoiler)
+            ? {
+                throttlePct: Number.isFinite(throttle) ? throttle : 0,
+                spoilerPct: Number.isFinite(spoiler) ? spoiler : 0,
+              }
+            : undefined;
+        const ok = director.placeExact(nose.lat, nose.lon, exactTitle, true, drive);
         log(`Requested "${exactTitle}" ~60 m ahead (${ok ? 'sent' : 'refused'}).`);
         log('Look out of the window. Ctrl+C when done.');
         setTimeout(() => {

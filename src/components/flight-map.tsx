@@ -202,7 +202,20 @@ export function FlightMap({
     // laying out, that comes back zero and the tiles never paint.
     setTimeout(() => m.invalidateSize(), 0);
 
+    // One deferred measure is not enough for a map that fills a flex column.
+    // A `flex-1` child has no height until the siblings above it have been
+    // laid out, and the objective list only gets its height once the bridge
+    // has sent objectives -- which can be long after the map was created. A
+    // map measured at zero renders its controls and no tiles, which is
+    // exactly a blank panel with buttons in the corner.
+    //
+    // Watching the container covers every case that moves it: first layout,
+    // objectives arriving, the window resizing, the sidebar opening.
+    const ro = new ResizeObserver(() => m.invalidateSize());
+    ro.observe(holder.current);
+
     return () => {
+      ro.disconnect();
       m.remove();
       map.current = null;
       layers.current = {};

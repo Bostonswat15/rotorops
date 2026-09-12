@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
-import { Plane, Briefcase, BookOpen, Wrench, TrendingUp, AlertTriangle, DollarSign, Star } from "lucide-react";
+import { Plane, Briefcase, BookOpen, TrendingUp, AlertTriangle, DollarSign, Star } from "lucide-react";
 import { FlightMap } from "@/components/flight-map";
 import { useLiveFlight, useBridgeObjectives } from "@/hooks/use-live-flight";
 import { searchAreaOf } from "@/lib/missions";
@@ -41,7 +41,16 @@ function Dashboard() {
       const c = await fetchCurrentCompany();
       if (!c) return null;
       const [aircraft, missions, logs, maint, txns, active, bases] = await Promise.all([
-        supabase.from("aircraft").select("*").eq("company_id", c.id),
+        // Sold, returned and destroyed airframes stay in the table as
+        // history -- a flight log has to keep pointing at the aircraft that
+        // flew it. They are not the fleet, though, and counting them made
+        // the dashboard report hours, wear and a fleet size for machines the
+        // company no longer owns. Matches the Aircraft and Maintenance pages.
+        supabase
+          .from("aircraft")
+          .select("*")
+          .eq("company_id", c.id)
+          .not("status", "in", "(sold,returned,destroyed)"),
         supabase.from("missions").select("*").eq("company_id", c.id).in("status", ["available", "accepted"]),
         supabase.from("flight_logs").select("*").eq("company_id", c.id).order("flown_at", { ascending: false }).limit(5),
         supabase.from("maintenance_events").select("*").eq("company_id", c.id).eq("status", "in_progress"),
@@ -65,7 +74,11 @@ function Dashboard() {
   if (!data) return <div className="p-8 text-muted-foreground">Loading operations data…</div>;
 
   const totalHours = data.aircraft.reduce((s: number, a: any) => s + Number(a.hours), 0);
-  const grounded = data.aircraft.filter((a: any) => a.status !== "available").length;
+  // An aircraft is either at base or out on a contract; there is no
+  // maintenance status on the airframe itself, so "not available" only ever
+  // means on_mission. Calling that grounded was wrong twice over: the
+  // aircraft is working, and the rest of the list was disposed airframes.
+  const onContract = data.aircraft.filter((a: any) => a.status === "on_mission");
   const weeklyProfit = data.txns.reduce((s: number, t: any) => s + Number(t.amount), 0);
   const alerts = data.aircraft.filter((a: any) => Number(a.wear) > 60);
 
@@ -200,7 +213,7 @@ function Dashboard() {
       <div className="grid gap-4 md:grid-cols-4">
         <Stat icon={DollarSign} label="Cash" value={`$${Number(data.company.cash).toLocaleString()}`} tone="success" />
         <Stat icon={Star} label="Reputation" value={`${data.company.reputation}/100`} />
-        <Stat icon={Plane} label="Fleet" value={`${data.aircraft.length - grounded}/${data.aircraft.length} avail.`} tone={grounded ? "warn" : undefined} />
+        <Stat icon={Plane} label="Fleet" value={`${data.aircraft.length - onContract.length}/${data.aircraft.length} avail.`} tone={onContract.length ? "warn" : undefined} />
         <Stat icon={BookOpen} label="Total Hours" value={totalHours.toFixed(1)} />
       </div>
 
@@ -218,14 +231,12 @@ function Dashboard() {
           ))}
         </Panel>
 
-        <Panel icon={Wrench} title="Aircraft grounded">
-          {data.aircraft.filter((a: any) => a.status !== "available").length === 0 && (
-            <Empty text="All aircraft mission-ready." />
-          )}
-          {data.aircraft.filter((a: any) => a.status !== "available").map((a: any) => (
+        <Panel icon={Plane} title="Aircraft on contract">
+          {onContract.length === 0 && <Empty text="Every aircraft is at base." />}
+          {onContract.map((a: any) => (
             <div key={a.id} className="flex items-center justify-between rounded-md px-3 py-2">
               <p className="text-sm">{a.display_name}</p>
-              <span className="text-xs text-warning">{a.status}</span>
+              <span className="text-xs text-warning">on contract</span>
             </div>
           ))}
         </Panel>

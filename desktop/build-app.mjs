@@ -8,6 +8,11 @@
  *
  * Setting the variable here keeps it cross-platform; `NITRO_PRESET=... npm run`
  * is not valid syntax on Windows cmd.
+ *
+ * This is why `npm start` runs this rather than the root `npm run build`:
+ * the root script builds a Worker, the desktop shell loads it, nothing
+ * listens, and the window shows "app server did not start" with no clue
+ * that the preset was the problem.
  */
 
 import { spawn } from 'node:child_process';

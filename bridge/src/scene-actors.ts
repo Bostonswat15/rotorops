@@ -632,7 +632,19 @@ export class SceneDirector {
 
       if (req?.freeze === false) this.log(`  left liftable (sling load)`);
       else this.freeze(recv.objectID);
-      if (req?.fx) this.driveFx(recv.objectID, req.fx);
+      if (req?.fx) {
+        const fx = req.fx;
+        const id = recv.objectID;
+        // Three times, a few seconds apart. A freshly created AI object goes
+        // on initialising after the id comes back -- engines, flight plan,
+        // start state -- and anything it sets afterwards overwrites a value
+        // written the instant it appeared. Re-applying is idempotent, and an
+        // emitter that lights two seconds late is invisible next to one that
+        // never lights at all.
+        this.driveFx(id, fx);
+        setTimeout(() => this.driveFx(id, fx, true), 2000);
+        setTimeout(() => this.driveFx(id, fx, true), 6000);
+      }
     });
   }
 
@@ -642,7 +654,7 @@ export class SceneDirector {
    * Written after freezing on purpose: the freeze pins position and attitude,
    * not the flight-model values the emitters read, so the two do not fight.
    */
-  private driveFx(objectId: number, fx: FxDrive) {
+  private driveFx(objectId: number, fx: FxDrive, quiet = false) {
     try {
       if (!this.fxDefined) {
         this.handle.addToDataDefinition(
@@ -659,13 +671,23 @@ export class SceneDirector {
         );
         this.fxDefined = true;
       }
-      const buf = new RawBuffer(0);
+      const buf = new RawBuffer(16);
       buf.writeFloat64(fx.throttlePct ?? 0);
       buf.writeFloat64(fx.spoilerPct ?? 0);
-      this.handle.setDataOnSimObject(DEF_FX, objectId, buf);
-      this.log(
-        `  effect on: throttle ${fx.throttlePct ?? 0}%, spoiler ${fx.spoilerPct ?? 0}%`,
-      );
+      // Not a bare buffer: the call wants it wrapped with the array count and
+      // the tagged flag, and passing the buffer alone reads `.buffer` off it,
+      // finds nothing, and throws where the error looks like the sim refusing
+      // the write rather than the call being malformed.
+      this.handle.setDataOnSimObject(DEF_FX, objectId, {
+        buffer: buf,
+        arrayCount: 0,
+        tagged: false,
+      });
+      if (!quiet) {
+        this.log(
+          `  effect on: throttle ${fx.throttlePct ?? 0}%, spoiler ${fx.spoilerPct ?? 0}%`,
+        );
+      }
     } catch (e) {
       this.log(`  could not drive the effect: ${(e as Error).message}`);
     }

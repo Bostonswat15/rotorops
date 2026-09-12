@@ -318,7 +318,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       missionId: m.id,
       missionTitle: m.title,
       objectives: objectives.snapshotProgress(),
-      sighted: objectives.sighted,
+      sighted: sightedForUi(),
     });
   }
 
@@ -374,6 +374,21 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
    * Fires once per contract. The ceiling stops a high transit overhead from
    * burning the flare before the search has even begun.
    */
+  /**
+   * What the app is allowed to draw as the casualty.
+   *
+   * Normally nothing until they are sighted -- the position is derived here
+   * precisely so the web app never holds it. Under reveal it is handed over
+   * from the moment the contract arms, so a search can be tested by flying
+   * straight to the answer instead of sweeping for it. A log line in a
+   * console behind the sim is not much use when the map is the thing you are
+   * looking at.
+   */
+  function sightedForUi(): LatLon | null {
+    if (objectives.sighted) return objectives.sighted;
+    return process.env.ROTOROPS_REVEAL ? searchTarget : null;
+  }
+
   const SIGNAL_RANGE_NM = 1.2;
   const SIGNAL_CEILING_FT = 2500;
   let signalled = false;
@@ -459,7 +474,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       missionId: objectiveMission.id,
       missionTitle: objectiveMission.title,
       objectives: objectives.snapshotProgress(),
-      sighted: objectives.sighted,
+      sighted: sightedForUi(),
     });
 
     if (justDone.length && objectives.allComplete) {

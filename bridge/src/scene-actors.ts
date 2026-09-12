@@ -84,6 +84,17 @@ type StageLayer = {
    * lift, since a frozen object cannot be picked up by a sling.
    */
   freeze?: boolean;
+  /**
+   * Exact titles to try before falling back to keyword matching.
+   *
+   * For content the enumeration cannot report. SimConnect has no object
+   * type for people, so a pack whose models declare category=Human is
+   * invisible to every list the bridge can ask for -- and spawns perfectly
+   * well when named. Keyword matching can never find those, so naming them
+   * is the only way. Absent ones cost nothing: the sim simply never returns
+   * an object id.
+   */
+  titles?: string[];
   /** Flight-model values to set once placed, for effect emitters. */
   fx?: FxDrive;
 };
@@ -129,6 +140,31 @@ const SITE_HINTS = [
  * mmh_skierRescue. Laying first: someone upright reads as a bystander,
  * someone down reads as the reason you came.
  */
+/**
+ * People by exact title, for packs the enumeration cannot report.
+ *
+ * SimConnect has no object type for humans, so a pack whose models declare
+ * category=Human is invisible to every list the bridge can ask for -- 50 of
+ * these were measured missing while the three the same pack calls
+ * GroundVehicle came through. They spawn correctly when named, so naming
+ * them is the only route. Absent on an install without the pack, which
+ * costs nothing: the sim just never returns an object id.
+ *
+ * Ordered so a rescue scene gets someone dressed for the outdoors first.
+ */
+const PERSON_TITLES = [
+  'ahqw Guy Hiker Walk', 'ahqw Gal Hiker Walk', 'ahqw Mountaineer Walk',
+  'ahqw Guy Running 1', 'ahqw Gal Running 1', 'ahqw Guy Running 2',
+  'ahqw Gal Running 2', 'ahqw Guy 1 Walk', 'ahqw Gal 1 Walk',
+];
+/** Crew and workers, for a site rather than a rescue. */
+const WORKER_TITLES = [
+  'ahqw Workman', 'ahqw Overalls 1 Walk', 'ahqw Overalls 2 Walk',
+  'ahqw Overalls 3 Pushing Wheelbarrow', 'ahqw Overalls 4 Carrying Pipe Walk',
+];
+/** Medical, for the receiving end of a casualty. */
+const MEDIC_TITLES = ['ahqw Hospital Patient with IV Walk', 'ahqw Pilot Air Ambulance Walk'];
+
 const PERSON_HINTS = [
   'laying_down', 'hikerrescue', 'skierrescue', 'sitting_down',
   'laying', 'hiker', 'person',
@@ -309,6 +345,13 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
   /** Anything that is there to be looked at rather than moved. */
   const set = (hints: string[], count: number, spreadNm: number): StageLayer =>
     ({ pool: 'ground', hints, count, spreadNm });
+  /** Ground objects named outright, for content no enumeration reports. */
+  const named = (
+    titles: string[],
+    hints: string[],
+    count: number,
+    spreadNm: number,
+  ): StageLayer => ({ pool: 'ground', titles, hints, count, spreadNm });
   const afloat = (hints: string[], count: number, spreadNm: number): StageLayer =>
     ({ pool: 'boat', hints, count, spreadNm });
   /**
@@ -328,7 +371,11 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     case 'logistics':
     case 'supply':
       // Stores to hook, and the camp that ordered them.
-      return [load(CARGO_HINTS, 3, 0.04), set(OUTPOST_HINTS, 2, 0.05)];
+      return [
+        load(CARGO_HINTS, 3, 0.04),
+        set(OUTPOST_HINTS, 2, 0.05),
+        named(WORKER_TITLES, [], 2, 0.03),
+      ];
     case 'construction':
       // Load to lift, plus the site it is going to.
       return [load(CARGO_HINTS, 2, 0.03), set([...STRUCTURE_HINTS, ...SITE_HINTS], 3, 0.04)];
@@ -347,7 +394,12 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // delivery point gets the site it is going to, this gets the thing you
       // are there to collect. Tight spread -- it wants to read as a rigged
       // load beside the aircraft, not freight scattered across the airfield.
-      return [load(CARGO_HINTS, 3, 0.02), set(VEHICLE_HINTS, 1, 0.03)];
+      return [
+        load(CARGO_HINTS, 3, 0.02),
+        set(VEHICLE_HINTS, 1, 0.03),
+        // The crew that rigged the load, at the pickup.
+        named(WORKER_TITLES, [], 1, 0.02),
+      ];
     case 'industry':
       // A lumber camp, quarry, well or mill. Nothing in the sim marks these
       // -- they are real OSM land use, or a spot the company chose to build
@@ -396,7 +448,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // casualties, the responders and the stopped traffic build around it.
         return [
           set(RESPONSE_HINTS, 2, 0.015),
-          set(PERSON_HINTS, 2, 0.004),
+          named(PERSON_TITLES, PERSON_HINTS, 2, 0.004),
           set(RESCUE_KIT_HINTS, 1, 0.006),
           set(VEHICLE_HINTS, 3, 0.05),
         ];
@@ -405,7 +457,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // Tight on the datum: the casualty is the reason for the contract and
         // the smallest thing in the scene, so scattering them 18 m into the
         // grass made the one object that matters the hardest to find.
-        set(PERSON_HINTS, 1, 0.003),
+        named(PERSON_TITLES, PERSON_HINTS, 1, 0.003),
         set(RESCUE_KIT_HINTS, 1, 0.005),
         set(MEDICAL_HINTS, 2, 0.02),
         set(VEHICLE_HINTS, 1, 0.03),
@@ -413,7 +465,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     case 'sar':
       if (scene === 'vessel') {
         // A hull going down, and people in the water beside it.
-        return [afloat(DISTRESS_BOAT_HINTS, 1, 0), set(PERSON_HINTS, 2, 0.005)];
+        return [afloat(DISTRESS_BOAT_HINTS, 1, 0), named(PERSON_TITLES, PERSON_HINTS, 2, 0.005)];
       }
       if (scene === 'riverbank') {
         // Swiftwater: someone in the water and the raft they came off, with
@@ -422,7 +474,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // one, and the scale made the rescue look like a joke.
         return [
           afloat(SMALL_CRAFT_HINTS, 1, 0.004),
-          set(PERSON_HINTS, 2, 0.004),
+          named(PERSON_TITLES, PERSON_HINTS, 2, 0.004),
           set(KIT_HINTS, 1, 0.01),
         ];
       }
@@ -436,13 +488,13 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // and it is the difference between a search you can fly and one you
         // give up on.
         return [
-          set(PERSON_HINTS, 2, 0.004),
+          named(PERSON_TITLES, PERSON_HINTS, 2, 0.004),
           set(SIGNAL_HINTS, 1, 0.008),
           set(KIT_HINTS, 1, 0.008),
         ];
       }
       if (scene === 'beach') {
-        return [set(PERSON_HINTS, 2, 0.005), set(KIT_HINTS, 1, 0.01), set(VEHICLE_HINTS, 1, 0.03)];
+        return [named(PERSON_TITLES, PERSON_HINTS, 2, 0.005), set(KIT_HINTS, 1, 0.01), set(VEHICLE_HINTS, 1, 0.03)];
       }
       if (scene === 'forest' || scene === 'field') {
         // Downed aircraft: the install carries wrecks with burning variants,
@@ -450,13 +502,13 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         // hovering over trees than a parked van.
         return [
           set(WRECK_HINTS, 1, 0),
-          set(PERSON_HINTS, 2, 0.006),
+          named(PERSON_TITLES, PERSON_HINTS, 2, 0.006),
           set(SIGNAL_HINTS, 1, 0.008),
         ];
       }
       // Ground search: the casualty, and the search party staged nearby.
       return [
-        set(PERSON_HINTS, 2, 0.005),
+        named(PERSON_TITLES, PERSON_HINTS, 2, 0.005),
         set(RESCUE_KIT_HINTS, 1, 0.008),
         set(MEDICAL_HINTS, 1, 0.03),
         set(VEHICLE_HINTS, 2, 0.04),
@@ -471,7 +523,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     case 'executive':
     case 'tourism':
     case 'training':
-      return [set(PAX_HINTS, 2, 0.02), set(PERSON_HINTS, 2, 0.008)];
+      return [set(PAX_HINTS, 2, 0.02), named(PERSON_TITLES, PERSON_HINTS, 2, 0.008)];
     case 'survey':
       // Something to actually survey, spread along the track.
       return [set(STRUCTURE_HINTS, 4, 0.5), set(SITE_HINTS, 1, 0.05)];
@@ -501,7 +553,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
   if (scene === 'rooftop') return null; // nothing settles believably on a roof
   if (scene === 'forest' || scene === 'field') return [set(OUTPOST_HINTS, 3, 0.04)];
   if (scene === 'highway') return [set(RESPONSE_HINTS, 2, 0.03), set(VEHICLE_HINTS, 2, 0.04)];
-  if (scene === 'cliff' || scene === 'ridgeline') return [set(PERSON_HINTS, 1, 0.004), set(KIT_HINTS, 1, 0.008)];
+  if (scene === 'cliff' || scene === 'ridgeline') return [named(PERSON_TITLES, PERSON_HINTS, 1, 0.004), set(KIT_HINTS, 1, 0.008)];
   return [set(VEHICLE_HINTS, 2, 0.02)];
 }
 
@@ -922,7 +974,13 @@ export class SceneDirector {
       // Hand-authored titles first: if you've added a model for this job, it
       // is by definition a better choice than anything keyword matching
       // found.
-      let titles = configured.length > 0 ? configured : matches(pool, layer.hints);
+      // Hand-authored titles from the config, then titles the plan itself
+      // names, then keyword matching. The middle case exists for objects no
+      // enumeration reports, which matching cannot reach by definition.
+      let titles =
+        configured.length > 0
+          ? configured
+          : [...(layer.titles ?? []), ...matches(pool, layer.hints)];
       // Prefer something this scene hasn't used yet, so a casualty layer and
       // a vehicle layer that happen to share a matching title still look
       // like two different things.

@@ -47,6 +47,9 @@ export type BridgeEvent =
     }
   | { type: 'objective-done'; missionId: string; objectiveId: string; label: string }
   | { type: 'objectives-complete'; missionId: string; missionTitle: string }
+  // The armed contract went away -- resolved, cancelled or reassigned. Without
+  // this the app kept the last objective list up indefinitely, ticks and all.
+  | { type: 'objectives-cleared' }
   // Raw position, emitted whenever the sim reports one -- engines running or
   // not. The moving map uses this so it works while planning, not just in the
   // air.
@@ -212,6 +215,11 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
           log(`Contract "${m.title}" has no objectives to track.`);
         }
       }
+      // Tell the app the contract is gone, once, on the way from armed to
+      // nothing. The objective list only ever changed when a new one arrived,
+      // so a resolved contract's all-green list stayed on screen -- and lent
+      // its ticks to the next contract's waypoints, which share its ids.
+      if (objectiveMission) emit({ type: 'objectives-cleared' });
       objectiveMission = null;
       return;
     }

@@ -252,6 +252,9 @@ function onBridgeEvent(event) {
       sighted: event.sighted ?? null,
     } });
   }
+  // The contract resolved or went away: drop its list rather than leaving a
+  // finished contract on screen until the next one happens to arm.
+  if (event.type === 'objectives-cleared') pushStatus({ objectives: null });
   if (event.type === 'sim-aircraft') {
     pushStatus({ simAircraft: { simTitle: event.simTitle, matchedId: event.matchedId, matchedName: event.matchedName } });
   }

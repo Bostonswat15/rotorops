@@ -96,8 +96,13 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   const mapWaypoints = (() => {
     const raw = activeMission?.objectives;
     if (!Array.isArray(raw)) return [];
+    // Only this contract's progress. Every medevac shares objective ids --
+    // reach, hover, land_scene, load, deliver -- so a finished contract's
+    // ticks, still held by the bridge, used to paint the next contract's
+    // waypoints as done before it had been flown.
+    const live = objectives?.missionId === activeMission?.id ? objectives : null;
     const doneById = new Map<string, boolean>(
-      (objectives?.items ?? []).map((o) => [o.id, !!o.done] as [string, boolean]),
+      (live?.items ?? []).map((o) => [o.id, !!o.done] as [string, boolean]),
     );
     return raw
       .map((o: any) => {

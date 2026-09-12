@@ -31,6 +31,16 @@ export type SearchSpec = {
   radius_nm: number;
   /** An ELT, EPIRB or PLB the aircraft can home on. Without one it is eyes only. */
   beacon?: boolean;
+  /**
+   * Places the casualty can really be, when the terrain decides.
+   *
+   * A climber is on the cliff, not wherever a random offset from the datum
+   * happens to land -- which on a sea cliff is the sea. Generation supplies
+   * mapped cliff points within the search radius and the pick among them is
+   * still made here, from the contract id, so the server holds a shortlist
+   * but never the answer.
+   */
+  target_candidates?: [number, number][];
 };
 
 // ---------------------------------------------------------------------------
@@ -93,6 +103,13 @@ export function bearingTo(from: LatLon, to: LatLon): number {
  */
 export function resolveSearchTarget(missionId: string, spec: SearchSpec): LatLon {
   const r = rng(seedOf(missionId));
+  const cands = (spec.target_candidates ?? []).filter(
+    (c) => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]),
+  );
+  if (cands.length > 0) {
+    const [lat, lon] = cands[Math.min(cands.length - 1, Math.floor(r() * cands.length))];
+    return { lat, lon };
+  }
   const dist = spec.radius_nm * 0.9 * Math.sqrt(r());
   const brg = r() * 360;
   return offsetPosition(spec.datum_lat, spec.datum_lon, dist, brg);

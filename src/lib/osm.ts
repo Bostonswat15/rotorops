@@ -229,6 +229,16 @@ export type SiteFeatures = {
   beaches: LatLon[][];
   /** Motorway, trunk and primary carriageways -- somewhere to put a crash. */
   roads: { ref: string | null; geometry: LatLon[] }[];
+  /**
+   * Mapped cliff faces -- somewhere a climber can actually be stuck.
+   *
+   * A cliff rescue used to be placed by stepping a random 0.6-3.6 nm off an
+   * airfield, which on a fjord coast is open water half the time: "Black
+   * Point" went into Howe Sound. Measured, OSM maps 400+ cliffs within 40 nm
+   * of Squamish, the nearest being the Chief 4.4 nm from the field.
+   */
+  /** Undefined when the cliff lookup failed: unknown, not "no cliffs here". */
+  cliffs?: LatLon[][];
   /** Somewhere to take the casualty that isn't your own hangar. */
   hospitals: { lat: number; lon: number; name: string; emergency: boolean }[];
 };
@@ -271,6 +281,12 @@ export async function findSites(centre: LatLon, radiusNm = 60): Promise<SiteFeat
   // is what every offshore placement is checked against, and a single shared
   // cap let 118 river ways crowd it out -- which is how vessels ended up in
   // Fall River.
+  //
+  // Cliffs are asked for alongside rather than inside this query. It already
+  // runs 15-20 s against the public instance; anything added to one union
+  // is something that can push the whole scan into a timeout, and then the
+  // base loses its roads, water and hospitals for the sake of its cliffs.
+  const cliffsP = findCliffs(centre, radiusNm);
   const elements = await overpass(
     `[out:json][timeout:60];` +
       `way["natural"="coastline"](${b});out geom 3000;` +
@@ -343,6 +359,38 @@ export async function findSites(centre: LatLon, radiusNm = 60): Promise<SiteFeat
     }
   }
 
+  // Null from the cliff lookup is "could not ask", recorded as unknown.
+  out.cliffs = (await cliffsP) ?? undefined;
+  return out;
+}
+
+/**
+ * Mapped cliff faces around a point, or null when Overpass could not be reached.
+ *
+ * Near field first, for the same reason as roads: around Squamish the wide
+ * pass alone hit its 400 cap, and a cap in id order is not the nearest 400.
+ * Kept separate from `findSites` so a slow cliff lookup never costs a base its
+ * roads and water, and so a base scanned before cliffs existed can have just
+ * its cliffs filled in -- a fraction of a full rescan.
+ */
+export async function findCliffs(centre: LatLon, radiusNm = 60): Promise<LatLon[][] | null> {
+  const b = bbox(centre, radiusNm);
+  const elements = await overpass(
+    `[out:json][timeout:40];` +
+      `way["natural"="cliff"](around:${Math.round(radiusNm * 0.4 * 1852)},${centre.lat},${centre.lon});out geom 250;` +
+      `way["natural"="cliff"](${b});out geom 400;`,
+    45_000,
+  );
+  if (elements === null) return null;
+
+  // Both passes return the near cliffs; keep one copy of each.
+  const seen = new Set<number>();
+  const out: LatLon[][] = [];
+  for (const e of elements) {
+    if (!Array.isArray(e.geometry) || e.geometry.length < 2 || seen.has(e.id)) continue;
+    seen.add(e.id);
+    out.push(e.geometry.map((g: any) => ({ lat: g.lat, lon: g.lon })));
+  }
   return out;
 }
 

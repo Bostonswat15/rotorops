@@ -29,6 +29,8 @@ export type Objective =
       id: string; kind: 'search'; label: string;
       datum_lat: number; datum_lon: number; radius_nm: number;
       beacon?: boolean;
+      /** Real positions the casualty may be at; see SearchSpec. */
+      target_candidates?: [number, number][];
     }
   | {
       id: string; kind: 'hover'; label: string;

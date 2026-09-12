@@ -25,7 +25,8 @@ import {
   siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
   type SceneType, type PlacementSites,
 } from "@/lib/missions";
-import { findAerodromes, findSites, findIndustrySites } from "@/lib/osm";
+import { findAerodromes, findSites, findIndustrySites, findCliffs } from "@/lib/osm";
+import { cliffSitesFrom } from "@/lib/missions";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission,
 } from "@/lib/fixed-wing";
@@ -104,7 +105,7 @@ function MissionsPage() {
         ? parsePlacementSites(base.placement_sites)
         : null;
       if (!sites) {
-        const scanning = toast.loading("Scanning the area — roads, water and hospitals. This takes a moment.");
+        const scanning = toast.loading("Scanning the area — roads, water, cliffs and hospitals. This takes a moment.");
         try {
           const raw = await findSites(
             { lat: Number(base.latitude), lon: Number(base.longitude) },
@@ -129,6 +130,31 @@ function MissionsPage() {
           // Leave it null: unknown, not absent. Everything stays on the board.
         } finally {
           toast.dismiss(scanning);
+        }
+      }
+      // Cliffs were added to the scan after most bases had been scanned, and a
+      // cliff lookup can fail on its own. Either way the cached sites carry no
+      // cliff key -- unknown, not absent -- so fill in just the cliffs: one
+      // lookup is a fraction of a full rescan, and it leaves the roads, water
+      // and hospitals already cached alone. A failure stays unknown and is
+      // tried again on the next batch.
+      if (sites && sites.cliff === undefined) {
+        const finding = toast.loading("Finding cliffs for rescue scenes…");
+        try {
+          const centre = { lat: Number(base.latitude), lon: Number(base.longitude) };
+          const cliffs = await findCliffs(centre, 50);
+          if (cliffs) {
+            sites = { ...sites, cliff: cliffSitesFrom(cliffs, centre) };
+            const { error: cErr } = await supabase.rpc("set_base_sites", {
+              _base_id: base.id,
+              _sites: sites as unknown as never,
+            });
+            if (!cErr) qc.invalidateQueries({ queryKey: ["bases"] });
+          }
+        } catch {
+          // Unknown stays unknown; the next batch tries again.
+        } finally {
+          toast.dismiss(finding);
         }
       }
       const avail = siteAvailability(sites);

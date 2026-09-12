@@ -91,6 +91,12 @@ export type Objective =
       datum_lat: number; datum_lon: number; radius_nm: number;
       /** An ELT/EPIRB/PLB to home on. Without one it is an eyes-only search. */
       beacon: boolean;
+      /**
+       * Real positions the casualty may be at, when terrain decides -- mapped
+       * cliff points for a cliff rescue. The bridge picks one from the
+       * contract id; the server holds the shortlist, never the answer.
+       */
+      target_candidates?: [number, number][];
     }
   /** Hold a low, slow hover -- the hard part of most rotary work. */
   | {
@@ -258,7 +264,7 @@ export function nearestAirport(
  *   river  -- flowing water.
  */
 export const SCENE_SITE_NEED: Partial<
-  Record<SceneType, "sea" | "open" | "shore" | "river" | "road">
+  Record<SceneType, "sea" | "open" | "shore" | "river" | "road" | "cliff">
 > = {
   vessel: "open",
   oil_rig: "sea",
@@ -267,6 +273,9 @@ export const SCENE_SITE_NEED: Partial<
   // A closed carriageway needs a carriageway. Before this, "police have closed
   // the road for you" put you in a paddock two miles from an airfield.
   highway: "road",
+  // A climber is on a cliff. Anchoring this to an airfield and stepping off in
+  // a random direction put "Black Point" in the middle of Howe Sound.
+  cliff: "cliff",
 };
 
 /**
@@ -287,12 +296,19 @@ export type PlacementSites = {
   river: [number, number][];
   /** On a real motorway, trunk road or primary carriageway. */
   road: [number, number][];
+  /**
+   * On a mapped cliff face. Absent, not empty, on a scan cached before cliffs
+   * were collected -- that means "unknown", and must not read as "no cliffs".
+   */
+  cliff?: [number, number][];
   /** Somewhere to hand the casualty over that isn't your own hangar. */
   hospital: { lat: number; lon: number; name: string; emergency: boolean }[];
 };
 
 export type SiteAvailability = {
   sea: boolean; open: boolean; shore: boolean; river: boolean; road: boolean;
+  /** Undefined when the cached scan predates cliffs: unknown, not absent. */
+  cliff?: boolean;
 };
 
 /**
@@ -416,6 +432,37 @@ function nearestCoast(p: Pt, coastline: Pt[][]) {
  * degrees always points out to sea. That convention is what makes this reliable
  * rather than a guess -- there is no need to know which way the continent faces.
  */
+/**
+ * Cliff placement points from mapped cliff ways, nearest the base first.
+ *
+ * Short fragments are skipped: a 20 m outcrop mapped as a cliff is not
+ * somewhere a climber gets stuck, and there are hundreds of them. Sorted by
+ * distance before thinning, like roads, so the cached points span the whole
+ * band rather than whichever ways Overpass returned first.
+ */
+export function cliffSitesFrom(
+  cliffs: { lat: number; lon: number }[][],
+  centre: { lat: number; lon: number },
+): [number, number][] {
+  const pts: [number, number][] = [];
+  for (const way of cliffs) {
+    let lengthNm = 0;
+    for (let i = 1; i < way.length; i++) {
+      lengthNm += distanceNm(way[i - 1].lat, way[i - 1].lon, way[i].lat, way[i].lon);
+    }
+    if (lengthNm < 0.03) continue;
+    for (const p of stride(way, 4)) pts.push(asSite(p));
+  }
+  return stride(
+    pts.sort(
+      (a, b) =>
+        distanceNm(centre.lat, centre.lon, a[0], a[1]) -
+        distanceNm(centre.lat, centre.lon, b[0], b[1]),
+    ),
+    150,
+  );
+}
+
 export function summariseSites(
   w: SiteFeatures,
   centre: { lat: number; lon: number },
@@ -524,6 +571,8 @@ export function summariseSites(
       ),
       250,
     ),
+    // Undefined when the cliff lookup failed: unknown, not "no cliffs here".
+    cliff: w.cliffs ? cliffSitesFrom(w.cliffs, centre) : undefined,
     hospital: stride(sites.hospital, 60),
   };
 }
@@ -565,6 +614,9 @@ export function parsePlacementSites(raw: unknown): PlacementSites | null {
   return {
     offshore: arr("offshore"), lake: arr("lake"),
     shore: arr("shore"), river: arr("river"), road: arr("road"),
+    // Absent on a scan cached before cliffs were collected. Kept absent, so it
+    // reads as unknown rather than as a base with no cliffs at all.
+    cliff: Array.isArray(o.cliff) ? arr("cliff") : undefined,
     hospital,
   };
 }
@@ -577,6 +629,7 @@ export function siteAvailability(s: PlacementSites | null): SiteAvailability | n
     shore: s.shore.length > 0,
     river: s.river.length > 0,
     road: s.road.length > 0,
+    cliff: s.cliff ? s.cliff.length > 0 : undefined,
   };
 }
 
@@ -591,7 +644,10 @@ export function siteAvailability(s: PlacementSites | null): SiteAvailability | n
 export function sceneIsFlyable(type: SceneType, avail: SiteAvailability | null): boolean {
   const need = SCENE_SITE_NEED[type];
   if (!need || !avail) return true;
-  return avail[need];
+  // Unknown for this need -- an old cached scan without cliffs -- keeps the
+  // contract on the board and lets placement fall back, rather than silently
+  // removing Cliff Rescue until someone rescans.
+  return avail[need] ?? true;
 }
 
 /** Nearest hospital to a point -- where a casualty would actually be taken. */
@@ -619,7 +675,8 @@ export function nearestHospital(
   return { ...best, distance_nm: Number(bestNm.toFixed(1)) };
 }
 
-function sitesFor(need: "sea" | "open" | "shore" | "river" | "road", s: PlacementSites) {
+function sitesFor(need: "sea" | "open" | "shore" | "river" | "road" | "cliff", s: PlacementSites) {
+  if (need === "cliff") return s.cliff ?? [];
   if (need === "sea") return s.offshore;
   if (need === "open") return [...s.offshore, ...s.lake];
   if (need === "shore") return s.shore;
@@ -627,6 +684,26 @@ function sitesFor(need: "sea" | "open" | "shore" | "river" | "road", s: Placemen
   return s.river;
 }
 
+
+/**
+ * Mapped cliff points a cliff-rescue casualty can be at.
+ *
+ * Inside the search area, so it is still a search, and never empty: with no
+ * cached cliffs near enough, the datum itself -- which placement put on a
+ * cliff -- is the only candidate.
+ */
+function cliffCandidates(
+  datum: { lat: number; lon: number },
+  radiusNm: number,
+  cliff: [number, number][] | undefined,
+): [number, number][] {
+  const near = (cliff ?? [])
+    .map((p) => ({ p, d: distanceNm(datum.lat, datum.lon, p[0], p[1]) }))
+    .filter((x) => x.d <= radiusNm * 0.9)
+    .sort((a, b) => a.d - b.d)
+    .map((x) => x.p);
+  return near.length > 0 ? stride(near, 16) : [[Number(datum.lat.toFixed(5)), Number(datum.lon.toFixed(5))]];
+}
 
 /**
  * Choose where a scene sits.
@@ -1014,6 +1091,12 @@ export function generateSceneMission(
           datum_lat: scene.lat, datum_lon: scene.lon,
           radius_nm: t.search_radius_nm ?? 3,
           beacon: t.beacon ?? false,
+          // Keep a climber on the cliff. The bridge used to drop the casualty
+          // at a random offset inside the radius, which beside a sea cliff is
+          // the sea -- a person, a quad and a smoke plume standing on water.
+          ...(t.scene_type === "cliff"
+            ? { target_candidates: cliffCandidates(scene, t.search_radius_nm ?? 3, base.sites?.cliff) }
+            : {}),
         });
         break;
       case "reach_scene":

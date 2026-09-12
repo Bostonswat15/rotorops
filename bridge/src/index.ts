@@ -222,7 +222,15 @@ async function cmdProbe(filter?: string) {
  * the only way to find out was to fly a whole mission to a remote scene. Park
  * somewhere, run this, look out of the window.
  */
-async function cmdSpawnTest(kind?: string) {
+/**
+ * Place a scene ahead of the aircraft so it can be looked at.
+ *
+ * With a second argument it places that exact title instead of a role, which
+ * is the only way to find out whether an object the enumeration does not
+ * report can still be spawned -- and it cannot, for anything declaring
+ * category=Human, until proven otherwise. `spawn-test title "ahqw Guy Hiker Walk"`
+ */
+async function cmdSpawnTest(kind?: string, exactTitle?: string) {
   const sim = new SimSession();
   sim.on('log', (m) => log(m));
   sim.on('connected', (v) => log(`Connected to ${v}`));
@@ -268,6 +276,23 @@ async function cmdSpawnTest(kind?: string) {
           Math.sin(rad(hdg)) * Math.sin(d) * Math.cos(la1),
           Math.cos(d) - Math.sin(la1) * Math.sin(la2),
         );
+
+      const nose = {
+        lat: (la2 * 180) / Math.PI,
+        lon: (((lo2 * 180) / Math.PI + 540) % 360) - 180,
+      };
+
+      if (exactTitle) {
+        const ok = director.placeExact(nose.lat, nose.lon, exactTitle);
+        log(`Requested "${exactTitle}" ~60 m ahead (${ok ? 'sent' : 'refused'}).`);
+        log('Look out of the window. Ctrl+C when done.');
+        setTimeout(() => {
+          director.clear();
+          sim.close();
+          process.exit(0);
+        }, 120_000);
+        return;
+      }
 
       const role = kind ?? 'medevac';
       const placed = director.stage({
@@ -575,7 +600,7 @@ const run = async () => {
   switch (cmd) {
     case 'pair': return cmdPair(arg);
     case 'probe': return cmdProbe(arg);
-    case 'spawn-test': return cmdSpawnTest(arg);
+    case 'spawn-test': return cmdSpawnTest(arg, process.argv[4]);
     case 'sling': return cmdSling(arg);
     case 'run':
     case undefined: return cmdRun();

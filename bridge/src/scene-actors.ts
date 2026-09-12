@@ -647,6 +647,34 @@ export class SceneDirector {
     }
   }
 
+  /**
+   * Place one object by exact title, bypassing hints and the enumeration.
+   *
+   * The enumeration is incomplete -- SimConnect has no object type for
+   * people, so a pack declaring category=Human reports nothing -- and this
+   * is the only way to find out whether such a container can be spawned at
+   * all. A title that does not exist simply never returns an object id.
+   */
+  placeExact(lat: number, lon: number, title: string, freeze = true): boolean {
+    try {
+      const pos = new InitPosition();
+      pos.latitude = lat;
+      pos.longitude = lon;
+      pos.altitude = 0;
+      pos.pitch = 0;
+      pos.bank = 0;
+      pos.heading = 0;
+      pos.onGround = true;
+      pos.airspeed = 0;
+      this.pending.push({ title, freeze });
+      this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
+      return true;
+    } catch (e) {
+      this.log(`could not place "${title}": ${(e as Error).message}`);
+      return false;
+    }
+  }
+
   get catalogue() {
     return {
       boats: this.boats.length,
@@ -701,14 +729,28 @@ export class SceneDirector {
     if (!base && !override) return 0;
 
     const known = new Set([...this.boats, ...this.ground, ...this.planes]);
-    /** Titles this install genuinely has, per layer. Empty means "use hints". */
+    /**
+     * Titles to try for a layer. Empty means "use hints".
+     *
+     * A title the enumeration did not report is still attempted, because the
+     * enumeration is known to be incomplete: SimConnect has no object type
+     * for people, so a pack whose models declare category=Human reports none
+     * of them -- 50 walkers invisible, while the three cyclists it happens to
+     * call GroundVehicle come through fine. Refusing to place what the list
+     * does not mention would rule out content that spawns perfectly well.
+     *
+     * Still says so, because the other reason a title is missing is a typo or
+     * an uninstalled pack, and a scene that quietly places nothing is the
+     * hardest kind of thing to debug. A title that really does not exist just
+     * never comes back with an object id, which is already handled.
+     */
     const usable = (ts: string[] | undefined): string[] => {
       const wanted = ts ?? [];
-      const missing = wanted.filter((t) => !known.has(t));
-      if (missing.length > 0) {
-        this.log(`configured object(s) not in this install: ${missing.join(', ')}`);
+      const unlisted = wanted.filter((t) => !known.has(t));
+      if (unlisted.length > 0) {
+        this.log(`not in the enumeration, trying anyway: ${unlisted.join(', ')}`);
       }
-      return wanted.filter((t) => known.has(t));
+      return wanted;
     };
 
     /** Per-layer explicit titles, aligned with `layers` below. */

@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { Plane, Briefcase, BookOpen, TrendingUp, AlertTriangle, DollarSign, Star } from "lucide-react";
-import { LiveFlightPanel } from "@/components/live-flight-panel";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -12,12 +11,13 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 function Dashboard() {
-  const { flight, isDesktop } = useLiveFlight();
+  const { flight } = useLiveFlight();
 
 
   const { data } = useQuery({
     queryKey: ["dashboard"],
-    // While a flight is live the map wants fresh scene data to draw against.
+    // A live flight means these cards are changing under you -- an aircraft
+    // goes on contract, hours accrue, the payout lands. Idle otherwise.
     refetchInterval: flight ? 15000 : false,
     queryFn: async () => {
       const c = await fetchCurrentCompany();
@@ -68,19 +68,18 @@ function Dashboard() {
   const activeMission = data.active[0] ?? null;
   return (
     <div className="space-y-6 p-6 md:p-8">
-      <LiveFlightPanel />
-
+      {/*
+        The live flight lives on its own page now. What stays here is the one
+        thing about a flight that is a data problem rather than a map: a
+        contract with no scene can never be tracked, and the In Flight page
+        would show it as a normal flight with an objective list that never
+        moves.
+      */}
       {flight && activeMission && activeMission.scene_lat == null && (
         <p className="rounded-lg border border-warning/40 bg-card px-4 py-3 text-sm text-warning">
           "{activeMission.title}" has no scene coordinates, so there is nothing to
-          draw a line to and no objectives to track. It was generated before
-          scene contracts existed — clear the board and generate a fresh batch.
-        </p>
-      )}
-
-      {!flight && isDesktop && (
-        <p className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-          The moving map appears here once MSFS 2024 is running with a flight loaded.
+          fly to and no objectives to track. It was generated before scene
+          contracts existed — clear the board and generate a fresh batch.
         </p>
       )}
 

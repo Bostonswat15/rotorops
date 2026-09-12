@@ -248,6 +248,19 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     searchTarget =
       spec && spec.kind === 'search' ? resolveSearchTarget(m.id, spec) : null;
 
+    // Testing a search you cannot see the answer to means flying the whole
+    // sweep to find out whether one line of code works. Off by default and
+    // deliberately loud when on -- the hidden position is the mechanic, and
+    // nobody should reveal it by accident.
+    if (searchTarget && process.env.ROTOROPS_REVEAL) {
+      warn(
+        `REVEAL: casualty is at ${searchTarget.lat.toFixed(5)}, ${searchTarget.lon.toFixed(5)} ` +
+          `(${distanceNm(spec && spec.kind === 'search' ? spec.datum_lat : 0,
+            spec && spec.kind === 'search' ? spec.datum_lon : 0,
+            searchTarget.lat, searchTarget.lon).toFixed(2)} nm from the datum)`,
+      );
+    }
+
     objectives.load(m.objectives as Objective[], alreadyDone, searchTarget);
 
     // Put the job in the world, and brief the pilot inside the sim.

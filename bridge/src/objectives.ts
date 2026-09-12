@@ -474,6 +474,15 @@ export class ObjectiveTracker {
           this.done.add(o.id);
           completed.push(o.id);
           this.basePayload = null;
+        } else if (delta < 20) {
+          // Say what to do, not a number that sits at zero. The bridge puts
+          // them aboard once the hoist is done or the skids are down and
+          // still, so the useful hint is which of those is missing.
+          const hoisted = this.objectives.some((x) => x.kind === 'hoist' && this.done.has(x.id));
+          this.hint =
+            hoisted || (onGround && gs < 5)
+              ? 'hold still — taking them aboard'
+              : 'land by the casualty to take them aboard';
         } else {
           this.hint = `${Math.max(0, Math.round(delta))}/${o.min_delta_lb} lb aboard`;
         }

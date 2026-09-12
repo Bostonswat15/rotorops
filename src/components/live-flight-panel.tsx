@@ -55,7 +55,11 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
     },
   });
 
-  const activeMission = data?.active[0] ?? null;
+  // The contract the bridge is actually tracking, not whichever in-progress
+  // row came back first. With two dispatched at once the panel drew one
+  // contract's search datum over another contract's objective list.
+  const activeMission =
+    data?.active.find((m: any) => m.id === objectives?.missionId) ?? data?.active[0] ?? null;
   const homeBase =
     data?.bases.find((b: any) => b.latitude != null && b.longitude != null) ?? null;
 

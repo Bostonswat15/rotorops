@@ -156,6 +156,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
   let director: SceneDirector | null = null;
   /** Weight of whoever we picked up, so it can be unloaded on delivery. */
   let casualtyLb = 0;
+  /** When the aircraft became ready to take someone aboard, for the boarding hold. */
+  let boardSince: number | null = null;
   /** Where the SAR casualty really is. Derived here; never sent to the server. */
   let searchTarget: LatLon | null = null;
   /** Most recent telemetry, for capability checks when a contract arms. */
@@ -267,6 +269,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     if (director && m.scene_lat != null && m.scene_lon != null) {
       director.clear();
       casualtyLb = 0;
+      boardSince = null;
       director.setCasualtyWeight(0);
       // Objects go where the casualty actually is, not at the datum -- the sim
       // stops drawing a person-sized object a few hundred metres out, so this
@@ -420,9 +423,61 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     }
   }
 
+  /**
+   * Put the casualty aboard once the aircraft is in a position to take them.
+   *
+   * This used to happen when "take the load aboard" completed -- but that
+   * objective completes when weight comes aboard, so each waited on the
+   * other and neither ever happened. You could land beside the casualty and
+   * sit there at 0 lb for the rest of the flight.
+   *
+   * Now the bridge loads them first and the objective sees the weight arrive.
+   * Ready means the hoist has already brought them up, or the aircraft is on
+   * the ground and stopped. A short hold, because nobody is carried aboard in
+   * the instant the skids touch, and because the objective takes its empty
+   * baseline on its first sample -- weight written in that same sample would
+   * be counted as empty.
+   */
+  const BOARD_MS = 8000;
+  function maybeBoard(s: Record<string, number | string>) {
+    if (!director || casualtyLb > 0) return;
+    const o = objectives.current as { kind?: string; min_delta_lb?: number } | null;
+    if (o?.kind !== 'payload') {
+      boardSince = null;
+      return;
+    }
+    const hoisted = objectives.snapshotProgress().some((p) => p.id === 'hoist' && p.done);
+    const settled = n(s.onGround) === 1 && n(s.groundSpeed) < 5;
+    if (!hoisted && !settled) {
+      boardSince = null;
+      return;
+    }
+
+    const now = Date.now();
+    if (boardSince === null) {
+      boardSince = now;
+      director.say(hoisted ? 'Bringing them in…' : 'Hold still — taking them aboard…', 6);
+      return;
+    }
+    if (now - boardSince < BOARD_MS) return;
+
+    // Enough to satisfy the objective whatever it asked for: a crew change
+    // wants far more than one person weighs.
+    const lb = Math.max(220, (o.min_delta_lb ?? 0) + 20);
+    if (director.setCasualtyWeight(lb)) {
+      casualtyLb = lb;
+      director.say(`Aboard — ${lb} lb. Get them to the receiving field.`, 10);
+      log(`Loaded aboard: +${lb} lb on the airframe.`);
+    } else {
+      // Do not retry every sample; the log already says why.
+      boardSince = null;
+    }
+  }
+
   function trackObjectives(s: Record<string, number | string>) {
     if (!objectiveMission || !objectives.isLoaded) return;
     maybeSignal(s);
+    maybeBoard(s);
     const justDone = objectives.update(s);
     if (justDone.length === 0) logWhyPending(s);
 
@@ -445,19 +500,13 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
           director.say(`✓ ${label}`, 6);
         }
 
-        // Winching someone up, or loading them aboard, is real weight from here
-        // on -- you fly the rest of the job heavier than you arrived.
-        if ((id === 'hoist' || id === 'load') && casualtyLb === 0) {
-          casualtyLb = 220;
-          if (director.setCasualtyWeight(casualtyLb)) {
-            director.say('Casualty aboard — 220 lb. Get them to the receiving field.', 10);
-            log('Casualty loaded: +220 lb on the airframe.');
-          }
-        }
+        // Loading is done by maybeBoard, before the objective can tick -- see
+        // there for why it cannot happen here.
         // Delivered: hand them over and take the weight back off.
         if ((id === 'deliver' || id === 'return') && casualtyLb > 0) {
           director.setCasualtyWeight(0);
           casualtyLb = 0;
+          boardSince = null;
           director.say('Casualty handed over. Well flown.', 8);
         }
       }
@@ -569,6 +618,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       director?.clear();
       director?.setCasualtyWeight(0);
       casualtyLb = 0;
+      boardSince = null;
       emit({
         type: 'flight-logged',
         result,

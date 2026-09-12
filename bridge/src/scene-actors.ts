@@ -1111,8 +1111,16 @@ export class SceneDirector {
         );
         this.payloadReady = true;
       }
+      // Wrapped, not { value }: the call wants a buffer with an array count
+      // and a tagged flag. The old shape threw inside the catch below, so no
+      // casualty ever went aboard as weight -- the log said so, and it read
+      // like the sim refusing the station rather than the call being wrong.
+      const buf = new RawBuffer(8);
+      buf.writeFloat64(pounds);
       this.handle.setDataOnSimObject(DEF_PAYLOAD, SimConnectConstants.OBJECT_ID_USER, {
-        value: pounds,
+        buffer: buf,
+        arrayCount: 0,
+        tagged: false,
       });
       return true;
     } catch (e) {

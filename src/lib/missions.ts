@@ -686,18 +686,33 @@ function sitesFor(need: "sea" | "open" | "shore" | "river" | "road" | "cliff", s
 
 
 /**
- * Mapped cliff points a cliff-rescue casualty can be at.
+ * Where a search casualty can really be, by the terrain the scene is about.
+ *
+ * Scene types missing from here keep the bridge's random offset inside the
+ * radius -- a ridgeline, say, where there is no mapped feature to hold to.
+ */
+const CASUALTY_TERRAIN: Partial<
+  Record<SceneType, (s: PlacementSites) => [number, number][] | undefined>
+> = {
+  cliff: (s) => s.cliff,
+  riverbank: (s) => s.river,
+  beach: (s) => s.shore,
+  vessel: (s) => [...s.offshore, ...s.lake],
+};
+
+/**
+ * Mapped points a casualty can be at: a cliff face, a river, a shore, open water.
  *
  * Inside the search area, so it is still a search, and never empty: with no
- * cached cliffs near enough, the datum itself -- which placement put on a
- * cliff -- is the only candidate.
+ * cached points near enough, the datum itself -- which placement already put
+ * on that terrain -- is the only candidate.
  */
-function cliffCandidates(
+export function terrainCandidates(
   datum: { lat: number; lon: number },
   radiusNm: number,
-  cliff: [number, number][] | undefined,
+  points: [number, number][] | undefined,
 ): [number, number][] {
-  const near = (cliff ?? [])
+  const near = (points ?? [])
     .map((p) => ({ p, d: distanceNm(datum.lat, datum.lon, p[0], p[1]) }))
     .filter((x) => x.d <= radiusNm * 0.9)
     .sort((a, b) => a.d - b.d)
@@ -1091,11 +1106,19 @@ export function generateSceneMission(
           datum_lat: scene.lat, datum_lon: scene.lon,
           radius_nm: t.search_radius_nm ?? 3,
           beacon: t.beacon ?? false,
-          // Keep a climber on the cliff. The bridge used to drop the casualty
-          // at a random offset inside the radius, which beside a sea cliff is
-          // the sea -- a person, a quad and a smoke plume standing on water.
-          ...(t.scene_type === "cliff"
-            ? { target_candidates: cliffCandidates(scene, t.search_radius_nm ?? 3, base.sites?.cliff) }
+          // Keep the casualty on the terrain the job is about. The bridge used
+          // to drop them at a random offset inside the radius, and it stages
+          // the whole scene there: a cliff rescue stood a climber, a quad and
+          // a smoke plume on Howe Sound, and a swiftwater rescue put its boat
+          // on grass in a forest clearing 0.7 nm from the river.
+          ...(CASUALTY_TERRAIN[t.scene_type]
+            ? {
+                target_candidates: terrainCandidates(
+                  scene,
+                  t.search_radius_nm ?? 3,
+                  base.sites ? CASUALTY_TERRAIN[t.scene_type]!(base.sites) : undefined,
+                ),
+              }
             : {}),
         });
         break;

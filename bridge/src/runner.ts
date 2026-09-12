@@ -602,11 +602,39 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     });
   }
 
+  /**
+   * The winch operator, in the sim.
+   *
+   * With no cable to watch, the only way to know the lift is going well is to
+   * be told. Announced once per stage as the hold passes it; a break in the
+   * hover drops back to the brief, which is the cue to settle again.
+   */
+  let winchStage = -1;
+  function callWinch() {
+    const cur = objectives.current as { id?: string; kind?: string } | null;
+    if (cur?.kind !== 'hoist') {
+      winchStage = -1;
+      return;
+    }
+    const p = objectives.snapshotProgress().find((x) => x.id === cur.id)?.progress ?? 0;
+    const stage = p <= 0 ? 0 : p < 0.3 ? 1 : p < 0.7 ? 2 : 3;
+    if (stage === winchStage) return;
+    winchStage = stage;
+    const lines = [
+      'Winch ready — hold a steady hover over the casualty, below 200 ft.',
+      'Hook going down.',
+      'Crewman with the casualty — hold it steady.',
+      'Casualty on the hook — bringing them up.',
+    ];
+    director?.say(lines[stage], 6);
+  }
+
   function trackObjectives(s: Record<string, number | string>) {
     if (!objectiveMission || !objectives.isLoaded) return;
     maybeSignal(s);
     maybeBoard(s);
     const justDone = objectives.update(s);
+    callWinch();
     if (justDone.length === 0) logWhyPending(s);
 
     for (const id of justDone) {

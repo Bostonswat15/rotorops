@@ -109,6 +109,25 @@ const ZONE_TOLERANCE = 1.35;
 const MIN_ZONE_NM = 0.25;
 const zone = (radiusNm: number) => Math.max(MIN_ZONE_NM, radiusNm * ZONE_TOLERANCE);
 
+/**
+ * The winch, simulated.
+ *
+ * The hoist objective used to wait for SLING HOIST PERCENT DEPLOYED to pass
+ * 40%. Measured on every helicopter tried -- H125 Cargo, H125 Rescue, AS365,
+ * HH-65B Dolphin SAR -- the sim exposes that variable and never moves it: the
+ * hoist commands are accepted and ignored, no cable ever appears, and so four
+ * of the five SAR contracts could not be finished in anything available.
+ *
+ * What a crew actually needs from the pilot during a winch is a steady hover
+ * over the casualty for as long as the lift takes, so that is what counts:
+ * close, low enough for the cable, slow, held without a break. A real hoist
+ * still completes it outright on an aircraft that has one.
+ */
+const WINCH_SECONDS = 40;
+const WINCH_MAX_AGL_FT = 200;
+const WINCH_MAX_GS_KTS = 10;
+const WINCH_NEAR_NM = 0.1;
+
 type Snap = Record<string, number | string>;
 
 const num = (v: unknown, fallback = 0): number =>
@@ -127,6 +146,8 @@ export class ObjectiveTracker {
   private objectives: Objective[] = [];
   private done = new Set<string>();
   private hoverHeldMs = 0;
+  /** How long the winch hover has been held without a break. */
+  private winchHeldMs = 0;
   private lastTick: number | null = null;
   private basePayload: number | null = null;
   private hint: string | null = null;
@@ -155,6 +176,7 @@ export class ObjectiveTracker {
     this.objectives = objectives ?? [];
     this.done = new Set(alreadyDone ?? []);
     this.hoverHeldMs = 0;
+    this.winchHeldMs = 0;
     this.lastTick = null;
     this.basePayload = null;
     this.hint = null;
@@ -205,6 +227,8 @@ export class ObjectiveTracker {
           ? 0
           : o.kind === 'hover'
             ? Math.min(1, this.hoverHeldMs / (o.hold_seconds * 1000))
+            : o.kind === 'hoist'
+              ? Math.min(1, this.winchHeldMs / (WINCH_SECONDS * 1000))
             : o.kind === 'search'
               ? (this.coverage?.fraction ?? 0)
               : 0,
@@ -383,16 +407,44 @@ export class ObjectiveTracker {
       }
 
       case 'hoist': {
-        const deployed = num(s.hoistDeployed);
-        if (deployed >= o.min_deployed_pct) {
+        // A real hoist, where an aircraft has one, finishes it outright.
+        if (num(s.hoistDeployed) >= o.min_deployed_pct) {
           this.done.add(o.id);
           completed.push(o.id);
-        } else {
-          this.hint =
-            s.hoistDeployed === undefined
-              ? 'this aircraft reports no hoist'
-              : `hoist out ${Math.round(deployed)}%`;
+          this.winchHeldMs = 0;
+          break;
         }
+
+        const d = this.searchTarget ? nmBetween({ lat, lon }, this.searchTarget) : 0;
+        const why = onGround
+          ? 'lift into a hover over the casualty for the winch'
+          : d > WINCH_NEAR_NM
+            ? `${(d * 2025).toFixed(0)} yds from the casualty`
+            : !(agl > 0) || agl > WINCH_MAX_AGL_FT
+              ? `descend below ${WINCH_MAX_AGL_FT} ft AGL for the winch`
+              : gs > WINCH_MAX_GS_KTS
+                ? `slow below ${WINCH_MAX_GS_KTS} kts for the winch`
+                : null;
+
+        if (why) {
+          // A break in the hover restarts the lift: nobody winches a casualty
+          // up half way and parks them.
+          this.winchHeldMs = 0;
+          this.hint = why;
+          break;
+        }
+
+        this.winchHeldMs += dt;
+        const held = this.winchHeldMs / 1000;
+        if (held >= WINCH_SECONDS) {
+          this.done.add(o.id);
+          completed.push(o.id);
+          this.winchHeldMs = 0;
+          break;
+        }
+        const p = held / WINCH_SECONDS;
+        const stage = p < 0.3 ? 'hook going down' : p < 0.7 ? 'crewman with the casualty' : 'bringing them up';
+        this.hint = `${stage} — hold it steady ${held.toFixed(0)}/${WINCH_SECONDS}s`;
         break;
       }
 

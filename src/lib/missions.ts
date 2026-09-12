@@ -811,7 +811,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     search_radius_nm: 2.5, beacon: true,
     difficulty: 4, weather_factor: 3,
     steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
-    hover_agl: 120, hover_seconds: 30,
+    hover_agl: 150, hover_seconds: 30,
   },
   {
     role: "sar",
@@ -823,7 +823,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     search_radius_nm: 1.2, beacon: false,
     difficulty: 5, weather_factor: 3,
     steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
-    hover_agl: 90, hover_seconds: 35,
+    hover_agl: 180, hover_seconds: 35,
   },
   {
     role: "sar",
@@ -847,7 +847,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     search_radius_nm: 2, beacon: true,
     difficulty: 5, weather_factor: 4,
     steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
-    hover_agl: 100, hover_seconds: 40,
+    hover_agl: 180, hover_seconds: 40,
   },
   {
     role: "sar",
@@ -859,7 +859,7 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
     search_radius_nm: 1.5, beacon: false,
     difficulty: 4, weather_factor: 3,
     steps: ["search_scene", "hover_scene", "hoist_recover", "take_on_load", "deliver"],
-    hover_agl: 80, hover_seconds: 30,
+    hover_agl: 150, hover_seconds: 30,
   },
 
   // --- Medevac -------------------------------------------------------------
@@ -1144,7 +1144,9 @@ export function generateSceneMission(
       case "hoist_recover":
         objectives.push({
           id: "hoist", kind: "hoist",
-          label: "Deploy the hoist and recover the casualty",
+          // A simulated winch: no helicopter tried exposes a hoist the sim
+          // actually drives, so this is a held hover the bridge times.
+          label: "Winch up the casualty — hold a steady hover over them",
           min_deployed_pct: 40,
         });
         break;

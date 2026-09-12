@@ -244,6 +244,11 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     case 'construction':
       // Load to lift, plus the site it is going to.
       return [load(CARGO_HINTS, 2, 0.03), set([...STRUCTURE_HINTS, ...SITE_HINTS], 3, 0.04)];
+    case 'signal':
+      // Smoke popped by the casualty when they hear you, placed exactly on
+      // them -- zero spread, because the whole point is that it marks the
+      // spot. One object: two plumes reads as two casualties.
+      return [set(SIGNAL_HINTS, 1, 0)];
     case 'sling_pickup':
       // The apron at base, where the load is rigged and waiting. Staged
       // separately from the scene because a sling job now has two ends: the

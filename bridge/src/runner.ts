@@ -216,6 +216,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     warnedNoArm = false;
     if (objectiveMission?.id === m.id) return;
     objectiveMission = m;
+    signalled = false;
     const alreadyDone = Object.entries(m.objectives_state ?? {})
       .filter(([, v]) => v?.done)
       .map(([k]) => k);
@@ -344,8 +345,56 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     }
   }
 
+  /**
+   * The casualty signals when they hear you coming.
+   *
+   * A search is a real visual search -- the sim stops drawing a person-sized
+   * object a few hundred metres out, and the detection model peaks at about
+   * 0.55 nm in the best case. Sweeping a 1.5 nm circle for something that
+   * small is tedious rather than hard, and nothing about it feels like the
+   * moment a survivor sees a helicopter.
+   *
+   * So once you are inside 1.2 nm -- comfortably beyond what you could pick
+   * out by eye -- they pop smoke. It is a head start, not a giveaway: the
+   * objective still needs you to close to detection range and hold contact.
+   *
+   * Fires once per contract. The ceiling stops a high transit overhead from
+   * burning the flare before the search has even begun.
+   */
+  const SIGNAL_RANGE_NM = 1.2;
+  const SIGNAL_CEILING_FT = 2500;
+  let signalled = false;
+  function maybeSignal(s: Record<string, number | string>) {
+    if (signalled || !searchTarget || !director) return;
+    const o = objectives.current as { kind?: string } | null;
+    if (o?.kind !== 'search') return;
+    if (n(s.agl) > SIGNAL_CEILING_FT) return;
+
+    const here = { lat: n(s.lat), lon: n(s.lon) };
+    const d = distanceNm(here.lat, here.lon, searchTarget.lat, searchTarget.lon);
+    if (d > SIGNAL_RANGE_NM) return;
+
+    // Set before staging: a failure to place the object should not leave this
+    // retrying on every telemetry sample for the rest of the contract.
+    signalled = true;
+    const placed = director.stage({
+      lat: searchTarget.lat,
+      lon: searchTarget.lon,
+      type: 'field',
+      role: 'signal',
+    });
+    if (placed > 0) {
+      const rel = clockPosition(bearingTo(here, searchTarget), n(s.heading));
+      director.say(`SIGNAL — smoke ${rel}, ${d.toFixed(1)} nm. Turn toward it.`, 10);
+      log(`Casualty signalled at ${d.toFixed(2)} nm.`);
+    } else {
+      log('Casualty would have signalled, but this install has no smoke or flare object.');
+    }
+  }
+
   function trackObjectives(s: Record<string, number | string>) {
     if (!objectiveMission || !objectives.isLoaded) return;
+    maybeSignal(s);
     const justDone = objectives.update(s);
     if (justDone.length === 0) logWhyPending(s);
 

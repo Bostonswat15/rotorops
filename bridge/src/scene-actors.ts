@@ -132,6 +132,15 @@ const BOAT_HINTS = ['fishing', 'trawler', 'yacht', 'boat', 'sail', 'ferry', 'car
  */
 const DISTRESS_BOAT_HINTS = ['sink', 'raft', 'emergency', 'fishing', 'trawler', 'yacht', 'sail'];
 /**
+ * Small craft only, for water a ship could not reach.
+ *
+ * Kept apart from DISTRESS_BOAT_HINTS because 'sink' matches the whole
+ * Microsoft_Ships_*_Sink family -- a couple of hundred metres of freighter,
+ * which is the right answer for a vessel in distress offshore and an absurd
+ * one for a swiftwater rescue in a river.
+ */
+const SMALL_CRAFT_HINTS = ['emergencyraft', 'raft', 'dinghy', 'canoe', 'kayak'];
+/**
  * Things strung out along a line to fly past.
  *
  * This install has no pylon, tower or mast model beyond a single mast
@@ -310,9 +319,20 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         set(VEHICLE_HINTS, 1, 0.03),
       ];
     case 'sar':
-      if (scene === 'vessel' || scene === 'riverbank') {
+      if (scene === 'vessel') {
         // A hull going down, and people in the water beside it.
         return [afloat(DISTRESS_BOAT_HINTS, 1, 0), set(PERSON_HINTS, 2, 0.005)];
+      }
+      if (scene === 'riverbank') {
+        // Swiftwater: someone in the water and the raft they came off, with
+        // their kit washed up on the bank. This shared the vessel branch and
+        // put a sinking cargo ship in a river -- nothing that size floats up
+        // one, and the scale made the rescue look like a joke.
+        return [
+          afloat(SMALL_CRAFT_HINTS, 1, 0.004),
+          set(PERSON_HINTS, 2, 0.004),
+          set(KIT_HINTS, 1, 0.01),
+        ];
       }
       // A casualty up a cliff or along a ridge used to get nothing at all,
       // on the grounds that no vehicle belongs up there -- which left the one

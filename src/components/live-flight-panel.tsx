@@ -117,10 +117,16 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   return (
     <div
       className={
-        fill ? "flex h-full flex-col gap-3 p-3" : "rounded-lg border border-primary/40 bg-card p-4"
+        fill
+          // min-w-0 and overflow-hidden together: a flex child refuses to
+          // shrink below its content by default, so the readout row -- six
+          // items that only wrap if they are allowed to -- pushed the panel
+          // wider than the window and clipped the last one.
+          ? "flex h-full min-w-0 flex-col gap-3 overflow-hidden p-3"
+          : "rounded-lg border border-primary/40 bg-card p-4"
       }
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-widest text-primary">
             {flight.hours != null ? "In flight" : flight.onGround ? "On the ground" : "Airborne"}
@@ -130,7 +136,7 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
             {activeMission ? ` · ${activeMission.title}` : " · positioning"}
           </p>
         </div>
-        <div className={`flex flex-wrap font-mono ${fill ? "gap-6 text-base" : "gap-4 text-sm"}`}>
+        <div className={`flex flex-wrap justify-end font-mono ${fill ? "gap-x-6 gap-y-1 text-base" : "gap-4 text-sm"}`}>
           <Readout label="GS" value={`${Math.round(flight.groundSpeed)} kt`} />
           <Readout label="AGL" value={`${Math.round(flight.agl)} ft`} />
           {flight.hours != null && <Readout label="Time" value={`${flight.hours.toFixed(2)} h`} />}

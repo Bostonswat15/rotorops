@@ -283,7 +283,16 @@ async function cmdSpawnTest(kind?: string, exactTitle?: string) {
       };
 
       if (exactTitle) {
-        const ok = director.placeExact(nose.lat, nose.lon, exactTitle);
+        // A third argument drives an effect emitter: `spawn-test title "30West
+        // smoke" 3` sets spoiler position, which is what its orange plume reads.
+        const drive = Number(process.argv[5]);
+        const ok = director.placeExact(
+          nose.lat,
+          nose.lon,
+          exactTitle,
+          true,
+          Number.isFinite(drive) ? { spoilerPct: drive, throttlePct: drive } : undefined,
+        );
         log(`Requested "${exactTitle}" ~60 m ahead (${ok ? 'sent' : 'refused'}).`);
         log('Look out of the window. Ctrl+C when done.');
         setTimeout(() => {

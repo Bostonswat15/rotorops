@@ -15,8 +15,10 @@
 
 import simconnect from 'node-simconnect';
 
-const { SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPosition, EventFlag } =
-  simconnect as any;
+const {
+  SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPosition,
+  EventFlag, RawBuffer,
+} = simconnect as any;
 
 const REQ_ENUM_BOAT = 900;
 const REQ_ENUM_GROUND = 901;
@@ -29,6 +31,19 @@ const EVENT_FREEZE_LATLON = 940;
 const EVENT_FREEZE_ALT = 941;
 const EVENT_FREEZE_ATT = 942;
 const DEF_PAYLOAD = 920;
+const DEF_FX = 921;
+
+/**
+ * How to switch a visual-effect object on.
+ *
+ * Effect packs ship as airplane-category SimObjects whose emitters are gated
+ * on flight-model values -- 30West drives its smoke off throttle lever
+ * position and its orange variant off spoiler position, one band per
+ * intensity. A spawned object sits at zero and emits nothing, which looks
+ * exactly like the spawn having failed. Nothing generic about this: it is
+ * that pack's convention, so the numbers live with the hints that find it.
+ */
+type FxDrive = { throttlePct?: number; spoilerPct?: number };
 const EVENT_TEXT = 930;
 
 /** Payload station used for the casualty. High enough to miss crew stations. */
@@ -69,6 +84,8 @@ type StageLayer = {
    * lift, since a frozen object cannot be picked up by a sling.
    */
   freeze?: boolean;
+  /** Flight-model values to set once placed, for effect emitters. */
+  fx?: FxDrive;
 };
 
 /**
@@ -294,9 +311,17 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
     ({ pool: 'ground', hints, count, spreadNm });
   const afloat = (hints: string[], count: number, spreadNm: number): StageLayer =>
     ({ pool: 'boat', hints, count, spreadNm });
-  /** A visual effect emitter, which ships as an airplane-category object. */
-  const fx = (hints: string[], count: number, spreadNm: number): StageLayer =>
-    ({ pool: 'effect', hints, count, spreadNm });
+  /**
+   * A visual effect emitter, which ships as an airplane-category object.
+   *
+   * `drive` is how it gets switched on. 30West gates each emitter on a band
+   * of throttle lever position -- 8.5% is its largest smoke on its own, 3%
+   * lights the arc on a conductor -- and its orange variant reads spoiler
+   * position instead. Orange is what a casualty actually marks themselves
+   * with, so that is what the signal uses.
+   */
+  const fx = (hints: string[], count: number, spreadNm: number, drive: FxDrive): StageLayer =>
+    ({ pool: 'effect', hints, count, spreadNm, fx: drive });
 
   switch (role) {
     // --- Work with a load on the hook ------------------------------------
@@ -315,7 +340,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // Two layers, either of which may come up empty. A visual-effect pack
       // gives a real rising column; a ground object is a static model that
       // reads well enough from a mile out. Whichever the install has.
-      return [fx(SMOKE_FX_HINTS, 1, 0), set(SIGNAL_HINTS, 1, 0)];
+      return [fx(SMOKE_FX_HINTS, 1, 0, { spoilerPct: 3 }), set(SIGNAL_HINTS, 1, 0)];
     case 'sling_pickup':
       // The apron at base, where the load is rigged and waiting. Staged
       // separately from the scene because a sling job now has two ends: the
@@ -357,7 +382,7 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
       // An arcing conductor where the pack provides one: a line patrol is
       // flown to find a fault, and until now there was never a fault to
       // find. Mid-route, like the truck, so it is something you come upon.
-      return [fx(POWERLINE_FX_HINTS, 1, 0.8), set(VEHICLE_HINTS, 1, 0.8)];
+      return [fx(POWERLINE_FX_HINTS, 1, 0.8, { throttlePct: 4 }), set(VEHICLE_HINTS, 1, 0.8)];
     case 'firefighting':
       // MMH_Fire and the smoke effect are standalone objects here, so a
       // fire contract can have a fire in it rather than only the trucks
@@ -557,7 +582,9 @@ export class SceneDirector {
    * read by the time the ids came back, so the last layer's setting won for
    * every object in the batch.
    */
-  private pending: { title: string; freeze: boolean }[] = [];
+  private pending: { title: string; freeze: boolean; fx?: FxDrive }[] = [];
+  /** The effect data definition is registered once, lazily. */
+  private fxDefined = false;
   /** What actually made it into the world, for reporting. */
   private placedById = new Map<number, string>();
 
@@ -605,7 +632,43 @@ export class SceneDirector {
 
       if (req?.freeze === false) this.log(`  left liftable (sling load)`);
       else this.freeze(recv.objectID);
+      if (req?.fx) this.driveFx(recv.objectID, req.fx);
     });
+  }
+
+  /**
+   * Turn a visual-effect object on.
+   *
+   * Written after freezing on purpose: the freeze pins position and attitude,
+   * not the flight-model values the emitters read, so the two do not fight.
+   */
+  private driveFx(objectId: number, fx: FxDrive) {
+    try {
+      if (!this.fxDefined) {
+        this.handle.addToDataDefinition(
+          DEF_FX,
+          'GENERAL ENG THROTTLE LEVER POSITION:1',
+          'percent',
+          SimConnectDataType.FLOAT64,
+        );
+        this.handle.addToDataDefinition(
+          DEF_FX,
+          'SPOILERS LEFT POSITION',
+          'percent',
+          SimConnectDataType.FLOAT64,
+        );
+        this.fxDefined = true;
+      }
+      const buf = new RawBuffer(0);
+      buf.writeFloat64(fx.throttlePct ?? 0);
+      buf.writeFloat64(fx.spoilerPct ?? 0);
+      this.handle.setDataOnSimObject(DEF_FX, objectId, buf);
+      this.log(
+        `  effect on: throttle ${fx.throttlePct ?? 0}%, spoiler ${fx.spoilerPct ?? 0}%`,
+      );
+    } catch (e) {
+      this.log(`  could not drive the effect: ${(e as Error).message}`);
+    }
   }
 
   /**
@@ -655,7 +718,7 @@ export class SceneDirector {
    * is the only way to find out whether such a container can be spawned at
    * all. A title that does not exist simply never returns an object id.
    */
-  placeExact(lat: number, lon: number, title: string, freeze = true): boolean {
+  placeExact(lat: number, lon: number, title: string, freeze = true, fx?: FxDrive): boolean {
     try {
       const pos = new InitPosition();
       pos.latitude = lat;
@@ -666,7 +729,7 @@ export class SceneDirector {
       pos.heading = 0;
       pos.onGround = true;
       pos.airspeed = 0;
-      this.pending.push({ title, freeze });
+      this.pending.push({ title, freeze, fx });
       this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
       return true;
     } catch (e) {
@@ -881,7 +944,7 @@ export class SceneDirector {
           pos.onGround = true;
           pos.airspeed = 0;
 
-          this.pending.push({ title, freeze: layer.freeze !== false });
+          this.pending.push({ title, freeze: layer.freeze !== false, fx: layer.fx });
           this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
           requested.push(title);
           placed++;

@@ -88,12 +88,15 @@ const ZONE_TOLERANCE = 1.35;
 /**
  * A floor as well, so a very tight radius is still flyable.
  *
- * Lowered from 0.5 when patrol sections were halved: at 0.5 the floor was
- * doing the work rather than the multiplier, and halving the radius would
- * have been clamped straight back up to within a fifth of where it started.
- * 0.35 nm is about 650 m, which is still findable in a helicopter.
+ * Lowered twice as patrol sections tightened: at 0.5, and then at 0.35, the
+ * floor was doing the work rather than the multiplier, so shrinking a radius
+ * was clamped straight back up and looked like the change had not landed.
+ *
+ * At 0.25 nm -- about 460 m -- it binds nothing currently in the game: every
+ * other objective's radius times the tolerance already clears it, so this
+ * only exists to keep a hand-authored radius of nearly zero flyable.
  */
-const MIN_ZONE_NM = 0.35;
+const MIN_ZONE_NM = 0.25;
 const zone = (radiusNm: number) => Math.max(MIN_ZONE_NM, radiusNm * ZONE_TOLERANCE);
 
 type Snap = Record<string, number | string>;

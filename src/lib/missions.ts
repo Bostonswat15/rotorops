@@ -1212,11 +1212,12 @@ export async function generatePowerlinePatrol(
         : `Inspect section ${i + 1} of ${points.length}`,
     lat: Number(p.lat.toFixed(5)),
     lon: Number(p.lon.toFixed(5)),
-    // Half what it was. At 0.6 (0.81 nm once the tolerance is applied) a
-    // section ticked from half a mile off the conductor, which is not
-    // inspecting it. 0.3 lands at 0.405 nm -- still a comfortable margin at
-    // 90 kts, but you have to be over the line.
-    radius_nm: 0.3,
+    // A third of where this started. 0.6 ticked a section from half a mile
+    // off the conductor, which is not inspecting it; 0.3 was still wider
+    // than the corridor a line actually occupies. 0.2 lands at 0.27 nm --
+    // about 500 m, which is close enough to the towers to see them and
+    // still holds a margin for a crosswind at 90 kts.
+    radius_nm: 0.2,
     max_agl_ft: 900,
   }));
 

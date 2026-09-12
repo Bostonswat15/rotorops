@@ -663,6 +663,17 @@ export class SceneDirector {
           'percent',
           SimConnectDataType.FLOAT64,
         );
+        // Both the handle and the surface. The surface position is a result
+        // the sim recomputes from the handle every frame, so writing it
+        // alone is overwritten before the effect code ever reads it --
+        // which is exactly how the orange plume stayed dark while the
+        // throttle-driven grey one lit first time.
+        this.handle.addToDataDefinition(
+          DEF_FX,
+          'SPOILERS HANDLE POSITION',
+          'percent',
+          SimConnectDataType.FLOAT64,
+        );
         this.handle.addToDataDefinition(
           DEF_FX,
           'SPOILERS LEFT POSITION',
@@ -671,8 +682,9 @@ export class SceneDirector {
         );
         this.fxDefined = true;
       }
-      const buf = new RawBuffer(16);
+      const buf = new RawBuffer(24);
       buf.writeFloat64(fx.throttlePct ?? 0);
+      buf.writeFloat64(fx.spoilerPct ?? 0);
       buf.writeFloat64(fx.spoilerPct ?? 0);
       // Not a bare buffer: the call wants it wrapped with the array count and
       // the tagged flag, and passing the buffer alone reads `.buffer` off it,

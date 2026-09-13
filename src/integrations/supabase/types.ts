@@ -35,6 +35,8 @@ export type Database = {
           retired_at: string | null
           broken_down_at: string | null
           hours_at_inspection: number
+          crash_damaged: boolean
+          wear_before_crash: number | null
           lease_cost: number
           maintenance_factor: number
           max_range_nm: number
@@ -70,6 +72,8 @@ export type Database = {
           retired_at?: string | null
           broken_down_at?: string | null
           hours_at_inspection?: number
+          crash_damaged?: boolean
+          wear_before_crash?: number | null
           lease_cost?: number
           maintenance_factor?: number
           max_range_nm?: number
@@ -105,6 +109,8 @@ export type Database = {
           retired_at?: string | null
           broken_down_at?: string | null
           hours_at_inspection?: number
+          crash_damaged?: boolean
+          wear_before_crash?: number | null
           lease_cost?: number
           maintenance_factor?: number
           max_range_nm?: number
@@ -724,6 +730,8 @@ export type Database = {
           generated_at: string
           dispatched_at: string | null
           objectives_state: Json
+          restart_from: string | null
+          crash_count: number
           nearest_airport_icao: string | null
           nearest_airport_nm: number | null
           objectives: Json
@@ -754,6 +762,8 @@ export type Database = {
           generated_at?: string
           dispatched_at?: string | null
           objectives_state?: Json
+          restart_from?: string | null
+          crash_count?: number
           nearest_airport_icao?: string | null
           nearest_airport_nm?: number | null
           objectives?: Json
@@ -784,6 +794,8 @@ export type Database = {
           generated_at?: string
           dispatched_at?: string | null
           objectives_state?: Json
+          restart_from?: string | null
+          crash_count?: number
           nearest_airport_icao?: string | null
           nearest_airport_nm?: number | null
           objectives?: Json

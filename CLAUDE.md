@@ -96,10 +96,18 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `set_base_sites`). Until run, cliff rescues fall back to old placement.
 - **Migrations to run (2026-09-13), in order:** `20260913000000_transaction_aircraft.sql`
   (aircraft on ledger rows, for profit per aircraft), `20260914000000_maintenance_and_loans.sql`
-  (100-hour inspections, wear cost, breakdowns, resale curve, loans, balance sheet), then
-  `20260915000000_fuel_farms.sql` (fuel farms, fuel runs). Each of the last two carries
-  `rotorops_resolve_flight` forward; any later change must start from the 20260915 copy. The
-  Finance and Bases pages show a notice until theirs is run.
+  (100-hour inspections, wear cost, breakdowns, resale curve, loans, balance sheet),
+  `20260915000000_fuel_farms.sql` (fuel farms, fuel runs), then
+  `20260916000000_crash_restart.sql` (a crash is repairable damage and resets the contract to
+  restart from its origin). Each of the last three carries `rotorops_resolve_flight` forward;
+  any later change must start from the 20260916 copy (it also carries `dispatch_mission`,
+  `service_aircraft` and `bridge_state`). The Finance and Bases pages show a notice until
+  theirs is run.
+- **Crash rule (user's, 2026-09-13):** crash -> wear 100, grounded, Repair = 10% of price and
+  restores pre-crash wear; contract back on the board reserved for that pilot with
+  `restart_from` = origin; rep -2 x difficulty; only counts if the flight departs
+  `restart_from` (bridge holds objectives until then). Flight score is approved as proposed
+  and is next.
 - **OnAir-inspired roadmap** (user picked these 2026-09-13). Built: maintenance/resale, loans,
   fuel farms on the new Bases tab ($25k/10,000 lb, +$15k per 10,000 lb, bulk $0.65/lb vs $0.90
   pump; refinery avgas via `fuel_run` missions, filled on success, refunded on fail or delete).

@@ -157,6 +157,9 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     return a ? { lat: a.lat, lon: a.lon } : null;
   });
   let objectiveMission: BridgeMission | null = null;
+  /** Contract ids already told to restart elsewhere, and already restarted, so each is said once. */
+  let restartWarnedFor: string | null = null;
+  let restartLiveFor: string | null = null;
   let director: SceneDirector | null = null;
   /** Weight of whoever we picked up, so it can be unloaded on delivery. */
   let casualtyLb = 0;
@@ -584,7 +587,9 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     log(`"${m.title}" complete (resumed after a restart) -- logging it now.`);
     director?.say('Contract complete — logging it.', 8);
     void onFlight({
-      departure: m.origin ?? null,
+      // Objectives on a restarted contract only tick after taking off from
+      // restart_from, so having all of them done is proof of that departure.
+      departure: m.restart_from ?? m.origin ?? null,
       arrival: null,
       duration_hr: 0,
       fuel_used: 0,
@@ -631,6 +636,30 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
   function trackObjectives(s: Record<string, number | string>) {
     if (!objectiveMission || !objectives.isLoaded) return;
+
+    // A contract that was crashed resets to its first objective and has to be
+    // flown again from where it starts. Nothing ticks until this flight took
+    // off from there: the server refuses the result otherwise, so ticking
+    // early would only show progress that can never count.
+    const restartFrom = objectiveMission.restart_from?.trim().toUpperCase();
+    if (restartFrom) {
+      const from = tracker?.progress?.departure?.trim().toUpperCase() ?? null;
+      if (from !== restartFrom) {
+        if (restartWarnedFor !== objectiveMission.id) {
+          restartWarnedFor = objectiveMission.id;
+          warn(
+            `"${objectiveMission.title}" was reset after a crash. Take off from ${restartFrom} ` +
+              'and its objectives go live.',
+          );
+          director?.say(`Contract reset after a crash — take off from ${restartFrom} to restart it.`, 12);
+        }
+        return;
+      }
+      if (restartLiveFor !== objectiveMission.id) {
+        restartLiveFor = objectiveMission.id;
+        log(`Restarted "${objectiveMission.title}" from ${restartFrom} -- objectives are live.`);
+      }
+    }
     maybeSignal(s);
     maybeBoard(s);
     const justDone = objectives.update(s);
@@ -786,7 +815,9 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
     try {
       const result = await submitFlight(token, ac.id, mission?.id ?? null, {
-        departure: t.departure ?? mission?.origin ?? null,
+        // Never stand the contract's origin in for an unknown departure on a
+        // restart: where it took off from is exactly what is being checked.
+        departure: t.departure ?? (mission?.restart_from ? null : (mission?.origin ?? null)),
         arrival,
         duration_hr: t.duration_hr,
         fuel_used: t.fuel_used,
@@ -810,6 +841,16 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         aircraft: ac.display_name,
         mission: mission?.title ?? null,
       });
+      if (result.restart_required && mission) {
+        warn(
+          result.crashed
+            ? `CRASH: "${mission.title}" is reset and back on the board for you. Repair ` +
+                `${ac.display_name} on the Maintenance page, then restart it from ${result.restart_from ?? 'its origin'}.`
+            : `"${mission.title}" did not take off from ${result.restart_from ?? 'its origin'}, so it is reset again.`,
+        );
+      } else if (result.crashed) {
+        warn(`CRASH: ${ac.display_name} is grounded with crash damage -- repair it on the Maintenance page.`);
+      }
       await refresh();
     } catch (e) {
       warn(`Failed to submit flight: ${(e as Error).message}`);

@@ -39,6 +39,12 @@ export type BridgeMission = {
   scene_type: string | null;
   objectives: any[];
   objectives_state: Record<string, { done: boolean; at: string }>;
+  /**
+   * Set after a crash reset the contract: it only counts when flown from this
+   * ICAO. Absent until 20260916000000_crash_restart.sql is run.
+   */
+  restart_from?: string | null;
+  crash_count?: number;
 };
 
 export type BridgeBase = {
@@ -80,6 +86,10 @@ export type ResolveResult = {
   /** Added by 20260915000000_fuel_farms.sql. */
   fuel_from_tank_lb?: number;
   fuel_delivered_lb?: number;
+  /** Added by 20260916000000_crash_restart.sql. */
+  crashed?: boolean;
+  restart_required?: boolean;
+  restart_from?: string | null;
 };
 
 async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {

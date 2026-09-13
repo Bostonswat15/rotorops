@@ -429,7 +429,9 @@ function MissionsPage() {
       .from("missions")
       .delete()
       .eq("company_id", company.id)
-      .eq("status", "available");
+      .eq("status", "available")
+      // A contract reset by a crash is still someone's to restart; leave it.
+      .is("assigned_pilot_id", null);
     if (error) return toast.error(error.message);
     toast.success("Board cleared.");
     qc.invalidateQueries({ queryKey: ["missions"] });
@@ -750,6 +752,14 @@ function MissionCard({ mission, aircraft, certs, onDispatch }: any) {
           </div>
           <h3 className="mt-1 text-lg font-semibold">{mission.title}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{mission.description}</p>
+          {mission.restart_from && (
+            <p className="mt-2 flex items-center gap-1 text-xs text-warning">
+              <AlertTriangle className="h-3 w-3" />
+              Crashed {mission.crash_count > 1 ? `${mission.crash_count} times` : "once"} — restart
+              from <span className="font-mono">{mission.restart_from}</span>. It only counts if you
+              take off from there.
+            </p>
+          )}
         </div>
         <div className="text-right">
           <p className="font-mono text-xl font-semibold text-success">${Number(mission.payout).toLocaleString()}</p>

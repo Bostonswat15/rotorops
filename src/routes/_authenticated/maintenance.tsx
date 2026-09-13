@@ -11,6 +11,7 @@ import { money } from "@/lib/finance";
 import {
   INSPECTION_GRACE_HR,
   SERVICE_LABEL,
+  availableServices,
   breakdownChance,
   groundedReason,
   inspectionDueIn,
@@ -100,9 +101,7 @@ function MaintPage() {
           const reason = groundedReason(a);
           const costUp = Math.round((wearCostMultiplier(wear) - 1) * 100);
           const chance = breakdownChance(a) * 100;
-          const services: ServiceType[] = a.broken_down_at
-            ? ["repair", "inspection", "overhaul"]
-            : ["inspection", "overhaul"];
+          const services = availableServices(a);
           return (
             <div key={a.id} className="rounded-lg border border-border bg-card p-5">
               <div className="flex items-start justify-between">
@@ -176,15 +175,19 @@ function MaintPage() {
                   services.map((type) => {
                     const q = serviceQuote(a, type);
                     const effect =
-                      type === "repair"
-                        ? "clears the breakdown"
-                        : [
-                            `−${q.wearRemoved.toFixed(0)} wear`,
-                            "resets inspection",
-                            q.valueGain > 0 ? `+${money(q.valueGain)} resale` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ");
+                      type === "repair" && a.crash_damaged
+                        ? `fixes the crash damage · wear back to ${Math.round(
+                            Number(a.wear) - q.wearRemoved,
+                          )}%`
+                        : type === "repair"
+                          ? "clears the breakdown"
+                          : [
+                              `−${q.wearRemoved.toFixed(0)} wear`,
+                              "resets inspection",
+                              q.valueGain > 0 ? `+${money(q.valueGain)} resale` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ");
                     return (
                       <Button
                         key={type}

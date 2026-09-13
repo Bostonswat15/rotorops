@@ -612,7 +612,9 @@ async function cmdRun() {
     }
 
     const payload = {
-      departure: t.departure ?? mission?.origin ?? null,
+      // Never stand the origin in for an unknown departure on a restart: where
+      // it took off from is exactly what the server checks.
+      departure: t.departure ?? (mission?.restart_from ? null : (mission?.origin ?? null)),
       arrival,
       duration_hr: t.duration_hr,
       fuel_used: t.fuel_used,
@@ -643,6 +645,10 @@ async function cmdRun() {
       }
       log(`  Airframe wear now ${r.aircraft_wear}%${r.aircraft_wear >= 85 ? ' -- GROUNDED, maintenance required' : ''}`);
       if (r.breakdown) log('  MECHANICAL BREAKDOWN -- grounded until repaired on the Maintenance page');
+      if (r.crashed) log('  CRASH DAMAGE -- grounded; the repair is 10% of the aircraft\'s price');
+      if (r.restart_required) {
+        log(`  Contract reset: restart it from ${r.restart_from ?? 'its origin'} (it stays reserved for you)`);
+      }
       if (r.inspection_due_in_hr != null && r.inspection_due_in_hr <= 10) {
         log(r.inspection_due_in_hr >= 0
           ? `  100-hour inspection due in ${r.inspection_due_in_hr} hrs`

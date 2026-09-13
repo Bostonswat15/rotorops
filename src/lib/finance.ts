@@ -31,6 +31,11 @@ export const TXN_TYPES: Record<string, { label: string; group: TxnGroup }> = {
   lease_penalty: { label: "Lease return penalties", group: "operating" },
   industry_royalty: { label: "Industry royalties", group: "operating" },
   industry_wages: { label: "Industry wages", group: "operating" },
+  loan_fee: { label: "Loan fees", group: "operating" },
+  // Borrowing and repaying move cash without earning or costing anything, so
+  // they sit with capital rather than distorting operating profit.
+  loan_draw: { label: "Loans drawn", group: "capital" },
+  loan_repayment: { label: "Loan repayments", group: "capital" },
   aircraft_purchase: { label: "Aircraft bought", group: "capital" },
   aircraft_sale: { label: "Aircraft sold", group: "capital" },
   lease_deposit: { label: "Lease deposits", group: "capital" },
@@ -119,6 +124,44 @@ export function fetchFlightHours(companyId: string, since: Date | null): Promise
     if (since) q = q.gte("flown_at", since.toISOString());
     return q.order("flown_at", { ascending: false }).order("id").range(from, to);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Balance sheet and loans
+// ---------------------------------------------------------------------------
+
+/** Mirrors take_loan and rotorops_resolve_flight; the server's figures are charged. */
+export const LOAN_FEE_RATE = 0.05;
+export const LOAN_REPAY_SHARE = 0.1;
+
+export type BalanceSheet = {
+  cash: number;
+  /** Owned aircraft at what they'd sell for today. Leased ones aren't assets. */
+  aircraftValue: number;
+  aircraftCount: number;
+  assets: number;
+  loanBalance: number;
+  companyValue: number;
+  loanLimit: number;
+  availableCredit: number;
+};
+
+/** Throws until 20260914000000_maintenance_and_loans.sql has been run. */
+export async function fetchBalanceSheet(companyId: string): Promise<BalanceSheet> {
+  const { data, error } = await supabase.rpc("company_balance_sheet", { _company_id: companyId });
+  if (error) throw new Error(error.message);
+  const d = (data ?? {}) as Record<string, unknown>;
+  const n = (key: string) => Number(d[key] ?? 0);
+  return {
+    cash: n("cash"),
+    aircraftValue: n("aircraft_value"),
+    aircraftCount: n("aircraft_count"),
+    assets: n("assets"),
+    loanBalance: n("loan_balance"),
+    companyValue: n("company_value"),
+    loanLimit: n("loan_limit"),
+    availableCredit: n("available_credit"),
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -640,6 +640,13 @@ async function cmdRun() {
         log(`  Positioning flight. Cost ${money(r.net)}`);
       }
       log(`  Airframe wear now ${r.aircraft_wear}%${r.aircraft_wear >= 85 ? ' -- GROUNDED, maintenance required' : ''}`);
+      if (r.breakdown) log('  MECHANICAL BREAKDOWN -- grounded until repaired on the Maintenance page');
+      if (r.inspection_due_in_hr != null && r.inspection_due_in_hr <= 10) {
+        log(r.inspection_due_in_hr >= 0
+          ? `  100-hour inspection due in ${r.inspection_due_in_hr} hrs`
+          : `  100-hour inspection OVERDUE by ${Math.abs(r.inspection_due_in_hr)} hrs -- no contracts past 10 hrs overdue`);
+      }
+      if (r.loan_repayment) log(`  Loan repayment ${money(-r.loan_repayment)}`);
       if (r.incidents.length) log(`  Incidents: ${r.incidents.join(', ')}`);
       log('--------------------------------------------------');
       await refreshState();

@@ -90,10 +90,25 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
 
 ## Open items (as of 2026-09-12)
 
-- **49 local commits not pushed**; latest release tag is still `v0.4.3`. Tag only after the
-  user has flown a hoist rescue and a fixed-wing contract, and only when they ask.
+- **Released `v0.4.4`** (2026-09-12, commit `dffbe95`, built by `release.yml` on tag push).
+  Later work is committed locally, not pushed; tag or push only when the user asks.
 - **Migration to run:** `20260912000000_cliff_sites.sql` (adds the `cliff` key to
   `set_base_sites`). Until run, cliff rescues fall back to old placement.
+- **Migrations to run (2026-09-13):** `20260913000000_transaction_aircraft.sql` (aircraft on
+  ledger rows, for profit per aircraft) then `20260914000000_maintenance_and_loans.sql`
+  (100-hour inspections, wear cost, breakdowns, resale curve, loans, balance sheet; carries
+  `rotorops_resolve_flight` forward from `pilot_skills`, so any later change to that function
+  must start from the 20260914 copy). The Finance page shows a notice until each is run.
+- **OnAir-inspired roadmap** (user picked these 2026-09-13; phase 1 = maintenance/resale +
+  loans is built). Remaining, in dependency order: FBOs at bases (fuel farm: $25k/10,000 lb,
+  +$15k per 10,000 lb, bulk $0.65/lb vs $0.90 pump, fill from own refinery avgas; hangar and
+  crew rooms unpriced) -> flight score (needs bridge SimVars for lights, bank, pitch, IAS,
+  stall/overspeed, time of day, visibility) -> job deadlines/urgency and cargo types (fragile
+  uses the score's G/bank tracking) -> staff (mechanics make maintenance take time, flight
+  attendants need passenger counts on contracts, training) -> regular routes, tours and races
+  -> hourly rental, airport ownership, company value leaderboard. There is no scheduler:
+  anything billed over time must be charged lazily on elapsed real time, like `industry_tick`.
+  Propose numbers for each before building (only the fuel farm's are approved).
 - **Unapproved tuning:** hoist-contract hover limits were raised (Vessel/Swiftwater 150 ft,
   Cliff/Ridgeline 180 ft, from 80-120 ft). Revert if the user objects.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty

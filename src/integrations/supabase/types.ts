@@ -33,6 +33,8 @@ export type Database = {
           is_modded: boolean
           is_leased: boolean
           retired_at: string | null
+          broken_down_at: string | null
+          hours_at_inspection: number
           lease_cost: number
           maintenance_factor: number
           max_range_nm: number
@@ -66,6 +68,8 @@ export type Database = {
           is_modded?: boolean
           is_leased?: boolean
           retired_at?: string | null
+          broken_down_at?: string | null
+          hours_at_inspection?: number
           lease_cost?: number
           maintenance_factor?: number
           max_range_nm?: number
@@ -99,6 +103,8 @@ export type Database = {
           is_modded?: boolean
           is_leased?: boolean
           retired_at?: string | null
+          broken_down_at?: string | null
+          hours_at_inspection?: number
           lease_cost?: number
           maintenance_factor?: number
           max_range_nm?: number
@@ -382,6 +388,7 @@ export type Database = {
           created_at: string
           difficulty: string
           id: string
+          loan_balance: number
           name: string
           realism_mode: string
           reputation: number
@@ -394,6 +401,7 @@ export type Database = {
           difficulty?: string
           id?: string
           name: string
+          loan_balance?: number
           realism_mode?: string
           reputation?: number
           user_id: string
@@ -405,6 +413,7 @@ export type Database = {
           difficulty?: string
           id?: string
           name?: string
+          loan_balance?: number
           realism_mode?: string
           reputation?: number
           user_id?: string
@@ -953,6 +962,13 @@ export type Database = {
       }
       mission_objectives_met: { Args: { _mission_id: string }; Returns: boolean }
       aircraft_sale_value: { Args: { _aircraft_id: string }; Returns: number }
+      aircraft_resale: {
+        Args: { _acquisition_cost: number; _hours: number; _wear: number }
+        Returns: number
+      }
+      company_balance_sheet: { Args: { _company_id: string }; Returns: Json }
+      take_loan: { Args: { _company_id: string; _amount: number }; Returns: Json }
+      repay_loan: { Args: { _company_id: string; _amount: number }; Returns: Json }
       sell_aircraft: { Args: { _aircraft_id: string }; Returns: Json }
       return_aircraft: { Args: { _aircraft_id: string }; Returns: Json }
       lease_aircraft: {

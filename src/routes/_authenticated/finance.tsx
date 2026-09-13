@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis, type TooltipProps } from "recharts";
 import {
@@ -10,8 +10,9 @@ import {
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useCompany } from "@/hooks/use-company";
+import { useCompany, useCompanyRole } from "@/hooks/use-company";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,9 +24,12 @@ import {
 } from "@/components/ui/select";
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
 import {
+  LOAN_FEE_RATE,
+  LOAN_REPAY_SHARE,
   PERIODS,
   cashSeries,
   compactMoney,
+  fetchBalanceSheet,
   fetchFlightHours,
   fetchLedger,
   money,
@@ -55,6 +59,7 @@ const chartConfig = { cash: { label: "Cash", color: CASH_COLOR } } satisfies Cha
 const SHOWN_ROWS = 200;
 
 const MIGRATION = "20260913000000_transaction_aircraft.sql";
+const LOANS_MIGRATION = "20260914000000_maintenance_and_loans.sql";
 
 function FinancePage() {
   const { data: company } = useCompany();
@@ -143,6 +148,9 @@ function FinancePage() {
         <h1 className="mt-1 text-3xl font-semibold">Money</h1>
       </div>
 
+      {/* Where the company stands today -- not scoped by the period below. */}
+      {companyId && <BalanceSheetAndLoan companyId={companyId} />}
+
       {/* One filter row above everything it scopes. */}
       <div className="flex flex-wrap gap-2" role="group" aria-label="Period">
         {PERIODS.map((p) => (
@@ -182,7 +190,7 @@ function FinancePage() {
             icon={Landmark}
             label="Capital"
             value={signedMoney(summary.capital)}
-            hint="Aircraft, deposits, ratings and building"
+            hint="Aircraft, deposits, ratings, building and loans"
           />
           <Stat
             icon={summary.net < 0 ? TrendingDown : TrendingUp}
@@ -488,6 +496,158 @@ function Breakdown({
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * The balance sheet, and the loan beside it -- the credit limit is built from
+ * the same aircraft values, so they read best together.
+ */
+function BalanceSheetAndLoan({ companyId }: { companyId: string }) {
+  const qc = useQueryClient();
+  const { canManage } = useCompanyRole();
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState<"borrow" | "repay" | null>(null);
+  const sheet = useQuery({
+    queryKey: ["balance-sheet", companyId],
+    queryFn: () => fetchBalanceSheet(companyId),
+    retry: false,
+  });
+
+  if (sheet.error) {
+    return (
+      <p className="rounded-lg border border-warning/40 bg-card px-4 py-3 text-sm text-warning">
+        The balance sheet and loans need the <span className="font-mono">{LOANS_MIGRATION}</span>{" "}
+        migration. Run it in the Supabase SQL editor, then reload this page.
+      </p>
+    );
+  }
+  const s = sheet.data;
+  if (!s) return null;
+
+  const value = Math.round(Number(amount.replace(/[^0-9.]/g, "")) || 0);
+
+  async function act(kind: "borrow" | "repay") {
+    setBusy(kind);
+    const { data, error } = await supabase.rpc(kind === "borrow" ? "take_loan" : "repay_loan", {
+      _company_id: companyId,
+      _amount: value,
+    });
+    setBusy(null);
+    if (error) return toast.error(error.message);
+    const r = data as { borrowed?: number; fee?: number; repaid?: number } | null;
+    toast.success(
+      kind === "borrow"
+        ? `Borrowed ${money(r?.borrowed ?? value)}. Fee ${money(-(r?.fee ?? 0))}.`
+        : `Repaid ${money(r?.repaid ?? value)}.`,
+    );
+    setAmount("");
+    qc.invalidateQueries();
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <section className="rounded-lg border border-border bg-card p-5">
+        <h2 className="font-medium">Balance sheet</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          What the company is worth today, with aircraft at what they would sell for.
+        </p>
+        <dl className="mt-4 space-y-2 text-sm">
+          <SheetRow label="Cash" value={money(s.cash)} />
+          <SheetRow label={`Owned aircraft (${s.aircraftCount})`} value={money(s.aircraftValue)} />
+          <SheetRow label="Total assets" value={money(s.assets)} strong />
+          <SheetRow label="Loan owed" value={money(-s.loanBalance)} />
+          <SheetRow
+            label="Company value"
+            value={money(s.companyValue)}
+            strong
+            tone={toneOf(s.companyValue)}
+          />
+        </dl>
+      </section>
+
+      <section className="rounded-lg border border-border bg-card p-5">
+        <h2 className="font-medium">Loan</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Borrow up to $100k plus half the value of your owned aircraft. A {LOAN_FEE_RATE * 100}%
+          fee is taken when you borrow, and {LOAN_REPAY_SHARE * 100}% of every contract payout pays
+          it down. No interest; repay early any time.
+        </p>
+        <dl className="mt-4 space-y-2 text-sm">
+          <SheetRow label="Owed" value={money(s.loanBalance)} strong />
+          <SheetRow label="Credit limit" value={money(s.loanLimit)} />
+          <SheetRow label="Available to borrow" value={money(s.availableCredit)} />
+        </dl>
+        {canManage ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Input
+              inputMode="numeric"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount"
+              className="w-36"
+              aria-label="Loan amount"
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy !== null || value <= 0 || value > s.availableCredit}
+              onClick={() => act("borrow")}
+            >
+              {busy === "borrow"
+                ? "Borrowing…"
+                : value > 0
+                  ? `Borrow · fee ${money(value * LOAN_FEE_RATE)}`
+                  : "Borrow"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={busy !== null || value <= 0 || s.loanBalance <= 0}
+              onClick={() => act("repay")}
+            >
+              {busy === "repay" ? "Repaying…" : "Repay"}
+            </Button>
+            {s.loanBalance > 0 && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => setAmount(String(Math.round(s.loanBalance)))}
+              >
+                Fill full balance
+              </Button>
+            )}
+          </div>
+        ) : (
+          <p className="mt-4 text-xs text-muted-foreground">
+            Only owners and managers can borrow or repay.
+          </p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function SheetRow({
+  label,
+  value,
+  strong = false,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  tone?: Tone;
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 ${strong ? "border-t border-border pt-2 font-medium" : ""}`}
+    >
+      <dt className={strong ? "" : "text-muted-foreground"}>{label}</dt>
+      <dd className={`font-mono tabular-nums ${toneClass(tone)}`}>{value}</dd>
+    </div>
   );
 }
 

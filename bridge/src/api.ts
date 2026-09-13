@@ -73,6 +73,10 @@ export type ResolveResult = {
   aircraft_wear: number;
   reputation_delta: number;
   incidents: string[];
+  /** Added by 20260914000000_maintenance_and_loans.sql -- absent until it's run. */
+  breakdown?: boolean;
+  loan_repayment?: number;
+  inspection_due_in_hr?: number;
 };
 
 async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {

@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Plus, Plane, AlertTriangle } from "lucide-react";
 import { AircraftForm } from "@/components/aircraft-form";
 import { TAG_LABELS } from "@/lib/game-data";
+import { groundedReason, inspectionDueIn, wearBarClass } from "@/lib/maintenance";
 import { toast } from "sonner";
 import { useCompanyRole } from "@/hooks/use-company";
 
@@ -103,17 +104,28 @@ function AircraftPage() {
               </div>
               <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
-                  className={`h-full ${Number(a.wear) > 60 ? "bg-warning" : Number(a.wear) > 80 ? "bg-destructive" : "bg-success"}`}
+                  className={`h-full ${wearBarClass(Number(a.wear))}`}
                   style={{ width: `${Math.min(100, Number(a.wear))}%` }}
                 />
               </div>
             </div>
             <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs">
-              <span className={`${a.status === "available" ? "text-success" : "text-warning"}`}>{a.status}</span>
-              {Number(a.wear) > 60 && (
-                <span className="flex items-center gap-1 text-warning">
-                  <AlertTriangle className="h-3 w-3" /> Inspection due
+              <span className={`${a.status === "available" ? "text-success" : "text-warning"}`}>
+                {a.broken_down_at ? "broken down" : a.status}
+              </span>
+              {groundedReason(a) ? (
+                <span className="flex items-center gap-1 text-destructive">
+                  <AlertTriangle className="h-3 w-3" /> {groundedReason(a)}
                 </span>
+              ) : (
+                inspectionDueIn(a) <= 10 && (
+                  <span className="flex items-center gap-1 text-warning">
+                    <AlertTriangle className="h-3 w-3" />
+                    {inspectionDueIn(a) >= 0
+                      ? `Inspection due in ${inspectionDueIn(a).toFixed(1)} hrs`
+                      : "Inspection overdue"}
+                  </span>
+                )
               )}
             </div>
 

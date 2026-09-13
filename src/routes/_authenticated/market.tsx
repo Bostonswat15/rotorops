@@ -111,8 +111,9 @@ function MarketPage() {
   // company opens on planes. Same query key as the mission board, so it's cached.
   const [pickedWing, setWing] = useState<WingType | null>(null);
   const { data: fleet } = useQuery({
-    queryKey: ["aircraft"],
-    queryFn: async () => (await supabase.from("aircraft").select("*")).data ?? [],
+    queryKey: ["aircraft", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => (await supabase.from("aircraft").select("*").eq("company_id", company!.id)).data ?? [],
   });
   const wing: WingType = pickedWing ?? fleetWing(fleet);
   const [busy, setBusy] = useState<string | null>(null);

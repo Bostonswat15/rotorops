@@ -48,18 +48,23 @@ function IndustriesPage() {
   const { flight } = useLiveFlight();
 
   const { data: company } = useQuery({ queryKey: ["company"], queryFn: fetchCurrentCompany });
+  // RLS returns every company you belong to, so scope to the one that's open.
   const { data: bases } = useQuery({
-    queryKey: ["bases"],
-    queryFn: async () => (await supabase.from("bases").select("*")).data ?? [],
+    queryKey: ["bases", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => (await supabase.from("bases").select("*").eq("company_id", company!.id)).data ?? [],
   });
   const { data: industries, refetch: refetchIndustries } = useQuery({
-    queryKey: ["industries"],
-    queryFn: async () => (await supabase.from("industries").select("*")).data ?? [],
+    queryKey: ["industries", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () =>
+      (await supabase.from("industries").select("*").eq("company_id", company!.id)).data ?? [],
   });
   const { data: investments } = useQuery({
-    queryKey: ["industry-investments"],
+    queryKey: ["industry-investments", company?.id],
+    enabled: !!company?.id,
     queryFn: async () =>
-      (await supabase.from("company_industry_investments").select("*")).data ?? [],
+      (await supabase.from("company_industry_investments").select("*").eq("company_id", company!.id)).data ?? [],
   });
 
   const base = (bases ?? []).find((b: any) => b.latitude != null && b.longitude != null) ?? null;

@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useCompany } from "@/hooks/use-company";
 
 export const Route = createFileRoute("/_authenticated/flight-logs")({
   head: () => ({ meta: [{ title: "Flight Logs — RotorOps" }] }),
@@ -20,13 +21,25 @@ export const Route = createFileRoute("/_authenticated/flight-logs")({
 function LogsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  // RLS returns every company you belong to, so scope to the one that's open.
+  const { data: activeCompany } = useCompany();
+  const companyId = activeCompany?.id;
   const { data: logs } = useQuery({
-    queryKey: ["logs"],
-    queryFn: async () => (await supabase.from("flight_logs").select("*, aircraft(display_name)").order("flown_at", { ascending: false })).data ?? [],
+    queryKey: ["logs", companyId],
+    enabled: !!companyId,
+    queryFn: async () =>
+      (
+        await supabase
+          .from("flight_logs")
+          .select("*, aircraft(display_name)")
+          .eq("company_id", companyId!)
+          .order("flown_at", { ascending: false })
+      ).data ?? [],
   });
   const { data: aircraft } = useQuery({
-    queryKey: ["aircraft"],
-    queryFn: async () => (await supabase.from("aircraft").select("*")).data ?? [],
+    queryKey: ["aircraft", companyId],
+    enabled: !!companyId,
+    queryFn: async () => (await supabase.from("aircraft").select("*").eq("company_id", companyId!)).data ?? [],
   });
 
   return (

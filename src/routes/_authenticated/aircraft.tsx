@@ -10,7 +10,7 @@ import { AircraftForm } from "@/components/aircraft-form";
 import { TAG_LABELS } from "@/lib/game-data";
 import { groundedReason, inspectionDueIn, wearBarClass } from "@/lib/maintenance";
 import { toast } from "sonner";
-import { useCompanyRole } from "@/hooks/use-company";
+import { useCompany, useCompanyRole } from "@/hooks/use-company";
 
 export const Route = createFileRoute("/_authenticated/aircraft")({
   head: () => ({ meta: [{ title: "Aircraft Registry — RotorOps" }] }),
@@ -21,12 +21,16 @@ function AircraftPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const { canManage } = useCompanyRole();
+  // RLS returns every company you belong to, so scope to the one that's open.
+  const { data: activeCompany } = useCompany();
   const { data } = useQuery({
-    queryKey: ["aircraft"],
+    queryKey: ["aircraft", activeCompany?.id],
+    enabled: !!activeCompany?.id,
     queryFn: async () => {
       const { data } = await supabase
         .from("aircraft")
         .select("*")
+        .eq("company_id", activeCompany!.id)
         .not("status", "in", "(sold,returned,destroyed)")
         .order("created_at");
       return data ?? [];

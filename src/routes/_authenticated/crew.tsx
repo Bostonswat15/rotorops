@@ -37,7 +37,13 @@ function CrewPage() {
     queryKey: ["invites", company?.id],
     enabled: !!company?.id && canManage,
     queryFn: async () =>
-      (await supabase.from("company_invites").select("*").order("created_at", { ascending: false })).data ?? [],
+      (
+        await supabase
+          .from("company_invites")
+          .select("*")
+          .eq("company_id", company!.id)
+          .order("created_at", { ascending: false })
+      ).data ?? [],
   });
 
   // Null until the pilot ratings migration is run: show nothing rather than

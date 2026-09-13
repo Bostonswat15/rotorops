@@ -60,23 +60,36 @@ function MissionsPage() {
     queryKey: ["company"],
     queryFn: fetchCurrentCompany,
   });
+  // RLS returns every company you belong to, so scope to the one that's open.
   const { data: missions } = useQuery({
-    queryKey: ["missions"],
-    queryFn: async () => (await supabase.from("missions").select("*").order("generated_at", { ascending: false })).data ?? [],
+    queryKey: ["missions", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () =>
+      (
+        await supabase
+          .from("missions")
+          .select("*")
+          .eq("company_id", company!.id)
+          .order("generated_at", { ascending: false })
+      ).data ?? [],
   });
   const { data: aircraft } = useQuery({
-    queryKey: ["aircraft"],
-    queryFn: async () => (await supabase.from("aircraft").select("*")).data ?? [],
+    queryKey: ["aircraft", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => (await supabase.from("aircraft").select("*").eq("company_id", company!.id)).data ?? [],
   });
   // A plane company shouldn't land on the helicopter half of its own board.
   const wing = pickedWing ?? fleetWing(aircraft);
   const { data: bases } = useQuery({
-    queryKey: ["bases"],
-    queryFn: async () => (await supabase.from("bases").select("*")).data ?? [],
+    queryKey: ["bases", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => (await supabase.from("bases").select("*").eq("company_id", company!.id)).data ?? [],
   });
   const { data: industries } = useQuery({
-    queryKey: ["industries"],
-    queryFn: async () => (await supabase.from("industries").select("*")).data ?? [],
+    queryKey: ["industries", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () =>
+      (await supabase.from("industries").select("*").eq("company_id", company!.id)).data ?? [],
   });
 
   // Check rides. Ratings are null until the pilot ratings migration is run,

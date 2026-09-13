@@ -10,7 +10,7 @@ import { CERT_LABELS, CERT_UNLOCKS, ALL_CERTS } from "@/lib/game-data";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { Radio, Trash2, MapPin, GraduationCap, Crosshair } from "lucide-react";
-import { useCompanyRole } from "@/hooks/use-company";
+import { useCompany, useCompanyRole } from "@/hooks/use-company";
 import { desktop, type BridgeStatus } from "@/lib/desktop";
 import { generateCheckride } from "@/lib/checkrides";
 import { useLiveFlight } from "@/hooks/use-live-flight";
@@ -29,13 +29,17 @@ function SettingsPage() {
   });
 
   const [booking, setBooking] = useState<string | null>(null);
+  // RLS returns every company you belong to, so scope to the one that's open.
   const { data: bases } = useQuery({
-    queryKey: ["bases"],
-    queryFn: async () => (await supabase.from("bases").select("*")).data ?? [],
+    queryKey: ["bases", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => (await supabase.from("bases").select("*").eq("company_id", company!.id)).data ?? [],
   });
   const { data: checkrideMissions } = useQuery({
-    queryKey: ["missions"],
-    queryFn: async () => (await supabase.from("missions").select("*")).data ?? [],
+    queryKey: ["missions", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () =>
+      (await supabase.from("missions").select("*").eq("company_id", company!.id)).data ?? [],
   });
 
   // A pass or fail only becomes known once the bridge submits the flight --
@@ -258,9 +262,12 @@ function HomeBase({ canManage }: { canManage: boolean }) {
   const [busy, setBusy] = useState(false);
   const { flight } = useLiveFlight();
 
+  const { data: activeCompany } = useCompany();
   const { data: bases } = useQuery({
-    queryKey: ["bases"],
-    queryFn: async () => (await supabase.from("bases").select("*").order("created_at")).data ?? [],
+    queryKey: ["bases", activeCompany?.id],
+    enabled: !!activeCompany?.id,
+    queryFn: async () =>
+      (await supabase.from("bases").select("*").eq("company_id", activeCompany!.id).order("created_at")).data ?? [],
   });
 
   const base = (bases ?? []).find((b: any) => b.is_primary) ?? (bases ?? [])[0] ?? null;
@@ -517,10 +524,17 @@ function LoadedAircraft({ status }: { status: BridgeStatus | null }) {
   const [busy, setBusy] = useState(false);
   const loaded = status?.simAircraft ?? null;
 
+  const { data: activeCompany } = useCompany();
   const { data: fleet } = useQuery({
-    queryKey: ["aircraft"],
+    queryKey: ["aircraft", activeCompany?.id],
+    enabled: !!activeCompany?.id,
     queryFn: async () =>
-      (await supabase.from("aircraft").select("id,display_name,sim_title,sim_title_aliases")).data ?? [],
+      (
+        await supabase
+          .from("aircraft")
+          .select("id,display_name,sim_title,sim_title_aliases")
+          .eq("company_id", activeCompany!.id)
+      ).data ?? [],
   });
 
   if (!loaded) return null;

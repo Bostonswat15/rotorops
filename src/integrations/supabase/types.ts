@@ -555,6 +555,60 @@ export type Database = {
         }
         Relationships: []
       }
+      pilot_ratings: {
+        Row: {
+          company_id: string
+          created_at: string
+          fee_paid: boolean
+          label: string
+          passed_at: string | null
+          rating: string
+          user_id: string
+          wing: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          fee_paid?: boolean
+          label: string
+          passed_at?: string | null
+          rating: string
+          user_id: string
+          wing?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          fee_paid?: boolean
+          label?: string
+          passed_at?: string | null
+          rating?: string
+          user_id?: string
+          wing?: string
+        }
+        Relationships: []
+      }
+      aircraft_type_families: {
+        Row: {
+          internal_id: string
+          label: string
+          rating: string
+          wing: string
+        }
+        Insert: {
+          internal_id: string
+          label: string
+          rating: string
+          wing: string
+        }
+        Update: {
+          internal_id?: string
+          label?: string
+          rating?: string
+          wing?: string
+        }
+        Relationships: []
+      }
       fuel_farm_deliveries: {
         Row: {
           company_id: string
@@ -1024,6 +1078,10 @@ export type Database = {
       set_industry_workers: {
         Args: { _industry_id: string; _workers: number }
         Returns: Database["public"]["Tables"]["industries"]["Row"]
+      }
+      ensure_my_rating_rides: {
+        Args: { _company_id: string }
+        Returns: undefined
       }
       dispatch_mission: {
         Args: { _mission_id: string; _aircraft_id: string }

@@ -102,12 +102,24 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   restart from its origin), then `20260917000000_flight_score.sql` (score columns on
   flight_logs, grade prices pay/XP/rep, avg score on the roster), then
   `20260918000000_industry_flow.sql` (hauls move stock via `industry_deliveries`, mills get
-  `input_stock`, floats tag backfill). Each of the last five carries `rotorops_resolve_flight`
-  forward; any later change must start from the 20260918 copy. 20260918 also carries
-  `dispatch_mission`, `cancel_dispatch`, `dispatch_trade_run` and `industry_tick`;
+  `input_stock`, floats tag backfill), then `20260919000000_pilot_ratings.sql` (check rides
+  inside a company). Each of the last six carries `rotorops_resolve_flight` forward; any later
+  change must start from the 20260919 copy. 20260919 also carries `dispatch_mission` and
+  `cancel_dispatch`; 20260918 last carried `dispatch_trade_run` and `industry_tick`;
   `service_aircraft` and `bridge_state` were last carried in 20260916. The Finance and Bases
   pages show a notice until theirs is run. 20260918 was built by carrying each function forward
   programmatically from its newest file, never retyped.
+- **Pilot ratings (user's rules):** owner exempt; everyone else (managers too, and existing
+  members) flies a company check ride before taking contracts and a type rating per aircraft
+  family in the fleet (`family ?? internal_id`; `src/lib/ratings.ts` mirrors
+  `aircraft_type_families`, a seeded copy of the catalogue -- add new catalogue aircraft to it
+  in a migration or they rate as their own type server-side). Rides are `role = 'rating_ride'`
+  missions booked server-side and reserved (`book_rating_ride`, triggers on company_members
+  insert/role change and aircraft insert, `ensure_my_rating_rides` on Mission Board load).
+  Heli: hover < 50 ft AGL 30 s, reach 3 nm, land; plane: reach 5 nm, land. Pass = all objectives
+  + score >= 60 (no score = no pass); fail returns it to the board; no rep; 150 XP. $1,000
+  examiner fee on first dispatch (user approved "when booked"; moved to dispatch because rides
+  are auto-booked when cash may be short -- told the user).
 - **Plane work and industry flow (user approved all of it):** Planes board 3 -> 6 per Generate
   (18 tries, since floatplane/mail can return null). New fixed-wing templates in
   `src/lib/fixed-wing.ts`: Skydive Lift ($2,800, new bridge `climb` objective, 10,000 ft AGL

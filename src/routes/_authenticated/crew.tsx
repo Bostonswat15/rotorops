@@ -40,6 +40,20 @@ function CrewPage() {
       (await supabase.from("company_invites").select("*").order("created_at", { ascending: false })).data ?? [],
   });
 
+  // Null until the pilot ratings migration is run: show nothing rather than
+  // every rating as due.
+  const { data: ratings } = useQuery({
+    queryKey: ["pilot_ratings", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pilot_ratings")
+        .select("*")
+        .eq("company_id", company!.id);
+      return error ? null : data;
+    },
+  });
+
   async function removeMember(userId: string, self: boolean) {
     const { error } = await supabase.rpc("remove_member", {
       _company_id: company!.id,
@@ -88,6 +102,10 @@ function CrewPage() {
                   {meta.label} · {Number(m.flights)} flight{Number(m.flights) === 1 ? "" : "s"} · {Number(m.hours).toFixed(1)}h
                   {m.avg_score != null && ` · average score ${Math.round(Number(m.avg_score))}`}
                 </p>
+                <RatingChips
+                  role={m.role}
+                  ratings={ratings ? ratings.filter((r) => r.user_id === m.user_id) : null}
+                />
               </div>
               {isOwner && (
                 <Select value={m.role} onValueChange={(v) => changeRole(m.user_id, v)}>
@@ -129,6 +147,39 @@ function CrewPage() {
         })}
       </div>
     </div>
+  );
+}
+
+/** A member's check rides: done ones ticked, due ones hollow. */
+function RatingChips({ role, ratings }: { role: string; ratings: { rating: string; label: string; passed_at: string | null }[] | null }) {
+  if (role === "owner") {
+    return <p className="mt-1 text-xs text-muted-foreground">Owner — no check rides needed</p>;
+  }
+  if (!ratings) return null;
+  const checkout = ratings.find((r) => r.rating === "checkout");
+  const types = ratings
+    .filter((r) => r.rating !== "checkout")
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      <RatingChip done={!!checkout?.passed_at} label={checkout?.passed_at ? "Checked out" : "Company check ride due"} />
+      {types.map((r) => (
+        <RatingChip key={r.rating} done={!!r.passed_at} label={r.label} />
+      ))}
+    </div>
+  );
+}
+
+function RatingChip({ done, label }: { done: boolean; label: string }) {
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[11px] ${
+        done ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
+      }`}
+    >
+      {done ? "✓ " : "◌ "}
+      {label}
+    </span>
   );
 }
 

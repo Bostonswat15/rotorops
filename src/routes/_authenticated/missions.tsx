@@ -9,9 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Briefcase, Zap, AlertTriangle, Radio, PlaneTakeoff, Trash2, MapPin } from "lucide-react";
+import { Briefcase, Zap, AlertTriangle, Radio, PlaneTakeoff, Trash2, MapPin, GraduationCap } from "lucide-react";
+import {
+  ratingOf, isRatingRide, CHECKOUT_RATING, RATING_FEE, RATING_PASS_SCORE,
+} from "@/lib/ratings";
 import {
   MISSION_TEMPLATES,
   generateMissionFromTemplate,
@@ -51,7 +54,7 @@ function MissionsPage() {
   // Null until someone picks a tab; the fleet decides until then.
   const [pickedWing, setWing] = useState<"rotary" | "fixed" | null>(null);
   const [manualFor, setManualFor] = useState<any | null>(null);
-  const { canManage } = useCompanyRole();
+  const { canManage, isOwner, role } = useCompanyRole();
 
   const { data: company } = useQuery({
     queryKey: ["company"],
@@ -75,6 +78,36 @@ function MissionsPage() {
     queryKey: ["industries"],
     queryFn: async () => (await supabase.from("industries").select("*")).data ?? [],
   });
+
+  // Check rides. Ratings are null until the pilot ratings migration is run,
+  // which leaves the board as it was rather than locking everyone out.
+  const { data: me } = useQuery({
+    queryKey: ["me"],
+    queryFn: async () => (await supabase.auth.getUser()).data.user?.id ?? null,
+  });
+  const { data: ratings } = useQuery({
+    queryKey: ["pilot_ratings", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pilot_ratings")
+        .select("*")
+        .eq("company_id", company!.id);
+      return error ? null : data;
+    },
+  });
+  // The server books rides on joining and on every purchase; this puts back
+  // any that went missing. Idempotent, and the owner has none.
+  useEffect(() => {
+    if (!company?.id || !role || role === "owner") return;
+    supabase.rpc("ensure_my_rating_rides", { _company_id: company.id }).then(({ error }) => {
+      if (error) return;
+      qc.invalidateQueries({ queryKey: ["missions"] });
+      qc.invalidateQueries({ queryKey: ["pilot_ratings"] });
+    });
+  }, [company?.id, role, qc]);
+  const myRatings = ratings && me ? ratings.filter((r) => r.user_id === me) : null;
+  const myPending = isOwner || !myRatings ? [] : myRatings.filter((r) => !r.passed_at);
 
   const locatedBase = (bases ?? []).find((b: any) => b.latitude != null && b.longitude != null) ?? null;
   // Even without coordinates we know which field is home.
@@ -454,7 +487,9 @@ function MissionsPage() {
     });
     if (error) return toast.error(error.message);
     toast.success(
-      mission.scene_name
+      isRatingRide(mission)
+        ? `${ac.display_name} dispatched — fly the check ride from ${mission.origin ?? "base"}.`
+        : mission.scene_name
         ? `${ac.display_name} dispatched — ${mission.scene_name} and back to ${mission.origin}.`
         : `${ac.display_name} dispatched — fly ${routeLabel(mission)} in MSFS.`,
     );
@@ -554,6 +589,26 @@ function MissionsPage() {
         </div>
       </div>
 
+      {myPending.length > 0 && (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+          <p className="flex items-center gap-2 font-medium">
+            <GraduationCap className="h-4 w-4 text-warning" /> Check rides to fly
+          </p>
+          <p className="mt-1 text-muted-foreground">
+            {myPending.some((r) => r.rating === CHECKOUT_RATING)
+              ? "You can't take contracts until you pass your company check ride."
+              : "You can take contracts, but only in aircraft types you're rated on."}{" "}
+            Each ride passes with every step done and a score of {RATING_PASS_SCORE} or better.
+            They're on the board, reserved for you.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1">
+            {myPending.map((r) => (
+              <span key={r.rating} className="rounded bg-secondary px-2 py-0.5 text-xs">{r.label}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {inProgress.length > 0 && (
         <div>
           <h2 className="mb-3 flex items-center gap-2 text-sm font-medium uppercase tracking-wider text-muted-foreground">
@@ -568,7 +623,9 @@ function MissionsPage() {
                     <div>
                       <p className="font-medium">{m.title}</p>
                       <p className="text-sm text-muted-foreground">
-                        {m.scene_name
+                        {isRatingRide(m)
+                          ? `Check ride · ${m.origin ?? "base"} ⟳`
+                          : m.scene_name
                           ? `${m.origin} ⟳ ${m.scene_name}`
                           : routeLabel(m)}
                         {" · "}{m.distance_nm}nm round trip · min {m.min_payload}lb
@@ -616,6 +673,8 @@ function MissionsPage() {
             aircraft={fleet}
             certs={company?.certifications ?? []}
             onDispatch={(ac: any) => dispatch(m, ac)}
+            me={me}
+            ratings={isOwner ? null : myRatings}
           />
         ))}
       </div>
@@ -784,9 +843,26 @@ function ManualLogDialog({ mission, aircraft, onClose, onDone }: any) {
   );
 }
 
-function MissionCard({ mission, aircraft, certs, onDispatch }: any) {
+type RatingRow = { rating: string; passed_at: string | null; fee_paid: boolean };
+
+function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: ratingRows }: any) {
   const certsOk = companyHasCerts(certs, mission.required_certs);
-  const eligibleAircraft = aircraft.map((a: any) => ({ a, e: isAircraftEligible(a, mission) })).filter((x: any) => x.e.eligible);
+  const ratingRide = isRatingRide(mission);
+  // Null for the owner, and before the ratings migration: no gate.
+  const ratings = ratingRows as RatingRow[] | null;
+  const passed = (rating: string) =>
+    !ratings || ratings.some((r) => r.rating === rating && r.passed_at);
+  const checkedOut = passed(CHECKOUT_RATING);
+  const eligibleAircraft = aircraft
+    .map((a: any) => ({ a, e: isAircraftEligible(a, mission), rated: passed(ratingOf(a).rating) }))
+    .filter((x: any) => x.e.eligible)
+    // A type rating ride has to be flown in that type.
+    .filter((x: { a: { internal_id?: string; sim_title?: string; display_name?: string } }) =>
+      !ratingRide || mission.scene_name === CHECKOUT_RATING || ratingOf(x.a).rating === mission.scene_name,
+    );
+  const reservedForSomeoneElse = ratingRide && mission.assigned_pilot_id !== me;
+  const canFly = certsOk && !reservedForSomeoneElse && (ratingRide || checkedOut);
+  const feePaid = !!ratings?.some((r) => r.rating === mission.scene_name && r.fee_paid);
   return (
     <div className="rounded-lg border border-border bg-card p-5">
       <div className="flex items-start justify-between">
@@ -805,6 +881,15 @@ function MissionCard({ mission, aircraft, certs, onDispatch }: any) {
               take off from there.
             </p>
           )}
+          {ratingRide && (
+            <p className="mt-2 flex items-center gap-1 text-xs text-primary">
+              <GraduationCap className="h-3 w-3" />
+              Check ride · pass with every step done and a score of {RATING_PASS_SCORE}+ ·{" "}
+              {feePaid
+                ? "examiner paid, retakes free"
+                : `$${RATING_FEE.toLocaleString()} examiner fee on first dispatch, retakes free`}
+            </p>
+          )}
         </div>
         <div className="text-right">
           <p className="font-mono text-xl font-semibold text-success">${Number(mission.payout).toLocaleString()}</p>
@@ -817,7 +902,7 @@ function MissionCard({ mission, aircraft, certs, onDispatch }: any) {
         <S l="Payload" v={`${mission.min_payload}lb`} />
         <S l="Difficulty" v={"●".repeat(mission.difficulty)} />
       </dl>
-      {mission.scene_name && (
+      {mission.scene_name && !ratingRide && (
         <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
           <MapPin className="h-3 w-3 text-primary" />
           Scene: <span className="text-foreground">{mission.scene_name}</span>
@@ -842,16 +927,30 @@ function MissionCard({ mission, aircraft, certs, onDispatch }: any) {
             <AlertTriangle className="h-3 w-3" /> Requires cert: {mission.required_certs.join(", ")}
           </div>
         )}
-        {certsOk && eligibleAircraft.length === 0 && (
+        {certsOk && reservedForSomeoneElse && (
+          <p className="text-xs text-muted-foreground">Booked for another pilot — only they can fly it.</p>
+        )}
+        {certsOk && !reservedForSomeoneElse && !ratingRide && !checkedOut && (
+          <p className="flex items-center gap-2 text-xs text-warning">
+            <GraduationCap className="h-3 w-3" /> Pass your company check ride before taking contracts.
+          </p>
+        )}
+        {canFly && eligibleAircraft.length === 0 && (
           <p className="text-xs text-muted-foreground">No eligible aircraft in fleet.</p>
         )}
-        {certsOk && eligibleAircraft.length > 0 && (
+        {canFly && eligibleAircraft.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {eligibleAircraft.map(({ a }: any) => (
-              <Button key={a.id} size="sm" variant="secondary" onClick={() => onDispatch(a)}>
-                Dispatch · {a.display_name}
-              </Button>
-            ))}
+            {eligibleAircraft.map(({ a, rated }: any) => {
+              const ok = ratingRide || rated;
+              return (
+                <Button
+                  key={a.id} size="sm" variant="secondary" disabled={!ok} onClick={() => onDispatch(a)}
+                  title={ok ? undefined : `Not rated on the ${ratingOf(a).label} yet — fly its check ride first`}
+                >
+                  Dispatch · {a.display_name}{ok ? "" : " (not rated)"}
+                </Button>
+              );
+            })}
           </div>
         )}
       </div>

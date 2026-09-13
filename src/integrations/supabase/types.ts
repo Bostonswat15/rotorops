@@ -600,6 +600,9 @@ export type Database = {
           pilot_id: string | null
           success: boolean
           weather_difficulty: number
+          score: number | null
+          grade: string | null
+          score_items: Json
         }
         Insert: {
           aircraft_id: string
@@ -1016,6 +1019,7 @@ export type Database = {
           joined_at: string
           flights: number
           hours: number
+          avg_score: number | null
         }[]
       }
       company_role: { Args: { _company_id: string }; Returns: string | null }

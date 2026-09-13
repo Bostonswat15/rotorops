@@ -8,6 +8,7 @@
 
 import { SimSession, distanceNm } from './telemetry.ts';
 import { FlightTracker, type Telemetry } from './flight.ts';
+import type { ScoreItem } from './score.ts';
 import { ObjectiveTracker, type Objective, type ObjectiveProgress } from './objectives.ts';
 import { SceneDirector, setSceneOverrides, type SceneType, type SceneOverrides } from './scene-actors.ts';
 import { bearingTo, clockPosition, resolveSearchTarget, type LatLon } from './search.ts';
@@ -51,6 +52,8 @@ export type BridgeEvent =
   // The armed contract went away -- resolved, cancelled or reassigned. Without
   // this the app kept the last objective list up indefinitely, ticks and all.
   | { type: 'objectives-cleared' }
+  // The flight score as it stands, whenever it changes.
+  | { type: 'score'; score: number; grade: string; items: ScoreItem[] }
   // Raw position, emitted whenever the sim reports one -- engines running or
   // not. The moving map uses this so it works while planning, not just in the
   // air.
@@ -600,6 +603,10 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       distance_flown_nm: 0,
       sim_title: String(s.title ?? currentSimTitle ?? ''),
       max_g: null,
+      // No flight was watched, so there is nothing honest to score.
+      score: null,
+      grade: null,
+      score_items: [],
       end_lat: n(s.lat),
       end_lon: n(s.lon),
       started_at: stamp,
@@ -724,6 +731,23 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
   const n = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
+  /** Tell the UI about the flight score when it changes, and each deduction as it lands. */
+  let lastScoreKey = '';
+  function reportScore() {
+    const now = tracker?.scoreNow;
+    if (!now) return;
+    const key = `${now.score}|${now.items.map((i) => `${i.code}${i.points}`).join(',')}`;
+    if (key === lastScoreKey) return;
+    const before = new Set(lastScoreKey.split('|')[1]?.split(',') ?? []);
+    lastScoreKey = key;
+    for (const i of now.items) {
+      if (!before.has(`${i.code}${i.points}`) && i.points !== 0) {
+        log(`Score: ${i.label} ${i.points > 0 ? '+' : ''}${i.points} (now ${now.score})`);
+      }
+    }
+    emit({ type: 'score', score: now.score, grade: now.grade, items: now.items });
+  }
+
   /** Position on every sample, so the map has something to draw immediately. */
   function reportPosition(s: Record<string, number | string>) {
     const lat = n(s.lat);
@@ -830,7 +854,11 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         max_g: t.max_g,
         started_at: t.started_at,
         ended_at: t.ended_at,
+        score: t.score,
+        grade: t.grade,
+        score_items: t.score_items,
       });
+      if (t.score != null) log(`Flight score: ${t.grade} (${t.score}/100)`);
       director?.clear();
       director?.setCasualtyWeight(0);
       casualtyLb = 0;
@@ -902,12 +930,14 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       reportAircraftChange(String(s.title ?? '').trim());
       reportPosition(s);
       tracker!.onSnapshot(s);
+      reportScore();
       trackObjectives(s);
       maybeResolve(s);
     });
     sim.on('touchdown', (fpm, g) => {
       tracker!.onTouchdown(fpm, g);
       log(`Touchdown: ${Math.round(fpm)} fpm, ${g.toFixed(2)}g`);
+      reportScore();
     });
     sim.on('disconnected', () => {
       emit({ type: 'sim', connected: false });

@@ -28,6 +28,15 @@ export type BridgeStatus = {
     matchedId: string | null;
     matchedName: string | null;
   } | null;
+  /**
+   * Flight score as it stands: live while flying, and the final one after
+   * landing until the next flight starts. Absent from an older desktop build.
+   */
+  score?: {
+    score: number;
+    grade: string;
+    items: { code: string; label: string; points: number }[];
+  } | null;
   flight: {
     simTitle?: string;
     departure?: string | null;

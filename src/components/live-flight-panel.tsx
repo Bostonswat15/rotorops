@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { FlightMap } from "@/components/flight-map";
-import { useLiveFlight, useBridgeObjectives } from "@/hooks/use-live-flight";
+import { useLiveFlight, useBridgeObjectives, useBridgeScore } from "@/hooks/use-live-flight";
 import { searchAreaOf } from "@/lib/missions";
 import { desktop, type BridgeStatus } from "@/lib/desktop";
 
@@ -175,6 +175,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         </p>
       )}
 
+      <LiveScore />
+
       <LiveObjectives state={objectives} fill={fill} />
 
       {/*
@@ -224,6 +226,47 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
             : "h-96 w-full rounded-lg border border-border"
         }
       />
+    </div>
+  );
+}
+
+/**
+ * The flight score as it stands. Each deduction is listed the moment it lands,
+ * so a lost point is explained while the pilot can still see why.
+ */
+function LiveScore() {
+  const s = useBridgeScore();
+  if (!s) return null;
+  const tone =
+    s.grade === "A"
+      ? "text-success"
+      : s.grade === "C"
+        ? "text-warning"
+        : s.grade === "D" || s.grade === "F"
+          ? "text-destructive"
+          : "text-foreground";
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex items-baseline gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Score</span>
+        <span className={`text-2xl font-semibold ${tone}`}>{s.grade}</span>
+        <span className="font-mono text-sm text-muted-foreground">{s.score}/100</span>
+      </div>
+      {s.items.length === 0 ? (
+        <span className="text-xs text-muted-foreground">Clean so far</span>
+      ) : (
+        <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {s.items.map((i) => (
+            <li key={i.code}>
+              {i.label}{" "}
+              <span className={`font-mono ${i.points < 0 ? "text-destructive" : "text-success"}`}>
+                {i.points > 0 ? "+" : ""}
+                {i.points}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

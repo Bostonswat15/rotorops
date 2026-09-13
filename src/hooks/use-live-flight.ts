@@ -95,6 +95,25 @@ export function useLiveFlight() {
   return { flight: live, track, isDesktop: !!desktop() };
 }
 
+/** The flight score from the sim bridge, live while flying. Null when there's none. */
+export function useBridgeScore() {
+  const [score, setScore] = useState<BridgeStatus["score"]>(null);
+
+  useEffect(() => {
+    const app = desktop();
+    if (!app) return;
+    let live = true;
+    app.status().then((s) => live && setScore(s?.score ?? null)).catch(() => {});
+    const off = app.onStatus((s) => live && setScore(s?.score ?? null));
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
+
+  return score ?? null;
+}
+
 /**
  * Live objective progress from the sim bridge.
  *

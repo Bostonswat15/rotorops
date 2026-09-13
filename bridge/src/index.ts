@@ -627,6 +627,9 @@ async function cmdRun() {
       max_g: t.max_g,
       started_at: t.started_at,
       ended_at: t.ended_at,
+      score: t.score,
+      grade: t.grade,
+      score_items: t.score_items,
     };
 
     try {

@@ -92,6 +92,23 @@ export const OPTIONAL_DATA: Datum[] = [
   { key: 'engineFailed', name: 'ENG FAILED:1', unit: 'Bool', type: 'i32' },
   { key: 'engineDamagePct', name: 'GENERAL ENG DAMAGE PERCENT:1', unit: 'percent', type: 'f64' },
   { key: 'engineOnFire', name: 'ENG ON FIRE:1', unit: 'Bool', type: 'i32' },
+
+  // Flight score (score.ts). Standard SimVars, but none of these has been
+  // probed on this install yet -- one that doesn't resolve just drops its rule.
+  { key: 'category', name: 'CATEGORY', unit: null, type: 'str256' },
+  { key: 'lightBeacon', name: 'LIGHT BEACON', unit: 'Bool', type: 'i32' },
+  { key: 'lightStrobe', name: 'LIGHT STROBE', unit: 'Bool', type: 'i32' },
+  { key: 'lightLanding', name: 'LIGHT LANDING', unit: 'Bool', type: 'i32' },
+  { key: 'bank', name: 'PLANE BANK DEGREES', unit: 'degrees', type: 'f64' },
+  { key: 'pitch', name: 'PLANE PITCH DEGREES', unit: 'degrees', type: 'f64' },
+  { key: 'ias', name: 'AIRSPEED INDICATED', unit: 'knots', type: 'f64' },
+  { key: 'overspeed', name: 'OVERSPEED WARNING', unit: 'Bool', type: 'i32' },
+  { key: 'stall', name: 'STALL WARNING', unit: 'Bool', type: 'i32' },
+  // Once a second, so a brief spike can slip between samples; the touchdown G
+  // is read per frame separately.
+  { key: 'gForceLive', name: 'G FORCE', unit: 'GForce', type: 'f64' },
+  { key: 'timeOfDay', name: 'TIME OF DAY', unit: 'Enum', type: 'i32' },
+  { key: 'visibilityM', name: 'AMBIENT VISIBILITY', unit: 'meters', type: 'f64' },
 ];
 
 export type Snapshot = {

@@ -86,7 +86,7 @@ let serverProcess = null;
 let tray = null;
 let bridge = null;
 let bridgeLog = [];
-let lastStatus = { simConnected: false, paired: false, flight: null, simAircraft: null, position: null, objectives: null };
+let lastStatus = { simConnected: false, paired: false, flight: null, simAircraft: null, position: null, objectives: null, score: null };
 let hasExplainedTray = false;
 
 // ---------------------------------------------------------------------------
@@ -230,7 +230,11 @@ function onBridgeEvent(event) {
       ...(event.connected ? {} : { position: null, flight: null }),
     });
   }
-  if (event.type === 'flight-start') pushStatus({ flight: { ...event, hours: 0 } });
+  // A new flight starts a new score; the last one stays on screen until then.
+  if (event.type === 'flight-start') pushStatus({ flight: { ...event, hours: 0 }, score: null });
+  if (event.type === 'score') {
+    pushStatus({ score: { score: event.score, grade: event.grade, items: event.items } });
+  }
   if (event.type === 'flight-progress') {
     pushStatus({ flight: { ...(lastStatus.flight ?? {}), ...event } });
   }

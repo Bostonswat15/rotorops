@@ -99,15 +99,21 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   (100-hour inspections, wear cost, breakdowns, resale curve, loans, balance sheet),
   `20260915000000_fuel_farms.sql` (fuel farms, fuel runs), then
   `20260916000000_crash_restart.sql` (a crash is repairable damage and resets the contract to
-  restart from its origin). Each of the last three carries `rotorops_resolve_flight` forward;
-  any later change must start from the 20260916 copy (it also carries `dispatch_mission`,
-  `service_aircraft` and `bridge_state`). The Finance and Bases pages show a notice until
-  theirs is run.
+  restart from its origin), then `20260917000000_flight_score.sql` (score columns on
+  flight_logs, grade prices pay/XP/rep, avg score on the roster). Each of the last four carries
+  `rotorops_resolve_flight` forward; any later change must start from the 20260917 copy.
+  `dispatch_mission`, `service_aircraft` and `bridge_state` were last carried in 20260916. The
+  Finance and Bases pages show a notice until theirs is run.
+- **Flight score (built 2026-09-13):** `bridge/src/score.ts`, run by `FlightTracker`. Its new
+  OPTIONAL SimVars (CATEGORY, LIGHT BEACON/STROBE/LANDING, PLANE BANK/PITCH DEGREES, AIRSPEED
+  INDICATED, OVERSPEED/STALL WARNING, G FORCE, TIME OF DAY, AMBIENT VISIBILITY) are unprobed on
+  this install: run `npm --prefix bridge run probe` and check which resolve; a missing one only
+  drops its rule. CATEGORY decides rotary vs fixed limits (defaults rotary). No cloud-base
+  SimVar is read, so the low-cloud half of the low-visibility bonus isn't implemented.
 - **Crash rule (user's, 2026-09-13):** crash -> wear 100, grounded, Repair = 10% of price and
   restores pre-crash wear; contract back on the board reserved for that pilot with
   `restart_from` = origin; rep -2 x difficulty; only counts if the flight departs
-  `restart_from` (bridge holds objectives until then). Flight score is approved as proposed
-  and is next.
+  `restart_from` (bridge holds objectives until then).
 - **OnAir-inspired roadmap** (user picked these 2026-09-13). Built: maintenance/resale, loans,
   fuel farms on the new Bases tab ($25k/10,000 lb, +$15k per 10,000 lb, bulk $0.65/lb vs $0.90
   pump; refinery avgas via `fuel_run` missions, filled on success, refunded on fail or delete).

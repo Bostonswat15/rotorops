@@ -86,6 +86,7 @@ function CrewPage() {
                 <p className="font-medium">{m.display_name ?? "Unnamed pilot"}</p>
                 <p className="text-xs text-muted-foreground">
                   {meta.label} · {Number(m.flights)} flight{Number(m.flights) === 1 ? "" : "s"} · {Number(m.hours).toFixed(1)}h
+                  {m.avg_score != null && ` · average score ${Math.round(Number(m.avg_score))}`}
                 </p>
               </div>
               {isOwner && (

@@ -50,11 +50,11 @@ function LogsPage() {
           <thead className="border-b border-border bg-secondary/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-2">When</th><th className="px-4 py-2">Aircraft</th><th className="px-4 py-2">Route</th>
-              <th className="px-4 py-2">Duration</th><th className="px-4 py-2">Fuel</th><th className="px-4 py-2">Landing</th><th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Duration</th><th className="px-4 py-2">Fuel</th><th className="px-4 py-2">Landing</th><th className="px-4 py-2">Score</th><th className="px-4 py-2">Status</th>
             </tr>
           </thead>
           <tbody>
-            {logs?.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">No flights logged yet.</td></tr>}
+            {logs?.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No flights logged yet.</td></tr>}
             {logs?.map((l: any) => (
               <tr key={l.id} className="border-b border-border last:border-0">
                 <td className="px-4 py-2 text-xs text-muted-foreground">{new Date(l.flown_at).toLocaleString()}</td>
@@ -63,6 +63,26 @@ function LogsPage() {
                 <td className="px-4 py-2 font-mono">{Number(l.duration_hr).toFixed(1)}h</td>
                 <td className="px-4 py-2 font-mono">{Math.round(l.fuel_used)}lb</td>
                 <td className="px-4 py-2 capitalize">{l.landing_quality}</td>
+                <td className="px-4 py-2 align-top">
+                  {l.score == null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : (
+                    <details>
+                      <summary className="cursor-pointer font-mono">{l.grade} · {l.score}</summary>
+                      <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                        {(Array.isArray(l.score_items) ? l.score_items : []).length === 0 ? (
+                          <li>Clean flight</li>
+                        ) : (
+                          (l.score_items as { code: string; label: string; points: number }[]).map((i) => (
+                            <li key={i.code}>
+                              {i.label} {i.points > 0 ? "+" : ""}{i.points}
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    </details>
+                  )}
+                </td>
                 <td className={`px-4 py-2 text-xs ${l.success ? "text-success" : "text-destructive"}`}>{l.success ? "completed" : "incident"}</td>
               </tr>
             ))}

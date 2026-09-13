@@ -8,6 +8,7 @@
 
 import { EventEmitter } from 'node:events';
 import { distanceNm } from './telemetry.ts';
+import { FlightScorer, type ScoreItem } from './score.ts';
 
 export type Telemetry = {
   departure: string | null;
@@ -25,6 +26,10 @@ export type Telemetry = {
   end_lon: number;
   started_at: string;
   ended_at: string;
+  /** 0-100, null when no flight was scored (a resumed contract, say). */
+  score: number | null;
+  grade: string | null;
+  score_items: ScoreItem[];
 };
 
 type Snap = Record<string, number | string>;
@@ -50,6 +55,7 @@ export class FlightTracker extends EventEmitter {
   private incidents = new Set<string>();
   private startedAt = '';
   private departure: string | null = null;
+  private scorer: FlightScorer | null = null;
 
   /** Resolve a position to an ICAO, or null when off-airport. */
   private readonly resolveAirport: (lat: number, lon: number) => string | null;
@@ -92,11 +98,18 @@ export class FlightTracker extends EventEmitter {
     };
   }
 
+  /** The score so far, for the live readout. Null outside a flight. */
+  get scoreNow(): { score: number; grade: string; items: ScoreItem[] } | null {
+    if (!this.active || !this.scorer) return null;
+    return { score: this.scorer.score, grade: this.scorer.grade, items: this.scorer.breakdown };
+  }
+
   onTouchdown(fpm: number, g: number) {
     if (!this.active || !this.hasFlown) return;
     this.touchdownFpm = fpm;
     this.maxG = this.maxG === null ? g : Math.max(this.maxG, g);
     if (g >= 2.5) this.incidents.add('high-G touchdown');
+    this.scorer?.onTouchdown(fpm, g, this.lastSnap);
   }
 
   onSnapshot(s: Snap) {
@@ -132,6 +145,10 @@ export class FlightTracker extends EventEmitter {
 
     this.maxPayload = Math.max(this.maxPayload, num(s.payload));
     this.collectIncidents(s);
+    if (this.scorer) {
+      this.scorer.onSample(s, !onGround);
+      for (const incident of this.incidents) this.scorer.onIncident(incident);
+    }
     this.lastSnap = s;
 
     if (num(s.crashFlag) !== 0) {
@@ -162,6 +179,9 @@ export class FlightTracker extends EventEmitter {
     this.startedAt = new Date().toISOString();
     this.departure = onGround ? this.resolveAirport(this.startLat, this.startLon) : null;
     this.lastSnap = s;
+    // A flight begins on engine light-up, which is exactly when the beacon rule applies.
+    this.scorer = new FlightScorer(FlightScorer.kindOf(s));
+    this.scorer.onStart(s);
     this.emit('start', { simTitle: title, departure: this.departure });
   }
 
@@ -201,11 +221,13 @@ export class FlightTracker extends EventEmitter {
   private finish(s: Snap, crashed: boolean) {
     const lat = num(s.lat, this.lastLat);
     const lon = num(s.lon, this.lastLon);
+    const fuelUsed = Math.max(0, Math.round(this.startFuel - num(s.fuelWeight, this.startFuel)));
+    this.scorer?.onFinish(num(s.fuelWeight), fuelUsed, this.elapsedHours());
     const result: Telemetry = {
       departure: this.departure,
       arrival: this.resolveAirport(lat, lon),
       duration_hr: Number(this.elapsedHours().toFixed(3)),
-      fuel_used: Math.max(0, Math.round(this.startFuel - num(s.fuelWeight, this.startFuel))),
+      fuel_used: fuelUsed,
       payload: Math.round(this.maxPayload),
       touchdown_fpm: this.touchdownFpm === null ? null : Math.round(this.touchdownFpm),
       crashed,
@@ -217,6 +239,9 @@ export class FlightTracker extends EventEmitter {
       end_lon: lon,
       started_at: this.startedAt,
       ended_at: new Date().toISOString(),
+      score: this.scorer ? this.scorer.score : null,
+      grade: this.scorer ? this.scorer.grade : null,
+      score_items: this.scorer ? this.scorer.breakdown : [],
     };
     this.reset();
 
@@ -237,6 +262,7 @@ export class FlightTracker extends EventEmitter {
     this.maxG = null;
     this.incidents.clear();
     this.departure = null;
+    this.scorer = null;
     this.lastLat = 0;
     this.lastLon = 0;
   }

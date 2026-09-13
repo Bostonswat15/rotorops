@@ -232,6 +232,17 @@ function onBridgeEvent(event) {
   }
   // A new flight starts a new score; the last one stays on screen until then.
   if (event.type === 'flight-start') pushStatus({ flight: { ...event, hours: 0 }, score: null });
+  // Swapping aircraft throws the old flight away. Keeping its status block kept
+  // the In Flight page, Sim Link and the tray naming the aircraft just left.
+  if (event.type === 'flight-discarded') pushStatus({ flight: null, score: null });
+  if (
+    event.type === 'sim-aircraft' &&
+    lastStatus.flight?.simTitle &&
+    event.simTitle &&
+    event.simTitle !== lastStatus.flight.simTitle
+  ) {
+    pushStatus({ flight: null, score: null });
+  }
   if (event.type === 'score') {
     pushStatus({ score: { score: event.score, grade: event.grade, items: event.items } });
   }

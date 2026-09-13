@@ -120,6 +120,9 @@ export class FlightTracker extends EventEmitter {
     // Swapping aircraft mid-session invalidates whatever we were tracking.
     if (this.active && title && title !== this.simTitle) {
       this.emit('log', `aircraft changed (${this.simTitle} -> ${title}); discarding flight`);
+      // Said out loud, not just logged: a UI holding the old flight otherwise
+      // goes on naming the aircraft you just left until a new flight starts.
+      this.emit('discard', { from: this.simTitle, to: title });
       this.reset();
     }
 

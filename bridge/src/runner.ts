@@ -33,6 +33,8 @@ export type BridgeEvent =
   | { type: 'flight-progress'; hours: number; fuelUsed: number; distance: number; airborne: boolean;
       lat: number; lon: number; heading: number; agl: number; groundSpeed: number; altitude: number }
   | { type: 'flight-logged'; result: ResolveResult; aircraft: string; mission: string | null }
+  // A flight thrown away unlogged -- the aircraft was swapped mid-flight.
+  | { type: 'flight-discarded'; from: string; to: string }
   | { type: 'unmatched-aircraft'; simTitle: string }
   // Whatever is loaded in the sim right now, matched against the fleet or not.
   // Lets the UI offer "add this title to an aircraft" without the player having
@@ -958,6 +960,10 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       if (!ac) emit({ type: 'unmatched-aircraft', simTitle });
     });
     tracker.on('flight', (t: Telemetry) => void onFlight(t));
+    tracker.on('discard', ({ from, to }: { from: string; to: string }) => {
+      lastScoreKey = '';
+      emit({ type: 'flight-discarded', from, to });
+    });
 
     try {
       await sim.connect();

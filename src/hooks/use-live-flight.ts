@@ -60,7 +60,9 @@ export function useLiveFlight() {
         fuelUsed: f?.fuelUsed ?? null,
         distance: f?.distance ?? null,
         airborne: f?.airborne ?? !pos.onGround,
-        simTitle: f?.simTitle ?? s?.simAircraft?.simTitle,
+        // What's loaded in the sim right now wins over the flight record,
+        // which can outlive an aircraft swap by a moment.
+        simTitle: s?.simAircraft?.simTitle ?? f?.simTitle,
       });
 
       // A fresh flight starts a fresh track.

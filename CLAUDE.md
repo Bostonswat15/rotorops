@@ -108,7 +108,20 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `cancel_dispatch`; 20260918 last carried `dispatch_trade_run` and `industry_tick`;
   `service_aircraft` and `bridge_state` were last carried in 20260916. The Finance and Bases
   pages show a notice until theirs is run. 20260918 was built by carrying each function forward
-  programmatically from its newest file, never retyped.
+  programmatically from its newest file, never retyped. Then `20260920000000_company_switch.sql`
+  (carries `bridge_device` and `create_pairing_code` from 20260826120000_sim_bridge.sql).
+- **Several companies per account (built 2026-09-13):** the sidebar header is a switcher
+  (`src/components/company-switcher.tsx`: `my_companies`, `set_active_company`, Start a new
+  company, Join with a code; `CompanySetup` takes `onCancel`/`initialMode`). After any switch,
+  create or join the app runs `queryClient.resetQueries()`. Server side (20260920):
+  `bridge_device()` swaps in the device owner's active company (same pick as
+  `current_company()`), so every bridge wrapper follows a switch with no re-pairing;
+  `create_pairing_code` pairs to the active company (it took the first OWNED one, so pure
+  pilots couldn't pair); trigger `guard_active_company_switch` on `profiles.active_company_id`
+  refuses a change while the user has an `in_progress` contract in another company (covers
+  switch, found, join). A positioning flight has no contract, so the switcher confirms in the
+  desktop app when the bridge reports a flight. No cap on companies per account. **Not yet run
+  or tried.**
 - **Pilot ratings (user's rules):** owner exempt; everyone else (managers too, and existing
   members) flies a company check ride before taking contracts and a type rating per aircraft
   family in the fleet (`family ?? internal_id`; `src/lib/ratings.ts` mirrors

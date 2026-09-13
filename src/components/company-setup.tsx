@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Helicopter, Plane } from "lucide-react";
+import { ArrowLeft, Helicopter, Plane } from "lucide-react";
 import { toast } from "sonner";
 import { AIRCRAFT_ARCHETYPES, type AircraftArchetype, type WingType } from "@/lib/game-data";
 
@@ -23,7 +23,16 @@ const DEFAULT_BASE: Record<WingType, string> = {
   fixed: "Main Airfield",
 };
 
-export function CompanySetup({ onCreated }: { onCreated: () => void }) {
+export function CompanySetup({
+  onCreated,
+  onCancel,
+  initialMode = "found",
+}: {
+  onCreated: () => void;
+  /** Back to the company you already have. Absent when this is your first. */
+  onCancel?: () => void;
+  initialMode?: "found" | "join";
+}) {
   const [name, setName] = useState("");
   const [wing, setWing] = useState<WingType>("rotary");
   const [baseName, setBaseName] = useState(DEFAULT_BASE.rotary);
@@ -34,7 +43,7 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
-  const [mode, setMode] = useState<"found" | "join">("found");
+  const [mode, setMode] = useState<"found" | "join">(initialMode);
 
   function chooseWing(next: WingType) {
     setWing(next);
@@ -88,6 +97,11 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
   return (
     <div className="min-h-screen overflow-auto bg-background px-4 py-10">
       <div className="mx-auto max-w-2xl">
+        {onCancel && (
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel} className="-ml-2 mb-4">
+            <ArrowLeft className="mr-1 h-4 w-4" /> Back
+          </Button>
+        )}
         <div className="mb-6 flex items-center gap-2">
           <HeaderIcon className="h-6 w-6 text-primary" />
           <h1 className="text-2xl font-semibold">
@@ -98,6 +112,13 @@ export function CompanySetup({ onCreated }: { onCreated: () => void }) {
                 : "Found your helicopter company"}
           </h1>
         </div>
+
+        {onCancel && (
+          <p className="-mt-3 mb-6 text-sm text-muted-foreground">
+            Your other companies carry on as they are. Switch between them from the company
+            name at the top of the sidebar.
+          </p>
+        )}
 
         <div className="mb-6 flex gap-2">
           <Button type="button" variant={mode === "found" ? "default" : "secondary"} size="sm" onClick={() => setMode("found")}>

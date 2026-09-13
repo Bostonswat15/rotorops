@@ -3,10 +3,11 @@ import type { LinkProps } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Helicopter, LayoutDashboard, Navigation, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award, Warehouse } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LayoutDashboard, Navigation, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award, Warehouse } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CompanySetup } from "@/components/company-setup";
+import { CompanySwitcher } from "@/components/company-switcher";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -40,8 +41,11 @@ function AuthedLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
+  // Starting or joining another company while already in one.
+  const [setup, setSetup] = useState<"found" | "join" | null>(null);
+  const qc = useQueryClient();
 
-  const { data: company, isLoading, refetch } = useQuery({
+  const { data: company, isLoading } = useQuery({
     queryKey: ["company"],
     queryFn: async () => {
       const { data: u } = await supabase.auth.getUser();
@@ -59,8 +63,20 @@ function AuthedLayout() {
     return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading…</div>;
   }
 
-  if (!company) {
-    return <CompanySetup onCreated={() => refetch()} />;
+  if (!company || setup) {
+    return (
+      <CompanySetup
+        initialMode={setup ?? "found"}
+        onCancel={company ? () => setSetup(null) : undefined}
+        onCreated={async () => {
+          setSetup(null);
+          // Founding or joining makes the new company the active one, and
+          // everything cached belongs to the old one.
+          await qc.resetQueries();
+          navigate({ to: "/dashboard" });
+        }}
+      />
+    );
   }
 
   return (
@@ -69,13 +85,7 @@ function AuthedLayout() {
       <aside
         className={`${open ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-40 flex w-64 transform flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-transform md:relative md:translate-x-0`}
       >
-        <div className="flex items-center gap-2 border-b border-sidebar-border px-5 py-4">
-          <Helicopter className="h-5 w-5 text-primary" />
-          <div>
-            <p className="text-sm font-semibold">RotorOps</p>
-            <p className="text-xs text-muted-foreground">{company.name}</p>
-          </div>
-        </div>
+        <CompanySwitcher current={company} onNew={setSetup} />
         <nav className="flex-1 space-y-0.5 p-3">
           {NAV.map((item) => {
             const active = pathname.startsWith(item.to);

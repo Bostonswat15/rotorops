@@ -94,15 +94,17 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   Later work is committed locally, not pushed; tag or push only when the user asks.
 - **Migration to run:** `20260912000000_cliff_sites.sql` (adds the `cliff` key to
   `set_base_sites`). Until run, cliff rescues fall back to old placement.
-- **Migrations to run (2026-09-13):** `20260913000000_transaction_aircraft.sql` (aircraft on
-  ledger rows, for profit per aircraft) then `20260914000000_maintenance_and_loans.sql`
-  (100-hour inspections, wear cost, breakdowns, resale curve, loans, balance sheet; carries
-  `rotorops_resolve_flight` forward from `pilot_skills`, so any later change to that function
-  must start from the 20260914 copy). The Finance page shows a notice until each is run.
-- **OnAir-inspired roadmap** (user picked these 2026-09-13; phase 1 = maintenance/resale +
-  loans is built). Remaining, in dependency order: FBOs at bases (fuel farm: $25k/10,000 lb,
-  +$15k per 10,000 lb, bulk $0.65/lb vs $0.90 pump, fill from own refinery avgas; hangar and
-  crew rooms unpriced) -> flight score (needs bridge SimVars for lights, bank, pitch, IAS,
+- **Migrations to run (2026-09-13), in order:** `20260913000000_transaction_aircraft.sql`
+  (aircraft on ledger rows, for profit per aircraft), `20260914000000_maintenance_and_loans.sql`
+  (100-hour inspections, wear cost, breakdowns, resale curve, loans, balance sheet), then
+  `20260915000000_fuel_farms.sql` (fuel farms, fuel runs). Each of the last two carries
+  `rotorops_resolve_flight` forward; any later change must start from the 20260915 copy. The
+  Finance and Bases pages show a notice until theirs is run.
+- **OnAir-inspired roadmap** (user picked these 2026-09-13). Built: maintenance/resale, loans,
+  fuel farms on the new Bases tab ($25k/10,000 lb, +$15k per 10,000 lb, bulk $0.65/lb vs $0.90
+  pump; refinery avgas via `fuel_run` missions, filled on success, refunded on fail or delete).
+  Remaining, in dependency order: FBO hangar and crew rooms (unpriced; nothing to save until
+  parking or crew costs exist) -> flight score (needs bridge SimVars for lights, bank, pitch, IAS,
   stall/overspeed, time of day, visibility) -> job deadlines/urgency and cargo types (fragile
   uses the score's G/bank tracking) -> staff (mechanics make maintenance take time, flight
   attendants need passenger counts on contracts, training) -> regular routes, tours and races

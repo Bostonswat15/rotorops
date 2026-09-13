@@ -24,6 +24,7 @@ import { Route as AuthenticatedFlightRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCrewRouteImport } from './routes/_authenticated/crew'
+import { Route as AuthenticatedBasesRouteImport } from './routes/_authenticated/bases'
 import { Route as AuthenticatedAircraftRouteImport } from './routes/_authenticated/aircraft'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -101,6 +102,11 @@ const AuthenticatedCrewRoute = AuthenticatedCrewRouteImport.update({
   path: '/crew',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedBasesRoute = AuthenticatedBasesRouteImport.update({
+  id: '/bases',
+  path: '/bases',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAircraftRoute = AuthenticatedAircraftRouteImport.update({
   id: '/aircraft',
   path: '/aircraft',
@@ -112,6 +118,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/aircraft': typeof AuthenticatedAircraftRoute
+  '/bases': typeof AuthenticatedBasesRoute
   '/crew': typeof AuthenticatedCrewRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/finance': typeof AuthenticatedFinanceRoute
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/aircraft': typeof AuthenticatedAircraftRoute
+  '/bases': typeof AuthenticatedBasesRoute
   '/crew': typeof AuthenticatedCrewRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/finance': typeof AuthenticatedFinanceRoute
@@ -148,6 +156,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/aircraft': typeof AuthenticatedAircraftRoute
+  '/_authenticated/bases': typeof AuthenticatedBasesRoute
   '/_authenticated/crew': typeof AuthenticatedCrewRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/finance': typeof AuthenticatedFinanceRoute
@@ -167,6 +176,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/aircraft'
+    | '/bases'
     | '/crew'
     | '/dashboard'
     | '/finance'
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/aircraft'
+    | '/bases'
     | '/crew'
     | '/dashboard'
     | '/finance'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/_authenticated/aircraft'
+    | '/_authenticated/bases'
     | '/_authenticated/crew'
     | '/_authenticated/dashboard'
     | '/_authenticated/finance'
@@ -329,6 +341,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCrewRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/bases': {
+      id: '/_authenticated/bases'
+      path: '/bases'
+      fullPath: '/bases'
+      preLoaderRoute: typeof AuthenticatedBasesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/aircraft': {
       id: '/_authenticated/aircraft'
       path: '/aircraft'
@@ -341,6 +360,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAircraftRoute: typeof AuthenticatedAircraftRoute
+  AuthenticatedBasesRoute: typeof AuthenticatedBasesRoute
   AuthenticatedCrewRoute: typeof AuthenticatedCrewRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedFinanceRoute: typeof AuthenticatedFinanceRoute
@@ -356,6 +376,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAircraftRoute: AuthenticatedAircraftRoute,
+  AuthenticatedBasesRoute: AuthenticatedBasesRoute,
   AuthenticatedCrewRoute: AuthenticatedCrewRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedFinanceRoute: AuthenticatedFinanceRoute,

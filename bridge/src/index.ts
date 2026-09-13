@@ -632,6 +632,8 @@ async function cmdRun() {
       log('--------------------------------------------------');
       log(`Flight logged: ${ac.display_name} ${payload.departure ?? '???'} -> ${arrival ?? '???'}`);
       log(`  ${r.duration_hr.toFixed(2)}h  ${r.fuel_used} lb fuel  landing: ${r.landing_quality}`);
+      if (r.fuel_from_tank_lb) log(`  ${r.fuel_from_tank_lb} lb burned from your fuel farm (the rest at the pump)`);
+      if (r.fuel_delivered_lb) log(`  Fuel run delivered: ${r.fuel_delivered_lb} lb into the tank`);
       if (mission) {
         log(`  Contract "${mission.title}": ${r.success ? 'COMPLETE' : 'FAILED'}`);
         log(`  Payout ${money(r.payout)}  fuel ${money(-r.fuel_cost)}  ops ${money(-r.op_cost)}  =  ${money(r.net)}`);

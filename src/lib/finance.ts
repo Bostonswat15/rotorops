@@ -36,6 +36,13 @@ export const TXN_TYPES: Record<string, { label: string; group: TxnGroup }> = {
   // they sit with capital rather than distorting operating profit.
   loan_draw: { label: "Loans drawn", group: "capital" },
   loan_repayment: { label: "Loan repayments", group: "capital" },
+  // Fuel farms. Bulk fuel is stock, not a cost, until it's burned: the flight
+  // then books a 'fuel' row at tank cost and an equal 'fuel_from_tank' row
+  // draws the stock down, so operating profit carries the fuel exactly once.
+  fuel_farm_build: { label: "Fuel farms built", group: "capital" },
+  fuel_farm_expand: { label: "Fuel farm expansions", group: "capital" },
+  fuel_bulk_purchase: { label: "Bulk fuel bought", group: "capital" },
+  fuel_from_tank: { label: "Tank fuel used", group: "capital" },
   aircraft_purchase: { label: "Aircraft bought", group: "capital" },
   aircraft_sale: { label: "Aircraft sold", group: "capital" },
   lease_deposit: { label: "Lease deposits", group: "capital" },
@@ -139,6 +146,8 @@ export type BalanceSheet = {
   /** Owned aircraft at what they'd sell for today. Leased ones aren't assets. */
   aircraftValue: number;
   aircraftCount: number;
+  /** Fuel in tanks at what it cost. Zero until the fuel farms migration runs. */
+  fuelValue: number;
   assets: number;
   loanBalance: number;
   companyValue: number;
@@ -156,6 +165,7 @@ export async function fetchBalanceSheet(companyId: string): Promise<BalanceSheet
     cash: n("cash"),
     aircraftValue: n("aircraft_value"),
     aircraftCount: n("aircraft_count"),
+    fuelValue: n("fuel_value"),
     assets: n("assets"),
     loanBalance: n("loan_balance"),
     companyValue: n("company_value"),

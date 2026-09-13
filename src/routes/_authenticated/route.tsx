@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Helicopter, LayoutDashboard, Navigation, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award } from "lucide-react";
+import { Helicopter, LayoutDashboard, Navigation, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award, Warehouse } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CompanySetup } from "@/components/company-setup";
 
@@ -30,6 +30,7 @@ const NAV: { to: NonNullable<LinkProps["to"]>; icon: any; label: string }[] = [
   { to: "/flight-logs", icon: BookOpen, label: "Flight Logs" },
   { to: "/skills", icon: Award, label: "Pilot Skills" },
   { to: "/maintenance", icon: Wrench, label: "Maintenance" },
+  { to: "/bases", icon: Warehouse, label: "Bases" },
   { to: "/finance", icon: DollarSign, label: "Finance" },
   { to: "/crew", icon: Users, label: "Crew" },
   { to: "/settings", icon: Settings, label: "Settings" },

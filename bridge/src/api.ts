@@ -77,6 +77,9 @@ export type ResolveResult = {
   breakdown?: boolean;
   loan_repayment?: number;
   inspection_due_in_hr?: number;
+  /** Added by 20260915000000_fuel_farms.sql. */
+  fuel_from_tank_lb?: number;
+  fuel_delivered_lb?: number;
 };
 
 async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {

@@ -555,6 +555,9 @@ function BalanceSheetAndLoan({ companyId }: { companyId: string }) {
         <dl className="mt-4 space-y-2 text-sm">
           <SheetRow label="Cash" value={money(s.cash)} />
           <SheetRow label={`Owned aircraft (${s.aircraftCount})`} value={money(s.aircraftValue)} />
+          {s.fuelValue > 0 && (
+            <SheetRow label="Fuel in tanks (at cost)" value={money(s.fuelValue)} />
+          )}
           <SheetRow label="Total assets" value={money(s.assets)} strong />
           <SheetRow label="Loan owed" value={money(-s.loanBalance)} />
           <SheetRow

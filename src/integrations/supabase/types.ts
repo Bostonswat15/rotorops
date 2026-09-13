@@ -465,6 +465,116 @@ export type Database = {
           },
         ]
       }
+      fuel_farms: {
+        Row: {
+          base_id: string
+          capacity_lb: number
+          company_id: string
+          created_at: string
+          fuel_lb: number
+          fuel_value: number
+          id: string
+        }
+        Insert: {
+          base_id: string
+          capacity_lb: number
+          company_id: string
+          created_at?: string
+          fuel_lb?: number
+          fuel_value?: number
+          id?: string
+        }
+        Update: {
+          base_id?: string
+          capacity_lb?: number
+          company_id?: string
+          created_at?: string
+          fuel_lb?: number
+          fuel_value?: number
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fuel_farms_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: true
+            referencedRelation: "bases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fuel_farms_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fuel_farm_deliveries: {
+        Row: {
+          company_id: string
+          created_at: string
+          fuel_farm_id: string
+          fuel_lb: number
+          industry_id: string | null
+          mission_id: string
+          outcome: string | null
+          settled_at: string | null
+          units: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          fuel_farm_id: string
+          fuel_lb: number
+          industry_id?: string | null
+          mission_id: string
+          outcome?: string | null
+          settled_at?: string | null
+          units: number
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          fuel_farm_id?: string
+          fuel_lb?: number
+          industry_id?: string | null
+          mission_id?: string
+          outcome?: string | null
+          settled_at?: string | null
+          units?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fuel_farm_deliveries_mission_id_fkey"
+            columns: ["mission_id"]
+            isOneToOne: true
+            referencedRelation: "missions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fuel_farm_deliveries_fuel_farm_id_fkey"
+            columns: ["fuel_farm_id"]
+            isOneToOne: false
+            referencedRelation: "fuel_farms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fuel_farm_deliveries_industry_id_fkey"
+            columns: ["industry_id"]
+            isOneToOne: false
+            referencedRelation: "industries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fuel_farm_deliveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       flight_logs: {
         Row: {
           aircraft_id: string
@@ -969,6 +1079,19 @@ export type Database = {
       company_balance_sheet: { Args: { _company_id: string }; Returns: Json }
       take_loan: { Args: { _company_id: string; _amount: number }; Returns: Json }
       repay_loan: { Args: { _company_id: string; _amount: number }; Returns: Json }
+      build_fuel_farm: {
+        Args: { _base_id: string }
+        Returns: Database["public"]["Tables"]["fuel_farms"]["Row"]
+      }
+      expand_fuel_farm: {
+        Args: { _fuel_farm_id: string }
+        Returns: Database["public"]["Tables"]["fuel_farms"]["Row"]
+      }
+      buy_bulk_fuel: { Args: { _fuel_farm_id: string; _lb: number }; Returns: Json }
+      dispatch_fuel_run: {
+        Args: { _industry_id: string; _fuel_farm_id: string; _units: number }
+        Returns: Database["public"]["Tables"]["missions"]["Row"]
+      }
       sell_aircraft: { Args: { _aircraft_id: string }; Returns: Json }
       return_aircraft: { Args: { _aircraft_id: string }; Returns: Json }
       lease_aircraft: {

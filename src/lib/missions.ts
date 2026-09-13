@@ -1043,10 +1043,15 @@ export const SCENE_TEMPLATES: SceneMissionTemplate[] = [
   },
 
   // --- Survey / patrol -----------------------------------------------------
+  //
+  // This used to be called "Powerline Patrol", which is what it looked like on
+  // the board -- but it is a reach, a hover and home, at a scanned field, with
+  // no line anywhere in it. A pilot flew it expecting towers. The real patrol
+  // is generatePowerlinePatrol, added once per Generate from a mapped line.
   {
     role: "patrol",
-    title: "Powerline Patrol",
-    brief: "Low-level inspection run terminating at {scene}. Cameras rolling, slow and steady.",
+    title: "Aerial Photo Survey",
+    brief: "Survey photography over {scene}. Hold a steady hover while the cameras run, then home.",
     scene_type: "field",
     required_tags: ["survey", "patrol"], required_certs: [],
     min_payload: 300, base_payout: 5200, scene_range: [25, 80],
@@ -1430,7 +1435,7 @@ export async function generatePowerlinePatrol(
       `. ${len.toFixed(0)} nm of conductor, ${points.length} sections. ` +
       (fixed
         ? `Stay below 1,500 ft AGL over each one, then land back at ${base.icao ?? "base"}.`
-        : `Stay below 500 ft AGL over each one — cameras rolling.`),
+        : `Stay below 900 ft AGL over each one — cameras rolling.`),
     required_tags: ["survey", "patrol"] as AircraftTag[],
     required_certs: [],
     min_payload: 300,

@@ -193,7 +193,12 @@ function runwayFeet(e: OsmWay): number | null {
  * Relations too: larger airports are often mapped as multipolygons (Ottawa's
  * CYOW is), and a node-and-way query never saw them.
  */
-export async function findAerodromes(centre: LatLon, radiusNm = 60): Promise<Aerodrome[]> {
+export async function findAerodromes(
+  centre: LatLon,
+  radiusNm = 60,
+  /** Skip the runway query. A helicopter doesn't need it, and it's the slow half. */
+  withRunways = true,
+): Promise<Aerodrome[]> {
   const b = bbox(centre, radiusNm);
   const elements = (await overpass(
     `[out:json][timeout:20];(node["aeroway"="aerodrome"](${b});way["aeroway"="aerodrome"](${b});relation["aeroway"="aerodrome"](${b}););out center 400;`,
@@ -209,7 +214,7 @@ export async function findAerodromes(centre: LatLon, radiusNm = 60): Promise<Aer
       return { icao: String(icao), lat, lon, runway_ft: null, surface: null };
     })
     .filter((a): a is Aerodrome => a !== null);
-  if (fields.length === 0) return fields;
+  if (fields.length === 0 || !withRunways) return fields;
 
   const runways = (await overpass(
     `[out:json][timeout:25];way["aeroway"="runway"](${b});out tags geom;`,

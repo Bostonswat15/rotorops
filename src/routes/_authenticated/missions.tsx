@@ -41,6 +41,39 @@ import {
   type IndustryRow,
 } from "@/lib/industries";
 
+/**
+ * Airfields near a base, remembered for the session.
+ *
+ * The runway lookup is the slowest thing Generate does, and a base's airfields
+ * don't move between clicks. A result with runways serves a helicopter batch
+ * too. A plane result with no runway data at all means Overpass failed the
+ * second query, so it isn't kept -- the next click tries again.
+ */
+const aerodromeCache = new Map<string, Promise<Aerodrome[]>>();
+function aerodromesNear(centre: { lat: number; lon: number }, withRunways: boolean): Promise<Aerodrome[]> {
+  const where = `${centre.lat.toFixed(3)},${centre.lon.toFixed(3)}`;
+  const full = aerodromeCache.get(`${where}:runways`);
+  if (full) return full;
+  if (!withRunways) {
+    const plain = aerodromeCache.get(`${where}:plain`);
+    if (plain) return plain;
+  }
+  const key = `${where}:${withRunways ? "runways" : "plain"}`;
+  const p = findAerodromes(centre, 140, withRunways).then(
+    (fields) => {
+      const noRunways = withRunways && fields.every((f) => f.runway_ft === null);
+      if (fields.length === 0 || noRunways) aerodromeCache.delete(key);
+      return fields;
+    },
+    (e: unknown) => {
+      aerodromeCache.delete(key);
+      throw e;
+    },
+  );
+  aerodromeCache.set(key, p);
+  return p;
+}
+
 export const Route = createFileRoute("/_authenticated/missions")({
   head: () => ({ meta: [{ title: "Mission Board — RotorOps" }] }),
   component: MissionsPage,
@@ -49,6 +82,7 @@ export const Route = createFileRoute("/_authenticated/missions")({
 function MissionsPage() {
   const qc = useQueryClient();
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [generating, setGenerating] = useState(false);
   // Helicopters and aeroplanes fly completely different work, so the board is
   // split rather than mixed -- you are usually shopping for one or the other.
   // Null until someone picks a tab; the fleet decides until then.
@@ -133,7 +167,25 @@ function MissionsPage() {
   // Scene contracts need a real position to build objectives around. The sim
   // bridge fills that in the first time it sees the base airport, so until it
   // has run once we fall back to plain point-to-point work.
+  /**
+   * Generate one half of the board: the tab you're looking at.
+   *
+   * Both halves used to generate together, so every click waited on every
+   * Overpass lookup either side needs -- the site scan and cliffs for
+   * helicopters, airfields and their runways for planes, the power lines
+   * twice -- to fill a tab you weren't looking at.
+   */
   async function generateBatch() {
+    if (!company || generating) return;
+    setGenerating(true);
+    try {
+      await generateFor(wing === "rotary");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function generateFor(heli: boolean) {
     if (!company) return;
     const base = locatedBase;
 
@@ -141,6 +193,8 @@ function MissionsPage() {
     let droppedForSites = 0;
     let rotaryNote: string | null = null;
     if (base) {
+      const centre = { lat: Number(base.latitude), lon: Number(base.longitude) };
+
       // What is actually around this base -- water to ditch a boat in, roads to
       // close, hospitals to deliver to. Without asking, the board offered vessel
       // work from landlocked fields and put motorway pile-ups in paddocks.
@@ -152,22 +206,19 @@ function MissionsPage() {
       // `sites_scanned_at`, not the contents, decides whether we've looked: a
       // base with genuinely no water caches an empty result, and that is an
       // answer worth keeping.
+      //
+      // Only helicopter work scans. Planes use the cached result when there is
+      // one (a floatplane's water, a hopper's coastal title) and do without
+      // otherwise, rather than wait a minute for it.
       let sites: PlacementSites | null = base.sites_scanned_at
         ? parsePlacementSites(base.placement_sites)
         : null;
-      if (!sites) {
+      if (heli && !sites) {
         const scanning = toast.loading("Scanning the area — roads, water, cliffs and hospitals. This takes a moment.");
         try {
-          const raw = await findSites(
-            { lat: Number(base.latitude), lon: Number(base.longitude) },
-            50,
-          );
+          const raw = await findSites(centre, 50);
           if (raw) {
-            sites = summariseSites(
-              raw,
-              { lat: Number(base.latitude), lon: Number(base.longitude) },
-              50,
-            );
+            sites = summariseSites(raw, centre, 50);
             const { error: wErr } = await supabase.rpc("set_base_sites", {
               _base_id: base.id,
               _sites: sites as unknown as never,
@@ -189,10 +240,9 @@ function MissionsPage() {
       // lookup is a fraction of a full rescan, and it leaves the roads, water
       // and hospitals already cached alone. A failure stays unknown and is
       // tried again on the next batch.
-      if (sites && sites.cliff === undefined) {
+      if (heli && sites && sites.cliff === undefined) {
         const finding = toast.loading("Finding cliffs for rescue scenes…");
         try {
-          const centre = { lat: Number(base.latitude), lon: Number(base.longitude) };
           const cliffs = await findCliffs(centre, 50);
           if (cliffs) {
             sites = { ...sites, cliff: cliffSitesFrom(cliffs, centre) };
@@ -208,25 +258,6 @@ function MissionsPage() {
           toast.dismiss(finding);
         }
       }
-      const avail = siteAvailability(sites);
-
-      // Certification or siting coming up short for rotary scene work used to
-      // abort the whole batch here -- which meant a company with, say, only
-      // fixed-wing certs (or a base with no water/road for the rotary certs
-      // it does have) got an unrelated error and never even reached the
-      // fixed-wing/charter/industries generation further down. Each category
-      // now stands on its own: a shortfall in one just skips that category
-      // and records why, instead of cancelling everything after it.
-      const certified = SCENE_TEMPLATES.filter((t) =>
-        companyHasCerts(company.certifications, t.required_certs),
-      );
-      const pool = certified.filter((t) => sceneIsFlyable(t.scene_type, avail));
-      droppedForSites = certified.length - pool.length;
-      if (certified.length === 0) {
-        rotaryNote = "no rotary contracts match your certifications yet";
-      } else if (pool.length === 0) {
-        rotaryNote = "every rotary contract you're certified for needs water or a road, and there's neither near this base";
-      }
 
       // Airfields come from two places: the sim's facility cache (reported by
       // the bridge) and OSM. Either alone can be empty -- the cache before the
@@ -237,14 +268,8 @@ function MissionsPage() {
       );
       let fromOsm: Aerodrome[] = [];
       try {
-        // Wider than the site scan: fixed-wing legs run out to a couple of
-        // hundred miles, and a contract can only route to a field we know
-        // about. Airfields come back without geometry, so the extra reach is
-        // cheap.
-        fromOsm = await findAerodromes(
-          { lat: Number(base.latitude), lon: Number(base.longitude) },
-          140,
-        );
+        // Planes need each field's runways; a helicopter lands beside them.
+        fromOsm = await aerodromesNear(centre, !heli);
       } catch {
         // Overpass unavailable; the bridge's list still stands.
       }
@@ -280,86 +305,99 @@ function MissionsPage() {
       ];
 
       const site = {
-        lat: Number(base.latitude),
-        lon: Number(base.longitude),
+        lat: centre.lat,
+        lon: centre.lon,
         icao: base.icao,
         airports,
         sites,
       };
 
-      if (pool.length > 0) {
-        rows.push(
-          ...Array.from({ length: 6 }, () => {
-            const t = pool[Math.floor(Math.random() * pool.length)];
-            return { company_id: company.id, ...generateSceneMission(t, company.reputation, site) };
-          }),
+      if (heli) {
+        // Certification or siting coming up short for scene work skips only
+        // the scenes and records why; charters, the line patrol and hauls
+        // still generate.
+        const avail = siteAvailability(sites);
+        const certified = SCENE_TEMPLATES.filter((t) =>
+          companyHasCerts(company.certifications, t.required_certs),
         );
-      }
+        const pool = certified.filter((t) => sceneIsFlyable(t.scene_type, avail));
+        droppedForSites = certified.length - pool.length;
+        if (certified.length === 0) {
+          rotaryNote = "no rotary contracts match your certifications yet";
+        } else if (pool.length === 0) {
+          rotaryNote = "every rotary contract you're certified for needs water or a road, and there's neither near this base";
+        }
 
-      // Aeroplane work, built from the same real airfields. Skipped silently
-      // when the base has no airport data, since a fixed-wing contract is
-      // nothing but its destination and there is no honest way to invent one.
-      const fwPool = FIXED_WING_TEMPLATES.filter((t) =>
-        companyHasCerts(company.certifications, t.required_certs),
-      );
-      let fwCount = 0;
-      if (fwPool.length > 0 && airports.length > 0) {
-        // Six, level with the helicopter scenes. A template can come up empty
-        // -- no lake near this base for a floatplane, not enough fields in a
-        // row for a mail run -- so a few spare tries keep the count honest.
-        for (let tries = 0; tries < 18 && fwCount < 6; tries++) {
-          const t = fwPool[Math.floor(Math.random() * fwPool.length)];
-          const fw = generateFixedWingMission(t, company.reputation, site);
-          if (fw) {
-            rows.push({ company_id: company.id, ...fw });
-            fwCount++;
+        if (pool.length > 0) {
+          rows.push(
+            ...Array.from({ length: 6 }, () => {
+              const t = pool[Math.floor(Math.random() * pool.length)];
+              return { company_id: company.id, ...generateSceneMission(t, company.reputation, site) };
+            }),
+          );
+        }
+
+        // Charter work: plain cargo/passenger runs to a real nearby field, no
+        // scene involved.
+        const charterPool = CHARTER_TEMPLATES.filter((t) =>
+          companyHasCerts(company.certifications, t.required_certs),
+        );
+        if (charterPool.length > 0 && airports.length > 0) {
+          for (let i = 0; i < 3; i++) {
+            const t = charterPool[Math.floor(Math.random() * charterPool.length)];
+            const ch = generateCharterMission(t, company.reputation, site);
+            if (ch) rows.push({ company_id: company.id, ...ch });
           }
         }
-      }
 
-      // Rotary charter work: plain cargo/passenger runs to a real nearby
-      // field, no scene involved. Same real-airport pool as fixed-wing above.
-      const charterPool = CHARTER_TEMPLATES.filter((t) =>
-        companyHasCerts(company.certifications, t.required_certs),
-      );
-      if (charterPool.length > 0 && airports.length > 0) {
-        for (let i = 0; i < 3; i++) {
-          const t = charterPool[Math.floor(Math.random() * charterPool.length)];
-          const ch = generateCharterMission(t, company.reputation, site);
-          if (ch) rows.push({ company_id: company.id, ...ch });
+        // One contract follows a real transmission line, when OSM knows of one
+        // nearby. MSFS draws its powerlines from the same data, so it's a line
+        // you can actually see and follow. Replaces the last scene slot when
+        // there is one; otherwise it's appended rather than lost.
+        const sceneSlots = pool.length > 0 ? 6 : 0;
+        try {
+          const patrol = await generatePowerlinePatrol(company.reputation, site);
+          if (patrol) {
+            const row = { company_id: company.id, ...patrol };
+            if (sceneSlots > 0) rows[sceneSlots - 1] = row;
+            else rows.push(row);
+          }
+        } catch {
+          // Overpass unavailable -- the synthetic contract already in the slot stands.
         }
-      }
+      } else {
+        // Aeroplane work, built from real airfields. Skipped when the base has
+        // no airport data, since a fixed-wing contract is nothing but its
+        // destination and there is no honest way to invent one.
+        const fwPool = FIXED_WING_TEMPLATES.filter((t) =>
+          companyHasCerts(company.certifications, t.required_certs),
+        );
+        let fwCount = 0;
+        if (fwPool.length > 0 && airports.length > 0) {
+          // A template can come up empty -- no lake near this base for a
+          // floatplane, not enough fields in a row for a mail run -- so a few
+          // spare tries keep the count honest.
+          for (let tries = 0; tries < 18 && fwCount < 6; tries++) {
+            const t = fwPool[Math.floor(Math.random() * fwPool.length)];
+            const fw = generateFixedWingMission(t, company.reputation, site);
+            if (fw) {
+              rows.push({ company_id: company.id, ...fw });
+              fwCount++;
+            }
+          }
+        }
 
-      // One contract follows a real transmission line, when OSM knows of one
-      // nearby. MSFS draws its powerlines from the same data, so it's a line
-      // you can actually see and follow. Replaces the last rotary scene slot
-      // when there is one; otherwise it's appended rather than lost. (It used
-      // to take rows[5] whatever was there, which with no scenes this batch
-      // is an aeroplane contract now.)
-      const sceneSlots = pool.length > 0 ? 6 : 0;
-      try {
-        const patrol = await generatePowerlinePatrol(company.reputation, site);
-        if (patrol) {
-          const row = { company_id: company.id, ...patrol };
-          if (sceneSlots > 0) rows[sceneSlots - 1] = row;
-          else rows.push(row);
+        // One line patrol for the aeroplanes, in place of the last contract.
+        try {
+          const patrol = await generatePowerlinePatrol(company.reputation, site, "fixed");
+          if (patrol) {
+            const row = { company_id: company.id, ...patrol };
+            if (fwCount > 0) rows[rows.length - 1] = row;
+            else rows.push(row);
+          }
+        } catch {
+          // Overpass unavailable -- the contracts already generated stand.
         }
-      } catch {
-        // Overpass unavailable -- the synthetic contract already in the slot stands.
-      }
-
-      // And one for the aeroplanes over the same lines (looked up once), in
-      // place of the last aeroplane contract.
-      try {
-        const patrol = await generatePowerlinePatrol(company.reputation, site, "fixed");
-        if (patrol) {
-          const row = { company_id: company.id, ...patrol };
-          const lastFw = rows.map((r) => r.scene_type).lastIndexOf("airport");
-          if (fwCount > 0 && lastFw >= 0) rows[lastFw] = row;
-          else rows.push(row);
-        }
-      } catch {
-        // Overpass unavailable -- the aeroplane contracts already generated stand.
       }
 
       // Industries: sited once per base from real OSM land use (forests,
@@ -370,10 +408,7 @@ function MissionsPage() {
       let baseIndustries = (industries ?? []).filter((i: any) => i.base_id === base.id);
       if (baseIndustries.length === 0) {
         try {
-          const rawInd = await findIndustrySites(
-            { lat: Number(base.latitude), lon: Number(base.longitude) },
-            50,
-          );
+          const rawInd = await findIndustrySites(centre, 50);
           if (rawInd && rawInd.length > 0) {
             const sited = siteIndustries(rawInd);
             if (sited.length > 0) {
@@ -402,12 +437,10 @@ function MissionsPage() {
 
       if (baseIndustries.length > 0) {
         const byKind = new Map<string, any>(baseIndustries.map((i: any) => [i.kind, i]));
-        // Helicopter and aeroplane hauls are drawn and capped separately, two
-        // of each, so neither half of the board crowds the other out.
-        const rotaryHauls: Record<string, unknown>[] = [];
-        const planeHauls: Record<string, unknown>[] = [];
-        const add = (list: Record<string, unknown>[], haul: Record<string, unknown> | null) => {
-          if (haul) list.push({ company_id: company.id, ...haul });
+        // Two hauls for this half of the board, drawn from every candidate.
+        const hauls: Record<string, unknown>[] = [];
+        const add = (haul: Record<string, unknown> | null) => {
+          if (haul) hauls.push({ company_id: company.id, ...haul });
         };
         for (const ind of baseIndustries) {
           const def = INDUSTRY_DEFS[ind.kind as keyof typeof INDUSTRY_DEFS];
@@ -428,20 +461,22 @@ function MissionsPage() {
               name: (pair.name as string | null) ?? INDUSTRY_DEFS[pair.kind as keyof typeof INDUSTRY_DEFS]?.label ?? null,
               industryId: pair.id as string,
             };
-            add(rotaryHauls, generateIndustryHaul(from, to, company.reputation, site));
-            add(planeHauls, generatePlaneHaul(from, to, company.reputation, site));
+            add(heli
+              ? generateIndustryHaul(from, to, company.reputation, site)
+              : generatePlaneHaul(from, to, company.reputation, site));
           } else {
             // Finished goods: the market at base, or a regional market further
             // out that pays for the distance.
-            add(rotaryHauls, generateIndustryHaul(
-              from,
-              { lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao, name: `${base.icao ?? "base"} market` },
-              company.reputation, site,
-            ));
             const market = pickMarket(from, airports);
-            if (market) {
-              add(rotaryHauls, generateMarketHaul(from, market, company.reputation, site));
-              add(planeHauls, generatePlaneHaul(
+            if (heli) {
+              add(generateIndustryHaul(
+                from,
+                { lat: centre.lat, lon: centre.lon, icao: base.icao, name: `${base.icao ?? "base"} market` },
+                company.reputation, site,
+              ));
+              if (market) add(generateMarketHaul(from, market, company.reputation, site));
+            } else if (market) {
+              add(generatePlaneHaul(
                 from,
                 { lat: market.lat, lon: market.lon, icao: market.icao, name: null },
                 company.reputation, site,
@@ -449,16 +484,13 @@ function MissionsPage() {
             }
           }
         }
-        const shuffled = (xs: Record<string, unknown>[]) => {
-          for (let i = xs.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [xs[i], xs[j]] = [xs[j], xs[i]];
-          }
-          return xs;
-        };
-        rows.push(...shuffled(rotaryHauls).slice(0, 2), ...shuffled(planeHauls).slice(0, 2));
+        for (let i = hauls.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [hauls[i], hauls[j]] = [hauls[j], hauls[i]];
+        }
+        rows.push(...hauls.slice(0, 2));
       }
-    } else {
+    } else if (heli) {
       const pool = MISSION_TEMPLATES.filter((t) =>
         companyHasCerts(company.certifications, t.required_certs),
       );
@@ -471,15 +503,17 @@ function MissionsPage() {
       });
     }
 
-    // Every category (rotary scene, rotary charter, fixed-wing, industry
-    // haul) can independently come up empty -- only when all of them do is
-    // this actually a failed Generate.
+    // Every category can independently come up empty -- only when all of
+    // them do is this actually a failed Generate.
     if (rows.length === 0) {
       return toast.error(
-        base
-          ? `Nothing to generate this time${rotaryNote ? ` — ${rotaryNote}` : ""}. ` +
-            "Fixed-wing and charter work also need airfield data near this base -- fly around a bit and try again."
-          : "Nothing to generate yet.",
+        !base
+          ? heli
+            ? "Nothing to generate yet."
+            : "Plane work needs a home base with a position. Set one in Settings, or run the sim bridge once."
+          : heli
+            ? `No helicopter contracts this time${rotaryNote ? ` — ${rotaryNote}` : ""}.`
+            : "No plane contracts this time. They're built from airfields near this base and none came back — try again, or fly around a bit so the sim reports some.",
       );
     }
 
@@ -500,16 +534,14 @@ function MissionsPage() {
         );
       }
       if (rotaryNote) notes.push(`no rotary scene contracts this batch — ${rotaryNote}`);
-      const fw = rows.filter((r) => r.scene_type === "airport").length;
       const charter = rows.filter((r) => r.scene_type === "charter").length;
-      const rotary = rows.length - fw - charter;
-      const parts = [
-        rotary > 0 ? `${rotary} rotary` : null,
-        charter > 0 ? `${charter} rotary charter` : null,
-        fw > 0 ? `${fw} fixed-wing` : null,
-      ].filter(Boolean);
+      const summary = heli
+        ? [rows.length - charter > 0 ? `${rows.length - charter} helicopter` : null, charter > 0 ? `${charter} charter` : null]
+            .filter(Boolean)
+            .join(" and ")
+        : `${rows.length} plane`;
       toast.success(
-        `Generated ${parts.join(", ")} contract${rows.length === 1 ? "" : "s"}.` +
+        `Generated ${summary} contract${rows.length === 1 ? "" : "s"}.` +
           (notes.length ? ` ${notes.join(". ")}.` : ""),
       );
     }
@@ -543,15 +575,22 @@ function MissionsPage() {
    */
   async function clearBoard() {
     if (!company) return;
-    const { error } = await supabase
+    const fixed = wing === "fixed";
+    const all = supabase
       .from("missions")
       .delete()
       .eq("company_id", company.id)
       .eq("status", "available")
       // A contract reset by a crash is still someone's to restart; leave it.
       .is("assigned_pilot_id", null);
+    // Only the tab you're looking at, as Generate does. `airport` is what
+    // marks plane work (isFixedWingMission); anything else is helicopter work,
+    // including an old contract with no scene type at all.
+    const { error } = await (fixed
+      ? all.eq("scene_type", "airport")
+      : all.or("scene_type.is.null,scene_type.neq.airport"));
     if (error) return toast.error(error.message);
-    toast.success("Board cleared.");
+    toast.success(fixed ? "Plane contracts cleared." : "Helicopter contracts cleared.");
     qc.invalidateQueries({ queryKey: ["missions"] });
   }
 
@@ -616,13 +655,16 @@ function MissionsPage() {
               {roles.map((r) => <SelectItem key={r as string} value={r as string}>{r as string}</SelectItem>)}
             </SelectContent>
           </Select>
-          {canManage && available.length > 0 && (
-            <Button variant="secondary" onClick={clearBoard}>
-              <Trash2 className="mr-2 h-4 w-4" /> Clear board
+          {canManage && forWing.length > 0 && (
+            <Button variant="secondary" onClick={clearBoard} disabled={generating}>
+              <Trash2 className="mr-2 h-4 w-4" /> Clear {wing === "fixed" ? "planes" : "helicopters"}
             </Button>
           )}
           {canManage && (
-            <Button onClick={generateBatch}><Zap className="mr-2 h-4 w-4" /> Generate</Button>
+            <Button onClick={generateBatch} disabled={generating}>
+              <Zap className="mr-2 h-4 w-4" />
+              {generating ? "Generating…" : `Generate ${wing === "fixed" ? "plane" : "helicopter"} jobs`}
+            </Button>
           )}
         </div>
       </div>

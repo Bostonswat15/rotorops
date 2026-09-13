@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Check, ChevronsUpDown, Helicopter, KeyRound, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, Helicopter, KeyRound, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { desktop } from "@/lib/desktop";
@@ -115,6 +115,18 @@ export function CompanySwitcher({
         <DropdownMenuItem onSelect={() => void startNew("join")} className="gap-2">
           <KeyRound className="h-4 w-4" /> Join with a code
         </DropdownMenuItem>
+        {companies?.some((c) => c.id === current.id && c.role === "owner") && (
+          <>
+            <DropdownMenuSeparator />
+            {/* The confirmation lives at the bottom of Settings. */}
+            <DropdownMenuItem
+              onSelect={() => navigate({ to: "/settings" })}
+              className="gap-2 text-destructive focus:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" /> Delete this company…
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

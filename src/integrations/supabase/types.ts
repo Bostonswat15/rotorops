@@ -1162,6 +1162,10 @@ export type Database = {
         Args: { _company_id: string; _user_id: string }
         Returns: undefined
       }
+      delete_company: {
+        Args: { _company_id: string; _confirm_name: string }
+        Returns: Json
+      }
       set_active_company: { Args: { _company_id: string }; Returns: undefined }
       set_base_sites: { Args: { _base_id: string; _sites: Json }; Returns: string }
       site_industries: {

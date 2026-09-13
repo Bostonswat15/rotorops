@@ -1,13 +1,14 @@
 import { createFileRoute, Outlet, redirect, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { LinkProps } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCurrentCompany } from "@/lib/company";
+import { ensureDesktopBridgeLinked, fetchCurrentCompany } from "@/lib/company";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutDashboard, Navigation, Plane, Briefcase, BookOpen, Wrench, DollarSign, Settings, LogOut, Menu, Users, ShoppingCart, Factory, Award, Warehouse } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CompanySetup } from "@/components/company-setup";
 import { CompanySwitcher } from "@/components/company-switcher";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -74,6 +75,12 @@ function AuthedLayout() {
           // everything cached belongs to the old one.
           await qc.resetQueries();
           navigate({ to: "/dashboard" });
+          // After deleting your only company the desktop bridge has no device.
+          try {
+            await ensureDesktopBridgeLinked();
+          } catch (e) {
+            toast.error(`Could not re-link the sim bridge: ${e instanceof Error ? e.message : String(e)}`);
+          }
         }}
       />
     );

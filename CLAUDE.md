@@ -109,7 +109,8 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `service_aircraft` and `bridge_state` were last carried in 20260916. The Finance and Bases
   pages show a notice until theirs is run. 20260918 was built by carrying each function forward
   programmatically from its newest file, never retyped. Then `20260920000000_company_switch.sql`
-  (carries `bridge_device` and `create_pairing_code` from 20260826120000_sim_bridge.sql).
+  (carries `bridge_device` and `create_pairing_code` from 20260826120000_sim_bridge.sql), then
+  `20260921000000_delete_company.sql`.
 - **Several companies per account (built 2026-09-13):** the sidebar header is a switcher
   (`src/components/company-switcher.tsx`: `my_companies`, `set_active_company`, Start a new
   company, Join with a code; `CompanySetup` takes `onCancel`/`initialMode`). After any switch,
@@ -121,7 +122,14 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   refuses a change while the user has an `in_progress` contract in another company (covers
   switch, found, join). A positioning flight has no contract, so the switcher confirms in the
   desktop app when the bridge reports a flight. No cap on companies per account. **Not yet run
-  or tried.**
+  or tried.** Deleting (20260921): `delete_company(_company_id, _confirm_name)` only -- the
+  "company delete" policy and DELETE grant are gone. Owner only, name typed (case-insensitive),
+  refused while any contract is `in_progress`; moves every member's `sim_devices` paired to it to
+  that member's oldest other company, then deletes the row and lets everything cascade (the
+  refund and leave triggers already skip a deleted company). UI: owner-only section at the
+  bottom of Settings, plus a menu item in the switcher. After founding or joining, the layout
+  calls `ensureDesktopBridgeLinked()` (src/lib/company.ts), which re-provisions the desktop
+  bridge when no paired "RotorOps Desktop" device is left.
 - **Pilot ratings (user's rules):** owner exempt; everyone else (managers too, and existing
   members) flies a company check ride before taking contracts and a type rating per aircraft
   family in the fleet (`family ?? internal_id`; `src/lib/ratings.ts` mirrors

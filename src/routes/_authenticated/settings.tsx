@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
 
 function SettingsPage() {
   const qc = useQueryClient();
-  const { canManage } = useCompanyRole();
+  const { canManage, isOwner } = useCompanyRole();
   const { data: company } = useQuery({
     queryKey: ["company"],
     queryFn: fetchCurrentCompany,
@@ -168,6 +168,76 @@ function SettingsPage() {
 
       <HomeBase canManage={canManage} />
       <SimLink />
+      {isOwner && <DeleteCompany company={company} />}
+    </div>
+  );
+}
+
+/**
+ * Deleting the company. Owner only, confirmed by typing its name, and refused
+ * server-side while anything is dispatched. Everything the company owns goes
+ * with it, and every other member loses it too.
+ */
+function DeleteCompany({ company }: { company: { id: string; name: string } }) {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { data: roster } = useQuery({
+    queryKey: ["company_roster", company.id],
+    queryFn: async () => (await supabase.rpc("company_roster", { _company_id: company.id })).data ?? [],
+  });
+  const others = Math.max(0, (roster?.length ?? 1) - 1);
+  const matches = confirm.trim().toLowerCase() === company.name.trim().toLowerCase();
+
+  async function remove() {
+    setBusy(true);
+    const { error } = await supabase.rpc("delete_company", {
+      _company_id: company.id,
+      _confirm_name: confirm,
+    });
+    setBusy(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`${company.name} has been deleted.`);
+    // With no company left, the layout shows the setup screen.
+    await qc.resetQueries();
+    navigate({ to: "/dashboard" });
+  }
+
+  return (
+    <div className="rounded-lg border border-destructive/50 bg-card p-5">
+      <div className="flex items-center gap-2">
+        <Trash2 className="h-4 w-4 text-destructive" />
+        <h2 className="font-semibold">Delete company</h2>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Permanently deletes {company.name}: its fleet, bases, fuel farms, industries, contracts,
+        loans, finances, flight logs and pilot skills. This can't be undone.
+        {others > 0 && (
+          <span className="text-foreground">
+            {" "}
+            {others} other {others === 1 ? "member loses" : "members lose"} it too.
+          </span>
+        )}{" "}
+        Afterwards you can start a new company, or carry on in another one you belong to.
+      </p>
+      <Label htmlFor="confirm-delete" className="mt-4 block">
+        Type <span className="font-mono">{company.name}</span> to confirm
+      </Label>
+      <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+        <Input
+          id="confirm-delete"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          autoComplete="off"
+        />
+        <Button variant="destructive" disabled={!matches || busy} onClick={remove}>
+          {busy ? "Deleting…" : "Delete company"}
+        </Button>
+      </div>
     </div>
   );
 }

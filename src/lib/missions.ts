@@ -138,8 +138,15 @@ export type Objective =
       /** Put it down by the casualty the search turned up, not at the datum. */
       near_search?: boolean;
     }
-  /** Land back at a named field. */
-  | { id: string; kind: "land"; label: string; icao: string | null; radius_nm: number }
+  /**
+   * Land at a named field. `lat`/`lon` are where the contract found it, for an
+   * ident the sim doesn't know; `runway_ft`/`surface` are its longest mapped
+   * runway, for the card.
+   */
+  | {
+      id: string; kind: "land"; label: string; icao: string | null; radius_nm: number;
+      lat?: number; lon?: number; runway_ft?: number | null; surface?: string | null;
+    }
   /** Pass over a point at low level -- inspection work along a route. */
   | { id: string; kind: "overfly"; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number }
   /** Climb to height over a point -- a skydive lift's jump run. */
@@ -225,7 +232,15 @@ export function distanceNm(aLat: number, aLon: number, bLat: number, bLon: numbe
 
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
 
-export type Airport = { icao: string; lat: number; lon: number };
+export type Airport = {
+  icao: string;
+  lat: number;
+  lon: number;
+  /** Longest land runway in feet, from OSM. 0 when only water runways are mapped; null or absent when none are. */
+  runway_ft?: number | null;
+  /** That runway's OSM surface tag ("grass", "asphalt"). */
+  surface?: string | null;
+};
 
 /**
  * Closest airport to a point, from the base's reported scatter.

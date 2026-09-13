@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Briefcase, Zap, AlertTriangle, Radio, PlaneTakeoff, Trash2, MapPin, GraduationCap } from "lucide-react";
+import { Briefcase, Zap, AlertTriangle, Radio, PlaneTakeoff, PlaneLanding, Trash2, MapPin, GraduationCap } from "lucide-react";
 import {
   ratingOf, isRatingRide, CHECKOUT_RATING, RATING_FEE, RATING_PASS_SCORE,
 } from "@/lib/ratings";
@@ -29,10 +29,10 @@ import {
   siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
   type SceneType, type PlacementSites,
 } from "@/lib/missions";
-import { findAerodromes, findSites, findIndustrySites, findCliffs } from "@/lib/osm";
+import { findAerodromes, findSites, findIndustrySites, findCliffs, nmBetween, type Aerodrome } from "@/lib/osm";
 import { cliffSitesFrom } from "@/lib/missions";
 import {
-  FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission,
+  FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf,
 } from "@/lib/fixed-wing";
 import { CHARTER_TEMPLATES, generateCharterMission } from "@/lib/charter";
 import {
@@ -222,7 +222,7 @@ function MissionsPage() {
       const fromBridge = ((base.nearby_airports ?? []) as any[]).filter(
         (a) => a && Number.isFinite(a.lat) && Number.isFinite(a.lon),
       );
-      let fromOsm: any[] = [];
+      let fromOsm: Aerodrome[] = [];
       try {
         // Wider than the site scan: fixed-wing legs run out to a couple of
         // hundred miles, and a contract can only route to a field we know
@@ -235,10 +235,35 @@ function MissionsPage() {
       } catch {
         // Overpass unavailable; the bridge's list still stands.
       }
+      //
+      // The sim's list has no runways, so a field it shares with OSM takes
+      // OSM's runway data: matched by ident, else by position, since OSM often
+      // names a strip the sim knows by ident. A position match is the same
+      // field, so its OSM copy is dropped rather than offered twice.
+      const osmCopyOf = (a: { icao: unknown; lat: number; lon: number }) => {
+        const icao = String(a.icao).toUpperCase();
+        let near: Aerodrome | null = null;
+        let nearNm = 1;
+        for (const o of fromOsm) {
+          if (String(o.icao).toUpperCase() === icao) return o;
+          const d = nmBetween(a, o);
+          if (d <= nearNm) {
+            nearNm = d;
+            near = o;
+          }
+        }
+        return near;
+      };
       const seen = new Set(fromBridge.map((a) => String(a.icao).toUpperCase()));
+      const copied = new Set<Aerodrome>();
       const airports = [
-        ...fromBridge,
-        ...fromOsm.filter((a) => !seen.has(String(a.icao).toUpperCase())),
+        ...fromBridge.map((a) => {
+          const o = osmCopyOf(a);
+          if (!o) return a;
+          copied.add(o);
+          return { ...a, runway_ft: o.runway_ft, surface: o.surface };
+        }),
+        ...fromOsm.filter((a) => !copied.has(a) && !seen.has(String(a.icao).toUpperCase())),
       ];
 
       const site = {
@@ -848,6 +873,7 @@ type RatingRow = { rating: string; passed_at: string | null; fee_paid: boolean }
 function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: ratingRows }: any) {
   const certsOk = companyHasCerts(certs, mission.required_certs);
   const ratingRide = isRatingRide(mission);
+  const strip = isFixedWingMission(mission) ? stripOf(mission.objectives) : null;
   // Null for the owner, and before the ratings migration: no gate.
   const ratings = ratingRows as RatingRow[] | null;
   const passed = (rating: string) =>
@@ -912,6 +938,12 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
           {mission.nearest_airport_icao && (
             <> · nearest field <span className="font-mono text-foreground">{mission.nearest_airport_icao}</span> {Number(mission.nearest_airport_nm).toFixed(1)}nm</>
           )}
+        </p>
+      )}
+      {strip && (
+        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+          <PlaneLanding className="h-3 w-3 text-primary" />
+          <span className={strip.unpaved ? "text-foreground" : undefined}>{strip.label}</span>
         </p>
       )}
       {mission.required_tags.length > 0 && (

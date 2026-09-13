@@ -434,7 +434,10 @@ export function generateMarketHaul(
   const objectives: Objective[] = [
     { id: "reach", kind: "reach", label: `Reach ${from.name ?? def.label}`, lat: from.lat, lon: from.lon, radius_nm: 0.7 },
     { id: "load", kind: "payload", label: `Load ${qty.toLocaleString()} units of ${good.name}`, min_delta_lb: Math.round(weight * 0.85) },
-    { id: "deliver", kind: "land", label: `Deliver to the market at ${market.icao}`, icao: market.icao, radius_nm: 1.5 },
+    {
+      id: "deliver", kind: "land", label: `Deliver to the market at ${market.icao}`,
+      icao: market.icao, lat: market.lat, lon: market.lon, radius_nm: 1.5,
+    },
   ];
 
   const variance = 0.9 + Math.random() * 0.25;
@@ -522,7 +525,7 @@ export function generatePlaneHaul(
     {
       id: "pickup", kind: "land",
       label: `Land at ${pickup.icao} — ${siteName} trucks the load there`,
-      icao: pickup.icao, radius_nm: 2,
+      icao: pickup.icao, lat: pickup.lat, lon: pickup.lon, radius_nm: 2,
     },
     { id: "load", kind: "payload", label: `Load ${qty.toLocaleString()} units of ${good.name}`, min_delta_lb: Math.round(weight * 0.85) },
     {
@@ -530,7 +533,7 @@ export function generatePlaneHaul(
       label: market
         ? `Deliver to the market at ${drop.icao}`
         : `Deliver to ${drop.icao} for ${to.name ?? "the buyer"}`,
-      icao: drop.icao, radius_nm: 2,
+      icao: drop.icao, lat: drop.lat, lon: drop.lon, radius_nm: 2,
     },
   ];
 

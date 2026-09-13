@@ -139,6 +139,21 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   depend on it), the bridge boarding weight into an aeroplane's payload stations, 0.35 nm line
   zones for planes. **Noted, not changed:** raw-good hauls pay very little (a plane timber
   haul came out at ~$195) because timber/grain base values are $4-6 a unit.
+- **Airstrips and runway matching (user approved 2026-09-13):** `findAerodromes` (osm.ts) also
+  pulls `aeroway=runway` ways (a second Overpass query, after the fields) and gives each field
+  its longest land runway, `runway_ft` (drawn extent, else the `length` tag; 0 = only water
+  runways, null = none mapped), plus that runway's `surface`. The Mission Board copies OSM runway
+  data onto the bridge's airports (ident match, else within 1 nm, which also drops the OSM
+  duplicate). `fieldSuits` (fixed-wing.ts): longest runway >= `min_runway_ft`; `bush_strip`
+  templates (Bush Strip Resupply, Lodge/Island Hopper) only take fields whose longest runway is
+  unpaved or < 3,000 ft, never unmapped ones; other jobs take unmapped fields only when
+  `min_runway_ft` <= 2,500 (the briefing says the length is unknown); water-only never. Surveys
+  aren't filtered (nobody lands at their reference field). Land objectives store the field's
+  `lat`/`lon`, plus `runway_ft`/`surface` for the card's strip line (`stripOf`). The bridge places
+  a landing by the sim's ident, by the stored position when the sim doesn't know the ident or
+  puts it > 3 nm away, and with neither accepts any landing -- only after the aircraft has left
+  the ground since the previous objective (it used to tick "Land at X" off while parked). Base
+  returns store a position only when the base names no ICAO. **Not yet flown or run live.**
 - **Flight score (built 2026-09-13):** `bridge/src/score.ts`, run by `FlightTracker`. Its new
   OPTIONAL SimVars (CATEGORY, LIGHT BEACON/STROBE/LANDING, PLANE BANK/PITCH DEGREES, AIRSPEED
   INDICATED, OVERSPEED/STALL WARNING, G FORCE, TIME OF DAY, AMBIENT VISIBILITY) all resolved in

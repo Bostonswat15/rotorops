@@ -19,6 +19,7 @@
  */
 
 import type { AircraftTag } from "./game-data";
+import { surfaceClass } from "./osm";
 import {
   distanceNm, nearestAirport, offsetPosition,
   type Airport, type Objective, type PlacementSites,
@@ -54,12 +55,12 @@ export type FixedWingTemplate = {
    * Shortest strip the contract can be flown into, in feet. 0 for a job with
    * no runway at all.
    *
-   * The one figure that decides whether a job is a bush job or an airline job.
-   * Nothing enforces it against the airframe yet -- the sim's facility cache
-   * does not report runway length -- so it reads as a warning in the briefing
-   * rather than a hard gate.
+   * Destinations are chosen to have a longest mapped runway at least this long
+   * (`fieldSuits`). Not checked against the airframe.
    */
   min_runway_ft: number;
+  /** A bush job: only goes to strips -- unpaved, or short. See `fieldSuits`. */
+  bush_strip?: boolean;
   base_payout: number;
   /** How far out the destination sits, in nautical miles. Per leg for multi_stop. */
   leg_range: [number, number];
@@ -77,6 +78,34 @@ export type FixedWingTemplate = {
 
 /** How high a skydive lift climbs, above the field. */
 export const SKYDIVE_AGL_FT = 10000;
+
+/**
+ * Runway matching (user approved 2026-09-13). A bush job only goes to a strip:
+ * a field whose longest runway is unpaved or shorter than BUSH_STRIP_MAX_FT.
+ * A field with no runway mapped is offered only to a job needing
+ * UNMAPPED_RUNWAY_MAX_FT or less, and never to a bush job, which has to know
+ * it is sending you to a strip.
+ */
+export const BUSH_STRIP_MAX_FT = 3000;
+export const UNMAPPED_RUNWAY_MAX_FT = 2500;
+
+/** Can this job be sent to this field? */
+export function fieldSuits(t: Pick<FixedWingTemplate, "min_runway_ft" | "bush_strip">, a: Airport): boolean {
+  const ft = a.runway_ft;
+  // Water runways only: a seaplane base.
+  if (ft === 0) return false;
+  if (ft === null || ft === undefined) return !t.bush_strip && t.min_runway_ft <= UNMAPPED_RUNWAY_MAX_FT;
+  if (ft < t.min_runway_ft) return false;
+  return !t.bush_strip || ft < BUSH_STRIP_MAX_FT || surfaceClass(a.surface) === "unpaved";
+}
+
+/**
+ * Where "home" is for a landing step. The base's field when it names one --
+ * the sim knows it by ident, and a base can sit a few miles from the airport
+ * it names -- and the base's own position only when it names none.
+ */
+export const homeField = (base: { lat: number; lon: number; icao: string | null }) =>
+  base.icao ? {} : { lat: base.lat, lon: base.lon };
 
 /**
  * How close the nearest water has to be for a base to have a float base at
@@ -112,6 +141,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     required_tags: ["bush", "cargo"], required_certs: [],
     min_payload: 900, min_runway_ft: 1200, base_payout: 6800,
     leg_range: [40, 160], difficulty: 4, weather_factor: 3,
+    bush_strip: true,
   },
   {
     role: "freight",
@@ -163,6 +193,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     required_tags: ["medium_utility", "vip", "bush"], required_certs: [],
     min_payload: 1000, min_runway_ft: 1800, base_payout: 6500,
     leg_range: [25, 80], difficulty: 2, weather_factor: 2,
+    bush_strip: true,
   },
   {
     role: "floatplane",
@@ -257,6 +288,23 @@ const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.lengt
 const listOf = (xs: string[]) =>
   xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
 
+/** A field a contract was sent to, with what OSM knows of its runway. */
+export type PickedField = {
+  icao: string;
+  lat: number;
+  lon: number;
+  distance_nm: number;
+  runway_ft: number | null;
+  surface: string | null;
+};
+
+/** A line for the briefing when a field the job lands at has no runway on the map. */
+function runwayNote(t: FixedWingTemplate, fields: PickedField[]): string | undefined {
+  const unmapped = fields.filter((f) => f.runway_ft === null).map((f) => f.icao);
+  if (t.min_runway_ft === 0 || unmapped.length === 0) return undefined;
+  return `No runway is mapped at ${listOf(unmapped)}, so its length is unknown — check it before you commit.`;
+}
+
 /**
  * Choose a destination field roughly the requested distance out.
  *
@@ -273,13 +321,16 @@ export function pickDestination(
   base: { lat: number; lon: number; icao: string | null },
   airports: Airport[] | undefined,
   legNm: number,
-): { icao: string; lat: number; lon: number; distance_nm: number } | null {
+  /** Which fields the job can use at all -- runway length and surface, for a plane. */
+  accept: (a: Airport) => boolean = () => true,
+): PickedField | null {
   const usable = (airports ?? []).filter(
     (a) =>
       Number.isFinite(a.lat) &&
       Number.isFinite(a.lon) &&
       // Don't send anyone on a round trip to the field they started from.
-      String(a.icao).toUpperCase() !== String(base.icao ?? "").toUpperCase(),
+      String(a.icao).toUpperCase() !== String(base.icao ?? "").toUpperCase() &&
+      accept(a),
   );
   if (usable.length === 0) return null;
 
@@ -301,6 +352,8 @@ export function pickDestination(
     lat: chosen.a.lat,
     lon: chosen.a.lon,
     distance_nm: Number(chosen.d.toFixed(1)),
+    runway_ft: chosen.a.runway_ft ?? null,
+    surface: chosen.a.surface ?? null,
   };
 }
 
@@ -313,13 +366,14 @@ function pickChain(
   base: FixedWingBase,
   stops: number,
   [lo, hi]: [number, number],
-): { icao: string; lat: number; lon: number; distance_nm: number }[] | null {
+  accept: (a: Airport) => boolean,
+): PickedField[] | null {
   const visited = new Set([String(base.icao ?? "").toUpperCase()]);
-  const chain: { icao: string; lat: number; lon: number; distance_nm: number }[] = [];
+  const chain: PickedField[] = [];
   let from: { lat: number; lon: number; icao: string | null } = base;
   for (let i = 0; i < stops; i++) {
     const unvisited = (base.airports ?? []).filter((a) => !visited.has(String(a.icao).toUpperCase()));
-    const next = pickDestination(from, unvisited, lo + Math.random() * (hi - lo));
+    const next = pickDestination(from, unvisited, lo + Math.random() * (hi - lo), accept);
     if (!next) return null;
     visited.add(next.icao.toUpperCase());
     chain.push(next);
@@ -367,6 +421,8 @@ function contractRow(
     brief: string;
     title?: string;
     payout?: number;
+    /** Added to the briefing. */
+    note?: string;
   },
 ): Record<string, unknown> {
   const variance = 0.85 + Math.random() * 0.4;
@@ -376,7 +432,8 @@ function contractRow(
     title: job.title ?? t.title,
     description:
       job.brief +
-      (t.min_runway_ft > 0 ? ` Shortest usable strip: ${t.min_runway_ft.toLocaleString()} ft.` : ""),
+      (t.min_runway_ft > 0 ? ` Shortest usable strip: ${t.min_runway_ft.toLocaleString()} ft.` : "") +
+      (job.note ? ` ${job.note}` : ""),
     required_tags: t.required_tags,
     required_certs: t.required_certs,
     min_payload: t.min_payload,
@@ -402,7 +459,11 @@ function contractRow(
 function pointToPoint(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
   const [lo, hi] = t.leg_range;
   const legNm = lo + Math.random() * (hi - lo);
-  const dest = pickDestination(base, base.airports, legNm);
+  // A survey only measures its track from the destination; nobody lands there.
+  const dest = pickDestination(
+    base, base.airports, legNm,
+    t.kind === "survey" ? undefined : (a) => fieldSuits(t, a),
+  );
   if (!dest) return null;
 
   const objectives: Objective[] = [];
@@ -428,19 +489,20 @@ function pointToPoint(t: FixedWingTemplate, reputation: number, base: FixedWingB
     objectives.push({
       id: "return", kind: "land",
       label: `Land back at ${base.icao ?? "base"}`,
-      icao: base.icao, radius_nm: 2,
+      icao: base.icao, radius_nm: 2, ...homeField(base),
     });
   } else {
     objectives.push({
       id: "arrive", kind: "land",
       label: `Land at ${dest.icao}`,
       icao: dest.icao, radius_nm: 2,
+      lat: dest.lat, lon: dest.lon, runway_ft: dest.runway_ft, surface: dest.surface,
     });
     if (t.kind === "round_trip") {
       objectives.push({
         id: "return", kind: "land",
         label: `Return to ${base.icao ?? "base"}`,
-        icao: base.icao, radius_nm: 2,
+        icao: base.icao, radius_nm: 2, ...homeField(base),
       });
     }
   }
@@ -452,6 +514,7 @@ function pointToPoint(t: FixedWingTemplate, reputation: number, base: FixedWingB
     distance_nm: dest.distance_nm * (roundTrip ? 2 : 1),
     scene: { lat: dest.lat, lon: dest.lon, name: dest.icao },
     brief: t.brief.replace("{dest}", dest.icao),
+    note: t.kind === "survey" ? undefined : runwayNote(t, [dest]),
   });
 }
 
@@ -467,7 +530,7 @@ function skydiveLift(t: FixedWingTemplate, reputation: number, base: FixedWingBa
       label: `Climb to ${SKYDIVE_AGL_FT.toLocaleString()} ft AGL over ${field}`,
       lat: base.lat, lon: base.lon, radius_nm: 3, min_agl_ft: SKYDIVE_AGL_FT,
     },
-    { id: "return", kind: "land", label: `Land back at ${field}`, icao: base.icao, radius_nm: 2 },
+    { id: "return", kind: "land", label: `Land back at ${field}`, icao: base.icao, radius_nm: 2, ...homeField(base) },
   ];
   return contractRow(t, reputation, base, {
     objectives,
@@ -481,7 +544,7 @@ function skydiveLift(t: FixedWingTemplate, reputation: number, base: FixedWingBa
 /** A mail run or a hopper: several fields in order, home afterwards or not. */
 function multiStop(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
   const stops = t.stops ?? 2;
-  const chain = pickChain(base, stops, t.leg_range);
+  const chain = pickChain(base, stops, t.leg_range, (a) => fieldSuits(t, a));
   if (!chain) return null;
 
   const objectives: Objective[] = chain.map(
@@ -489,6 +552,7 @@ function multiStop(t: FixedWingTemplate, reputation: number, base: FixedWingBase
       id: `stop${i + 1}`, kind: "land",
       label: `Stop ${i + 1} of ${stops}: land at ${s.icao}`,
       icao: s.icao, radius_nm: 2,
+      lat: s.lat, lon: s.lon, runway_ft: s.runway_ft, surface: s.surface,
     }),
   );
   let distance = chain.reduce((sum, s) => sum + s.distance_nm, 0);
@@ -497,7 +561,7 @@ function multiStop(t: FixedWingTemplate, reputation: number, base: FixedWingBase
     objectives.push({
       id: "return", kind: "land",
       label: `Home to ${base.icao ?? "base"}`,
-      icao: base.icao, radius_nm: 2,
+      icao: base.icao, radius_nm: 2, ...homeField(base),
     });
     distance += distanceNm(last.lat, last.lon, base.lat, base.lon);
   }
@@ -511,6 +575,7 @@ function multiStop(t: FixedWingTemplate, reputation: number, base: FixedWingBase
     brief: t.brief.replace("{dest}", listOf(chain.map((s) => s.icao))),
     title: coastal && t.coastal_title ? t.coastal_title : t.title,
     payout: t.base_payout + (t.per_stop_payout ?? 0) * stops,
+    note: runwayNote(t, chain),
   });
 }
 
@@ -534,7 +599,7 @@ function spottingPatrol(t: FixedWingTemplate, reputation: number, base: FixedWin
   objectives.push({
     id: "return", kind: "land",
     label: `Report back at ${base.icao ?? "base"}`,
-    icao: base.icao, radius_nm: 2,
+    icao: base.icao, radius_nm: 2, ...homeField(base),
   });
 
   return contractRow(t, reputation, base, {
@@ -590,4 +655,36 @@ function floatplaneRun(t: FixedWingTemplate, reputation: number, base: FixedWing
 /** Is this contract an aeroplane job? */
 export function isFixedWingMission(m: { scene_type?: string | null }) {
   return m?.scene_type === "airport";
+}
+
+/**
+ * The hardest field a plane contract lands at, for its card: an unpaved strip
+ * before a paved runway, then the shortest. Null for contracts generated before
+ * runway data was kept, and for jobs that only land back home.
+ */
+export function stripOf(objectives: unknown): { label: string; unpaved: boolean } | null {
+  const fields = (Array.isArray(objectives) ? objectives : []).filter(
+    (o) => o && o.kind === "land" && "runway_ft" in o,
+  ) as { runway_ft: number | null; surface: string | null }[];
+  if (fields.length === 0) return null;
+
+  const mapped = fields
+    .filter((f) => typeof f.runway_ft === "number" && f.runway_ft > 0)
+    .map((f) => ({ ft: f.runway_ft as number, surface: f.surface, unpaved: surfaceClass(f.surface) === "unpaved" }))
+    .sort((a, b) => Number(b.unpaved) - Number(a.unpaved) || a.ft - b.ft);
+  const hardest = mapped[0];
+  if (!hardest) return { label: fields.length > 1 ? "Runways not on the map" : "Runway not on the map", unpaved: false };
+
+  const ft = `${hardest.ft.toLocaleString()} ft`;
+  const cls = surfaceClass(hardest.surface);
+  const name = (hardest.surface ?? "").split(/[;:]/)[0].replace(/_/g, " ");
+  const label =
+    cls === "unpaved" ? `${name.charAt(0).toUpperCase()}${name.slice(1)} strip · ${ft}`
+    : cls === "paved" ? `Paved runway · ${ft}`
+    : `Runway · ${ft}`;
+  const unmapped = fields.length - mapped.length;
+  return {
+    label: (fields.length > 1 ? "Hardest stop: " : "") + label + (unmapped > 0 ? ` · ${unmapped} not mapped` : ""),
+    unpaved: hardest.unpaved,
+  };
 }

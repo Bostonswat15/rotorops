@@ -119,7 +119,58 @@ export async function findPowerTowers(centre: LatLon, radiusNm = 40): Promise<La
     .map((e) => ({ lat: e.lat, lon: e.lon }));
 }
 
-export type Aerodrome = { icao: string; lat: number; lon: number };
+export type Aerodrome = {
+  icao: string;
+  lat: number;
+  lon: number;
+  /** Longest land runway in feet. 0 when every mapped runway is water; null when none is mapped. */
+  runway_ft: number | null;
+  /** That runway's surface tag ("grass", "asphalt"), when it has one. */
+  surface: string | null;
+};
+
+const FT_PER_NM = 6076.12;
+/** A runway this far from a field's centre can still be its runway; the nearest field wins. */
+const RUNWAY_MATCH_NM = 3;
+const PAVED = /^(asphalt|concrete|paved|bitumen|tarmac|chipseal|metal|paving_stones|sett)/;
+const UNPAVED =
+  /^(grass|dirt|gravel|fine_gravel|ground|unpaved|earth|soil|sand|compacted|turf|mud|clay|laterite|coral|shells?|pebblestone|rock|snow|ice|salt)/;
+
+/** What a runway's surface tag means for landing on it. Null when it has none, or one this doesn't know. */
+export function surfaceClass(surface: string | null | undefined): "paved" | "unpaved" | "water" | null {
+  const s = (surface ?? "").trim().toLowerCase();
+  if (!s) return null;
+  if (s.startsWith("water")) return "water";
+  if (PAVED.test(s)) return "paved";
+  if (UNPAVED.test(s)) return "unpaved";
+  return null;
+}
+
+/** A way from an `out tags geom` query. */
+type OsmWay = { geometry?: { lat?: unknown; lon?: unknown }[]; tags?: Record<string, string> };
+
+const wayPoints = (e: OsmWay): LatLon[] =>
+  Array.isArray(e.geometry)
+    ? e.geometry.filter((p): p is LatLon => typeof p?.lat === "number" && typeof p?.lon === "number")
+    : [];
+
+/**
+ * A mapped runway's length in feet: the longest span of its drawn nodes, which
+ * serves for a centreline and a runway drawn as an area alike, else its
+ * `length` tag (metres, unless it says feet).
+ */
+function runwayFeet(e: OsmWay): number | null {
+  const pts = wayPoints(e);
+  let longest = 0;
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) longest = Math.max(longest, nmBetween(pts[i], pts[j]));
+  }
+  if (longest > 0) return Math.round(longest * FT_PER_NM);
+  const tag = String(e.tags?.length ?? "");
+  const n = parseFloat(tag);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(/ft|'/i.test(tag) ? n : n * 3.28084);
+}
 
 /**
  * Airfields within `radiusNm`, from OSM.
@@ -131,23 +182,75 @@ export type Aerodrome = { icao: string; lat: number; lon: number };
  *
  * Falls back to the field's name when OSM has no ICAO, which is common for
  * private strips -- a name is still more use than nothing.
+ *
+ * Each field also gets its longest land runway and that runway's surface, so a
+ * bush job can go to a grass strip and an airliner job can't. The sim's
+ * facility list carries neither. Runways are a second query, run after the
+ * fields rather than beside them: Overpass allows two requests at a time per
+ * address, and a failed runway lookup should cost the runway data, not the
+ * fields.
+ *
+ * Relations too: larger airports are often mapped as multipolygons (Ottawa's
+ * CYOW is), and a node-and-way query never saw them.
  */
 export async function findAerodromes(centre: LatLon, radiusNm = 60): Promise<Aerodrome[]> {
   const b = bbox(centre, radiusNm);
   const elements = (await overpass(
-    `[out:json][timeout:20];(node["aeroway"="aerodrome"](${b});way["aeroway"="aerodrome"](${b}););out center 120;`,
+    `[out:json][timeout:20];(node["aeroway"="aerodrome"](${b});way["aeroway"="aerodrome"](${b});relation["aeroway"="aerodrome"](${b}););out center 400;`,
   )) ?? [];
 
-  return elements
-    .map((e) => {
+  const fields = elements
+    .map((e): Aerodrome | null => {
       const lat = e.lat ?? e.center?.lat;
       const lon = e.lon ?? e.center?.lon;
       const t = e.tags ?? {};
       const icao: string | null = t.icao ?? t.faa ?? t.ref ?? t.name ?? null;
       if (typeof lat !== "number" || typeof lon !== "number" || !icao) return null;
-      return { icao: String(icao), lat, lon };
+      return { icao: String(icao), lat, lon, runway_ft: null, surface: null };
     })
     .filter((a): a is Aerodrome => a !== null);
+  if (fields.length === 0) return fields;
+
+  const runways = (await overpass(
+    `[out:json][timeout:25];way["aeroway"="runway"](${b});out tags geom;`,
+    30_000,
+  )) ?? [];
+
+  const waterOnly = new Set<Aerodrome>();
+  for (const r of runways as OsmWay[]) {
+    const pts = wayPoints(r);
+    if (pts.length === 0) continue;
+    const mid = {
+      lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
+      lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length,
+    };
+    let owner: Aerodrome | null = null;
+    let ownerNm = RUNWAY_MATCH_NM;
+    for (const f of fields) {
+      const d = nmBetween(f, mid);
+      if (d <= ownerNm) {
+        ownerNm = d;
+        owner = f;
+      }
+    }
+    if (!owner) continue;
+
+    const surface: string | null = r.tags?.surface ?? null;
+    if (surfaceClass(surface) === "water") {
+      waterOnly.add(owner);
+      continue;
+    }
+    const ft = runwayFeet(r);
+    if (ft === null) continue;
+    if (owner.runway_ft === null || ft > owner.runway_ft) {
+      owner.runway_ft = ft;
+      owner.surface = surface;
+    }
+  }
+  // A seaplane base: runways mapped, none of them land.
+  for (const f of waterOnly) if (f.runway_ft === null) f.runway_ft = 0;
+
+  return fields;
 }
 
 /** Great-circle distance in nautical miles. */

@@ -73,7 +73,8 @@ export type Objective =
       /** Put it down by the casualty the search turned up, not at the datum. */
       near_search?: boolean;
     }
-  | { id: string; kind: 'land'; label: string; icao: string | null; radius_nm: number }
+  /** `lat`/`lon`: where the contract found the field, for an ident the sim doesn't know. */
+  | { id: string; kind: 'land'; label: string; icao: string | null; radius_nm: number; lat?: number; lon?: number }
   /** Pass over a point at low level -- route inspection work. */
   | { id: string; kind: 'overfly'; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number }
   /** Get up to height over a point -- a skydive lift's jump run. */
@@ -167,6 +168,9 @@ export class ObjectiveTracker {
 
   /** Resolve an ICAO to a position; supplied by the sim's facility cache. */
   private readonly locateIcao: (icao: string) => { lat: number; lon: number } | null;
+  /** How many objectives were done when this leg began, and whether it has left the ground since. */
+  private legMark = 0;
+  private flownThisLeg = false;
 
   // Written out rather than a parameter property: type stripping only erases
   // types, and a parameter property emits real assignment code.
@@ -187,6 +191,8 @@ export class ObjectiveTracker {
     this.searchTarget = searchTarget ?? null;
     this.contactMs = 0;
     this.foundAt = null;
+    this.legMark = this.done.size;
+    this.flownThisLeg = false;
 
     const spec = this.objectives.find((o) => o.kind === 'search');
     this.coverage =
@@ -261,6 +267,14 @@ export class ObjectiveTracker {
     const gs = num(s.groundSpeed);
     const onGround = num(s.onGround, 0) === 1;
     const payload = num(s.payload);
+
+    // A leg begins when an objective completes. Only a sample that actually
+    // reports SIM ON GROUND = 0 counts as having flown it.
+    if (this.done.size !== this.legMark) {
+      this.legMark = this.done.size;
+      this.flownThisLeg = false;
+    }
+    if (typeof s.onGround === 'number' && s.onGround === 0) this.flownThisLeg = true;
 
     // Inspection sections count in any order.
     //
@@ -584,10 +598,24 @@ export class ObjectiveTracker {
           this.hint = 'land to complete';
           break;
         }
-        const target = o.icao ? this.locateIcao(o.icao) : null;
+        // The sim's own airport first. The position the contract stored when
+        // the sim doesn't know the ident -- OSM names plenty of private strips
+        // -- or knows a field by that ident somewhere else entirely.
+        const known = o.icao ? this.locateIcao(o.icao) : null;
+        const stored =
+          typeof o.lat === 'number' && typeof o.lon === 'number' ? { lat: o.lat, lon: o.lon } : null;
+        const target =
+          known && stored && distanceNm(known.lat, known.lon, stored.lat, stored.lon) > 3
+            ? stored
+            : (known ?? stored);
         if (!target) {
-          // Field unknown to the sim's cache -- being on the ground is the
-          // best evidence available.
+          // A field nobody can place, on a contract from before positions were
+          // stored. A landing is the best evidence left -- but a landing, not
+          // being parked: this used to tick "Land at X" off at the gate.
+          if (!this.flownThisLeg) {
+            this.hint = 'take off first';
+            break;
+          }
           this.done.add(o.id);
           completed.push(o.id);
           break;

@@ -13,7 +13,7 @@
 
 import type { AircraftTag } from "./game-data";
 import { distanceNm, nearestAirport, type Airport, type Objective } from "./missions";
-import { pickDestination } from "./fixed-wing";
+import { homeField, pickDestination } from "./fixed-wing";
 
 export type CharterKind =
   /** Out to a field and that's the job -- cargo, parts, a one-way transfer. */
@@ -112,13 +112,16 @@ export function generateCharterMission(
 
   const roundTrip = t.kind === "round_trip";
   const objectives: Objective[] = [
-    { id: "arrive", kind: "land", label: `Land at ${dest.icao}`, icao: dest.icao, radius_nm: 2 },
+    {
+      id: "arrive", kind: "land", label: `Land at ${dest.icao}`,
+      icao: dest.icao, radius_nm: 2, lat: dest.lat, lon: dest.lon,
+    },
   ];
   if (roundTrip) {
     objectives.push({
       id: "return", kind: "land",
       label: `Return to ${base.icao ?? "base"}`,
-      icao: base.icao, radius_nm: 2,
+      icao: base.icao, radius_nm: 2, ...homeField(base),
     });
   }
 

@@ -304,7 +304,21 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       // Objects go where the casualty actually is, not at the datum -- the sim
       // stops drawing a person-sized object a few hundred metres out, so this
       // is what makes the search a real visual search.
-      const at = searchTarget ?? { lat: Number(m.scene_lat), lon: Number(m.scene_lon) };
+      //
+      // An industry job's props belong where the goods are collected. A trade
+      // or fuel run's scene point is its delivery end, and its pickup is the
+      // first `reach`; a haul from the board has its pickup as the scene already.
+      const sitePickup =
+        m.role === 'industry' || m.role === 'trade' || m.role === 'fuel_run'
+          ? ((m.objectives as Objective[]).find((o) => o.kind === 'reach') as
+              | { lat: number; lon: number }
+              | undefined)
+          : undefined;
+      const at =
+        searchTarget ??
+        (sitePickup
+          ? { lat: Number(sitePickup.lat), lon: Number(sitePickup.lon) }
+          : { lat: Number(m.scene_lat), lon: Number(m.scene_lon) });
       // The route the contract actually asks for, where it has one. A line
       // patrol follows a real transmission line, so its props belong on that
       // line rather than strung along a bearing picked at random.
@@ -314,7 +328,9 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
         .map((o) => ({ lat: Number(o.lat), lon: Number(o.lon) }));
       const sceneType = (m.scene_type ?? 'field') as SceneType;
       const stageScene = (road?: LatLon[], only?: 'road' | 'offroad') =>
-        director!.stage({ lat: at.lat, lon: at.lon, type: sceneType, role: m.role, path: route, road, only });
+        director!.stage({
+          lat: at.lat, lon: at.lon, type: sceneType, role: m.role, path: route, road, only, title: m.title,
+        });
 
       // A roadside scene puts its casualty and kit down now, and lines its
       // traffic up on the real carriageway once the road is known -- which

@@ -15,6 +15,7 @@
 
 import simconnect from 'node-simconnect';
 import { placeAlongRoad } from './roads.ts';
+import { industryKindFromTitle, INDUSTRY_ROLES, type IndustryKind } from './industry-kind.ts';
 
 const {
   SimConnectDataType, SimConnectConstants, SimObjectType, TextType, InitPosition,
@@ -212,6 +213,31 @@ const SMOKE_FX_HINTS = ['30west smoke', 'smokeeffect', 'smoke column', 'smokesta
 /** An arcing conductor: a fault worth flying a line to find. */
 const POWERLINE_FX_HINTS = ['30west powerline', '30west electric'];
 const VEHICLE_HINTS = ['truck', 'van', 'suv', 'car', 'pickup', 'jeep', 'bus'];
+
+// Industry site props. Each hint was checked against this install's base-game
+// enumeration (bridge/simobjects.txt, 2026-09-12): stock has bulldozers,
+// tractors, harvesters, forklifts, crane trucks, container trucks, fuel
+// tankers, spray tanks and small fishing boats, and no logs, pallets, crates,
+// tents or sheds. Specific hints on purpose -- 'loader' reaches the airport
+// belt loaders, and 'truck_na_' the de-icers.
+const DOZER_HINTS = ['bulldozer'];
+const TRACTOR_HINTS = ['tractor'];
+const HARVESTER_HINTS = ['harvester'];
+const FORKLIFT_HINTS = ['forklift_large', 'forklift large', 'forklift'];
+const SMALL_FORKLIFT_HINTS = ['forklift_medium', 'forklift medium', 'forklift'];
+const CRANE_TRUCK_HINTS = ['truck_crane', 'tankandcrane'];
+const CONTAINER_TRUCK_HINTS = ['truck_container', 'truck container'];
+const TANKER_HINTS = [
+  'truck_fuel_long', 'truck fuel long', 'fuel truck long',
+  'truck_na_fuel', 'truck_eur_fuel', 'truck fuel short',
+];
+const STORAGE_TANK_HINTS = ['platform tank', 'aerial_tank'];
+const HAUL_TRUCK_HINTS = [
+  'truck large', 'microsoft_truck_na_white', 'microsoft_truck_na_black',
+  'microsoft_eur_truck', 'truck northam', 'truck military no cover',
+];
+const SITE_VEHICLE_HINTS = ['pickup 01', 'quad', 'microsoft_truck_eur_utility_vintage'];
+const SKIFF_HINTS = ['fishing boat'];
 const BOAT_HINTS = ['fishing', 'trawler', 'yacht', 'boat', 'sail', 'ferry', 'cargo'];
 /**
  * A vessel in trouble.
@@ -355,7 +381,7 @@ export function setSceneOverrides(next: SceneOverrides | null) {
  * pile of one kind of object -- the casualty AND the ambulance that came for
  * them, the load AND the plant that will lift it.
  */
-function planFor(role: string, scene: SceneType): StagePlan | null {
+export function planFor(role: string, scene: SceneType, title = ''): StagePlan | null {
   /** The load you are there to hook: never frozen, or a sling cannot lift it. */
   const load = (hints: string[], count: number, spreadNm: number): StageLayer =>
     ({ pool: 'ground', hints, count, spreadNm, freeze: false });
@@ -384,6 +410,44 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
    */
   const fx = (hints: string[], count: number, spreadNm: number, drive: FxDrive): StageLayer =>
     ({ pool: 'effect', hints, count, spreadNm, fx: drive });
+
+  /**
+   * What stands at an industry site, by kind. Plant and trucks only: the base
+   * game has no buildings to place, and the site's goods are a payload
+   * objective, so everything stays frozen. The old one-size plan asked for
+   * sheds, tents, pallets and "loaders", which on a stock install meant airport
+   * belt loaders or nothing, at a fishing camp and a quarry alike.
+   */
+  const industryPlan = (kind: IndustryKind | null): StagePlan => {
+    switch (kind) {
+      case 'forest':
+        return [set(DOZER_HINTS, 1, 0.04), set(HAUL_TRUCK_HINTS, 2, 0.03), set(FORKLIFT_HINTS, 1, 0.03), set(TRACTOR_HINTS, 1, 0.05)];
+      case 'sawmill':
+        return [set(FORKLIFT_HINTS, 2, 0.03), set(CONTAINER_TRUCK_HINTS, 1, 0.04), set(HAUL_TRUCK_HINTS, 1, 0.04), set(CRANE_TRUCK_HINTS, 1, 0.04)];
+      case 'farmland':
+        return [set(HARVESTER_HINTS, 2, 0.05), set(TRACTOR_HINTS, 2, 0.05), set(SITE_VEHICLE_HINTS, 1, 0.03)];
+      case 'grain_mill':
+        return [set(CONTAINER_TRUCK_HINTS, 2, 0.03), set(STORAGE_TANK_HINTS, 1, 0.03), set(SMALL_FORKLIFT_HINTS, 1, 0.03), set(TRACTOR_HINTS, 1, 0.04)];
+      case 'oil_well':
+        return [set(TANKER_HINTS, 2, 0.03), set(STORAGE_TANK_HINTS, 2, 0.02), set(SITE_VEHICLE_HINTS, 1, 0.03)];
+      case 'refinery':
+        return [set(TANKER_HINTS, 3, 0.04), set(STORAGE_TANK_HINTS, 2, 0.03), set(SITE_VEHICLE_HINTS, 1, 0.03)];
+      case 'quarry':
+        return [set(DOZER_HINTS, 2, 0.05), set(HAUL_TRUCK_HINTS, 2, 0.04), set(CRANE_TRUCK_HINTS, 1, 0.04)];
+      case 'steel_works':
+        return [set(CRANE_TRUCK_HINTS, 2, 0.04), set(FORKLIFT_HINTS, 2, 0.03), set(CONTAINER_TRUCK_HINTS, 1, 0.04)];
+      case 'fishing_camp':
+        // Small boats pulled up at the camp. Spawned at the site point, which
+        // may be on the beach rather than the water -- a skiff hauled out reads
+        // right at a fishing camp; a trawler would not, so only the small hulls.
+        return [afloat(SKIFF_HINTS, 2, 0.03), set(SMALL_FORKLIFT_HINTS, 1, 0.03), set(SITE_VEHICLE_HINTS, 1, 0.03)];
+      case 'cannery':
+        return [set(CONTAINER_TRUCK_HINTS, 2, 0.03), set(SMALL_FORKLIFT_HINTS, 2, 0.03), afloat(SKIFF_HINTS, 1, 0.04)];
+      default:
+        // A title this can't read: a working site of some kind.
+        return [set(HAUL_TRUCK_HINTS, 1, 0.03), set(FORKLIFT_HINTS, 1, 0.03), set(SITE_VEHICLE_HINTS, 1, 0.03)];
+    }
+  };
 
   switch (role) {
     // --- Work with a load on the hook ------------------------------------
@@ -420,17 +484,18 @@ function planFor(role: string, scene: SceneType): StagePlan | null {
         named(WORKER_TITLES, [], 1, 0.02),
       ];
     case 'industry':
+    case 'trade':
+    case 'fuel_run':
       // A lumber camp, quarry, well or mill. Nothing in the sim marks these
       // -- they are real OSM land use, or a spot the company chose to build
       // on -- so without something placed here you fly to an empty clearing
-      // and take it on trust. The stock is the site's, not yours to hook:
-      // the load is a payload objective, so all of this stays frozen.
-      return [
-        set(SITE_HINTS, 3, 0.05),
-        set(CARGO_HINTS, 2, 0.03),
-        set(OUTPOST_HINTS, 1, 0.05),
-        set(VEHICLE_HINTS, 1, 0.04),
-      ];
+      // and take it on trust. Trade and fuel runs used to fall through to two
+      // random vehicles.
+      //
+      // An aeroplane haul collects at an airport: its apron dresses itself,
+      // and the reference point props would go to can sit on a runway.
+      if (scene === 'airport') return null;
+      return industryPlan(industryKindFromTitle(title));
 
     // --- Emergency work ---------------------------------------------------
     case 'patrol':
@@ -1056,9 +1121,12 @@ export class SceneDirector {
      * ('road') -- which may be minutes later if OSM is having a bad moment.
      */
     only?: 'road' | 'offroad';
+    /** The contract's title; an industry job names its site in it. */
+    title?: string;
   }): number {
     const role = scene.role ?? '';
     const type = (scene.type as SceneType) ?? 'field';
+    const industryKind = INDUSTRY_ROLES.has(role) ? industryKindFromTitle(scene.title) : null;
 
     // A user override for this role or scene replaces the built-in plan --
     // but only as far as it actually works. An override naming objects this
@@ -1066,8 +1134,12 @@ export class SceneDirector {
     // layer; now it falls back to the built-in plan, so a stale file (a copy
     // of the example, say, listing models from a mod you don't run) degrades
     // to a working scene instead of an empty field.
-    const override = overrides.roles?.[role] ?? overrides.scenes?.[type];
-    const base = planFor(role, type);
+    // "industry:fishing_camp" and the like let scene-objects.json dress one
+    // kind of site without touching the others.
+    const override =
+      (industryKind ? overrides.roles?.[`industry:${industryKind}`] : undefined) ??
+      overrides.roles?.[role] ?? overrides.scenes?.[type];
+    const base = planFor(role, type, scene.title ?? '');
     if (!base && !override) return 0;
 
     const known = new Set([...this.boats, ...this.ground, ...this.planes]);

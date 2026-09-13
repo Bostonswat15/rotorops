@@ -164,6 +164,14 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   Propose numbers for each before building (only the fuel farm's are approved).
 - **Unapproved tuning:** hoist-contract hover limits were raised (Vessel/Swiftwater 150 ft,
   Cliff/Ridgeline 180 ft, from 80-120 ft). Revert if the user objects.
+- **Industry site props (built at the user's request):** building a camp places nothing
+  permanent (SimConnect can't add scenery). Props appear only while an industry contract is
+  armed. `planFor` gives each kind its own base-game plant (`industryPlan` in
+  `scene-actors.ts`, hints checked against `bridge/simobjects.txt`); the kind is read from the
+  contract title (`bridge/src/industry-kind.ts`). Trade and fuel runs are staged at their first
+  `reach` (the pickup), not the scene point (their delivery end). Plane hauls place nothing.
+  `scene-objects.json` can override one kind via `roles["industry:<kind>"]`. Fishing skiffs spawn
+  at the site point, which may be on land; not yet seen in the sim.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;

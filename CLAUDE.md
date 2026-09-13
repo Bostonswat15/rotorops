@@ -106,8 +106,10 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   Finance and Bases pages show a notice until theirs is run.
 - **Flight score (built 2026-09-13):** `bridge/src/score.ts`, run by `FlightTracker`. Its new
   OPTIONAL SimVars (CATEGORY, LIGHT BEACON/STROBE/LANDING, PLANE BANK/PITCH DEGREES, AIRSPEED
-  INDICATED, OVERSPEED/STALL WARNING, G FORCE, TIME OF DAY, AMBIENT VISIBILITY) are unprobed on
-  this install: run `npm --prefix bridge run probe` and check which resolve; a missing one only
+  INDICATED, OVERSPEED/STALL WARNING, G FORCE, TIME OF DAY, AMBIENT VISIBILITY) all resolved in
+  `probe` on this install (2026-09-13, HH65B Dolphin - SAR). Accepted is not yet the same as
+  read correctly in flight: a first scored flight should confirm bank/pitch signs, CATEGORY's
+  string, and that the beacon rule sees the lights at engine start. A missing SimVar only
   drops its rule. CATEGORY decides rotary vs fixed limits (defaults rotary). No cloud-base
   SimVar is read, so the low-cloud half of the low-visibility bonus isn't implemented.
 - **Crash rule (user's, 2026-09-13):** crash -> wear 100, grounded, Repair = 10% of price and

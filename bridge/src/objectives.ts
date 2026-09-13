@@ -75,7 +75,9 @@ export type Objective =
     }
   | { id: string; kind: 'land'; label: string; icao: string | null; radius_nm: number }
   /** Pass over a point at low level -- route inspection work. */
-  | { id: string; kind: 'overfly'; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number };
+  | { id: string; kind: 'overfly'; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number }
+  /** Get up to height over a point -- a skydive lift's jump run. */
+  | { id: string; kind: 'climb'; label: string; lat: number; lon: number; radius_nm: number; min_agl_ft: number };
 
 /**
  * How much slack to allow around a positional objective.
@@ -370,6 +372,23 @@ export class ObjectiveTracker {
           this.hint = `${d.toFixed(1)} nm to the next section`;
         } else {
           this.hint = `overhead at ${Math.round(agl)} ft — descend below ${o.max_agl_ft} ft AGL`;
+        }
+        break;
+      }
+
+      case 'climb': {
+        // The mirror of overfly: over the drop zone and high enough. Height
+        // above ground, not altitude, so a field at 4,000 ft asks for the same
+        // climb as one at sea level.
+        const d = distanceNm(lat, lon, o.lat, o.lon);
+        const inZone = d <= zone(o.radius_nm);
+        if (inZone && !onGround && agl >= o.min_agl_ft) {
+          this.done.add(o.id);
+          completed.push(o.id);
+        } else if (!inZone) {
+          this.hint = `${d.toFixed(1)} nm to the drop zone`;
+        } else {
+          this.hint = `climbing — ${Math.round(agl).toLocaleString()} of ${o.min_agl_ft.toLocaleString()} ft AGL`;
         }
         break;
       }

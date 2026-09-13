@@ -357,6 +357,14 @@ function IndustriesPage() {
                     <p className="mt-1 text-xs text-muted-foreground">
                       {Math.round(Number(ind.stock)).toLocaleString()} / {Math.round(Number(ind.capacity)).toLocaleString()} units on hand
                     </p>
+                    {def.tier === 2 && def.input && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {Math.round(Number(ind.input_stock ?? 0)).toLocaleString()} units of{" "}
+                        {goodById(def.input)?.name.toLowerCase() ?? def.input} flown in. Runs at full
+                        speed on flown-in {goodById(def.input)?.name.toLowerCase() ?? def.input}; half speed
+                        drawing from its own camp.
+                      </p>
+                    )}
 
                     <div className="mt-3 flex items-center justify-between rounded border border-border bg-background px-2.5 py-1.5">
                       <span className="flex items-center gap-1.5 text-xs">

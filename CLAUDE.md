@@ -100,10 +100,33 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `20260915000000_fuel_farms.sql` (fuel farms, fuel runs), then
   `20260916000000_crash_restart.sql` (a crash is repairable damage and resets the contract to
   restart from its origin), then `20260917000000_flight_score.sql` (score columns on
-  flight_logs, grade prices pay/XP/rep, avg score on the roster). Each of the last four carries
-  `rotorops_resolve_flight` forward; any later change must start from the 20260917 copy.
-  `dispatch_mission`, `service_aircraft` and `bridge_state` were last carried in 20260916. The
-  Finance and Bases pages show a notice until theirs is run.
+  flight_logs, grade prices pay/XP/rep, avg score on the roster), then
+  `20260918000000_industry_flow.sql` (hauls move stock via `industry_deliveries`, mills get
+  `input_stock`, floats tag backfill). Each of the last five carries `rotorops_resolve_flight`
+  forward; any later change must start from the 20260918 copy. 20260918 also carries
+  `dispatch_mission`, `cancel_dispatch`, `dispatch_trade_run` and `industry_tick`;
+  `service_aircraft` and `bridge_state` were last carried in 20260916. The Finance and Bases
+  pages show a notice until theirs is run. 20260918 was built by carrying each function forward
+  programmatically from its newest file, never retyped.
+- **Plane work and industry flow (user approved all of it):** Planes board 3 -> 6 per Generate
+  (18 tries, since floatplane/mail can return null). New fixed-wing templates in
+  `src/lib/fixed-wing.ts`: Skydive Lift ($2,800, new bridge `climb` objective, 10,000 ft AGL
+  within 3 nm), Mail Run (3 stops, $3,000 + $1,000/stop), Lodge/Island Hopper (2 stops + home,
+  $6,500), Floatplane Lodge Run ($5,500, `floats` tag, land_off on lake/shore, needs water
+  within 10 nm of base), Fire Spotting Patrol (3 overflies < 3,000 ft AGL, $6,000); Aerial Line
+  Patrol is `generatePowerlinePatrol(..., "fixed")` ($5,000, < 1,500 ft AGL, 0.35 nm zones,
+  Overpass lookups shared via `once`). Regional Shuttle payload 6,000 -> 2,500 lb. Industry
+  (`src/lib/industries.ts`): 2 helicopter + 2 plane hauls per Generate; plane hauls land at the
+  airport nearest the source (<= 25 nm) and nearest the buyer, >= 15 nm apart, 800-4,000 lb;
+  finished goods sell to regional market airports 40-200 nm out at base value x (1 + nm/200).
+  Hauls take stock at dispatch (`dispatch_mission` checks stock and that min_payload matches
+  the goods' weight), deliver into the buyer's `input_stock` (or stock), refund on fail, cancel
+  or delete, and stay reserved through a crash reset. Mills burn flown-in input at full rate,
+  then pull from their camp at half rate (`CAMP_PULL_SHARE`).
+  **Not yet flown:** `climb`, floatplane on water counting as on-ground (land_off and boarding
+  depend on it), the bridge boarding weight into an aeroplane's payload stations, 0.35 nm line
+  zones for planes. **Noted, not changed:** raw-good hauls pay very little (a plane timber
+  haul came out at ~$195) because timber/grain base values are $4-6 a unit.
 - **Flight score (built 2026-09-13):** `bridge/src/score.ts`, run by `FlightTracker`. Its new
   OPTIONAL SimVars (CATEGORY, LIGHT BEACON/STROBE/LANDING, PLANE BANK/PITCH DEGREES, AIRSPEED
   INDICATED, OVERSPEED/STALL WARNING, G FORCE, TIME OF DAY, AMBIENT VISIBILITY) all resolved in

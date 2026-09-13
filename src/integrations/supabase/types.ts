@@ -211,6 +211,7 @@ export type Database = {
           confidence: string
           source: string
           stock: number
+          input_stock: number
           capacity: number
           base_rate: number
           workers: number
@@ -228,6 +229,7 @@ export type Database = {
           confidence?: string
           source?: string
           stock?: number
+          input_stock?: number
           capacity: number
           base_rate: number
           workers?: number
@@ -245,6 +247,7 @@ export type Database = {
           confidence?: string
           source?: string
           stock?: number
+          input_stock?: number
           capacity?: number
           base_rate?: number
           workers?: number
@@ -516,6 +519,42 @@ export type Database = {
           },
         ]
       }
+      industry_deliveries: {
+        Row: {
+          company_id: string
+          created_at: string
+          from_industry_id: string | null
+          good: string
+          mission_id: string
+          outcome: string | null
+          settled_at: string | null
+          to_industry_id: string | null
+          units: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          from_industry_id?: string | null
+          good: string
+          mission_id: string
+          outcome?: string | null
+          settled_at?: string | null
+          to_industry_id?: string | null
+          units: number
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          from_industry_id?: string | null
+          good?: string
+          mission_id?: string
+          outcome?: string | null
+          settled_at?: string | null
+          to_industry_id?: string | null
+          units?: number
+        }
+        Relationships: []
+      }
       fuel_farm_deliveries: {
         Row: {
           company_id: string
@@ -724,6 +763,9 @@ export type Database = {
         Row: {
           aircraft_id: string | null
           assigned_pilot_id: string | null
+          haul_from_industry_id: string | null
+          haul_to_industry_id: string | null
+          haul_units: number | null
           company_id: string
           completed_at: string | null
           description: string | null
@@ -756,6 +798,9 @@ export type Database = {
         Insert: {
           aircraft_id?: string | null
           assigned_pilot_id?: string | null
+          haul_from_industry_id?: string | null
+          haul_to_industry_id?: string | null
+          haul_units?: number | null
           company_id: string
           completed_at?: string | null
           description?: string | null
@@ -788,6 +833,9 @@ export type Database = {
         Update: {
           aircraft_id?: string | null
           assigned_pilot_id?: string | null
+          haul_from_industry_id?: string | null
+          haul_to_industry_id?: string | null
+          haul_units?: number | null
           company_id?: string
           completed_at?: string | null
           description?: string | null

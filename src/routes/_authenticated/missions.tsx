@@ -33,7 +33,8 @@ import {
 } from "@/lib/fixed-wing";
 import { CHARTER_TEMPLATES, generateCharterMission } from "@/lib/charter";
 import {
-  siteIndustries, generateIndustryHaul, INDUSTRY_DEFS,
+  siteIndustries, generateIndustryHaul, generateMarketHaul, generatePlaneHaul, pickMarket,
+  INDUSTRY_DEFS,
   type IndustryRow,
 } from "@/lib/industries";
 
@@ -230,11 +231,18 @@ function MissionsPage() {
       const fwPool = FIXED_WING_TEMPLATES.filter((t) =>
         companyHasCerts(company.certifications, t.required_certs),
       );
+      let fwCount = 0;
       if (fwPool.length > 0 && airports.length > 0) {
-        for (let i = 0; i < 3; i++) {
+        // Six, level with the helicopter scenes. A template can come up empty
+        // -- no lake near this base for a floatplane, not enough fields in a
+        // row for a mail run -- so a few spare tries keep the count honest.
+        for (let tries = 0; tries < 18 && fwCount < 6; tries++) {
           const t = fwPool[Math.floor(Math.random() * fwPool.length)];
           const fw = generateFixedWingMission(t, company.reputation, site);
-          if (fw) rows.push({ company_id: company.id, ...fw });
+          if (fw) {
+            rows.push({ company_id: company.id, ...fw });
+            fwCount++;
+          }
         }
       }
 
@@ -253,18 +261,34 @@ function MissionsPage() {
 
       // One contract follows a real transmission line, when OSM knows of one
       // nearby. MSFS draws its powerlines from the same data, so it's a line
-      // you can actually see and follow. Replaces the last rotary slot when
-      // there is one; otherwise (no rotary work generated this batch) it's
-      // just appended rather than lost.
+      // you can actually see and follow. Replaces the last rotary scene slot
+      // when there is one; otherwise it's appended rather than lost. (It used
+      // to take rows[5] whatever was there, which with no scenes this batch
+      // is an aeroplane contract now.)
+      const sceneSlots = pool.length > 0 ? 6 : 0;
       try {
         const patrol = await generatePowerlinePatrol(company.reputation, site);
         if (patrol) {
           const row = { company_id: company.id, ...patrol };
-          if (rows.length >= 6) rows[5] = row;
+          if (sceneSlots > 0) rows[sceneSlots - 1] = row;
           else rows.push(row);
         }
       } catch {
         // Overpass unavailable -- the synthetic contract already in the slot stands.
+      }
+
+      // And one for the aeroplanes over the same lines (looked up once), in
+      // place of the last aeroplane contract.
+      try {
+        const patrol = await generatePowerlinePatrol(company.reputation, site, "fixed");
+        if (patrol) {
+          const row = { company_id: company.id, ...patrol };
+          const lastFw = rows.map((r) => r.scene_type).lastIndexOf("airport");
+          if (fwCount > 0 && lastFw >= 0) rows[lastFw] = row;
+          else rows.push(row);
+        }
+      } catch {
+        // Overpass unavailable -- the aeroplane contracts already generated stand.
       }
 
       // Industries: sited once per base from real OSM land use (forests,
@@ -307,7 +331,13 @@ function MissionsPage() {
 
       if (baseIndustries.length > 0) {
         const byKind = new Map<string, any>(baseIndustries.map((i: any) => [i.kind, i]));
-        const candidates: Record<string, unknown>[] = [];
+        // Helicopter and aeroplane hauls are drawn and capped separately, two
+        // of each, so neither half of the board crowds the other out.
+        const rotaryHauls: Record<string, unknown>[] = [];
+        const planeHauls: Record<string, unknown>[] = [];
+        const add = (list: Record<string, unknown>[], haul: Record<string, unknown> | null) => {
+          if (haul) list.push({ company_id: company.id, ...haul });
+        };
         for (const ind of baseIndustries) {
           const def = INDUSTRY_DEFS[ind.kind as keyof typeof INDUSTRY_DEFS];
           if (!def) continue;
@@ -315,32 +345,47 @@ function MissionsPage() {
             id: ind.id, kind: def.kind, lat: Number(ind.latitude), lon: Number(ind.longitude),
             name: ind.name, stock: Number(ind.stock), capacity: Number(ind.capacity),
           };
-          // Tier 1 hauls its raw material to the paired processor when one is
-          // sited; tier 2 hauls its finished good back to the market at base.
-          const dest =
-            def.tier === 1
-              ? (() => {
-                  const pairKind = Object.values(INDUSTRY_DEFS).find(
-                    (d) => d.chain === def.chain && d.tier === 2,
-                  )?.kind;
-                  const pair = pairKind ? byKind.get(pairKind) : null;
-                  return pair
-                    ? { lat: Number(pair.latitude), lon: Number(pair.longitude), icao: null, name: pair.name ?? INDUSTRY_DEFS[pair.kind as keyof typeof INDUSTRY_DEFS]?.label }
-                    : null;
-                })()
-              : { lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao, name: `${base.icao ?? "base"} market` };
-          if (!dest) continue;
-          const haul = generateIndustryHaul(from, dest, company.reputation, site);
-          if (haul) candidates.push({ company_id: company.id, ...haul });
+          if (def.tier === 1) {
+            // Raw material goes to the paired processor, when one is sited.
+            const pairKind = Object.values(INDUSTRY_DEFS).find(
+              (d) => d.chain === def.chain && d.tier === 2,
+            )?.kind;
+            const pair = pairKind ? byKind.get(pairKind) : null;
+            if (!pair) continue;
+            const to = {
+              lat: Number(pair.latitude), lon: Number(pair.longitude), icao: null,
+              name: (pair.name as string | null) ?? INDUSTRY_DEFS[pair.kind as keyof typeof INDUSTRY_DEFS]?.label ?? null,
+              industryId: pair.id as string,
+            };
+            add(rotaryHauls, generateIndustryHaul(from, to, company.reputation, site));
+            add(planeHauls, generatePlaneHaul(from, to, company.reputation, site));
+          } else {
+            // Finished goods: the market at base, or a regional market further
+            // out that pays for the distance.
+            add(rotaryHauls, generateIndustryHaul(
+              from,
+              { lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao, name: `${base.icao ?? "base"} market` },
+              company.reputation, site,
+            ));
+            const market = pickMarket(from, airports);
+            if (market) {
+              add(rotaryHauls, generateMarketHaul(from, market, company.reputation, site));
+              add(planeHauls, generatePlaneHaul(
+                from,
+                { lat: market.lat, lon: market.lon, icao: market.icao, name: null },
+                company.reputation, site,
+              ));
+            }
+          }
         }
-        // Up to a dozen chain pairs can exist at a busy base -- cap what lands
-        // on the board in one batch the same way the rest of Generate does (6
-        // scenes, 3 fixed-wing), rather than flooding it with every haul at once.
-        for (let i = candidates.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-        }
-        rows.push(...candidates.slice(0, 2));
+        const shuffled = (xs: Record<string, unknown>[]) => {
+          for (let i = xs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [xs[i], xs[j]] = [xs[j], xs[i]];
+          }
+          return xs;
+        };
+        rows.push(...shuffled(rotaryHauls).slice(0, 2), ...shuffled(planeHauls).slice(0, 2));
       }
     } else {
       const pool = MISSION_TEMPLATES.filter((t) =>

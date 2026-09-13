@@ -20,7 +20,7 @@
  * that merely looked empty.
  */
 
-import type { AircraftTag } from "./game-data";
+import type { AircraftTag, WingType } from "./game-data";
 import {
   findPowerLines, findPowerTowers, pathLengthNm, samplePath, bearingBetween,
   type SiteFeatures,
@@ -141,7 +141,9 @@ export type Objective =
   /** Land back at a named field. */
   | { id: string; kind: "land"; label: string; icao: string | null; radius_nm: number }
   /** Pass over a point at low level -- inspection work along a route. */
-  | { id: string; kind: "overfly"; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number };
+  | { id: string; kind: "overfly"; label: string; lat: number; lon: number; radius_nm: number; max_agl_ft: number }
+  /** Climb to height over a point -- a skydive lift's jump run. */
+  | { id: string; kind: "climb"; label: string; lat: number; lon: number; radius_nm: number; min_agl_ft: number };
 
 export type ObjectiveKind = Objective["kind"];
 
@@ -1278,6 +1280,26 @@ export function searchAreaOf(
 // ---------------------------------------------------------------------------
 
 /**
+ * One lookup per key for the session.
+ *
+ * A batch asks for the same power lines twice now -- the helicopter patrol and
+ * the aeroplane one -- and Overpass is slow and often overloaded enough that
+ * asking twice is a real cost. A failure is forgotten so the next batch retries.
+ */
+const lookups = new Map<string, Promise<unknown>>();
+function once<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  let p = lookups.get(key) as Promise<T> | undefined;
+  if (!p) {
+    p = fn().catch((e: unknown) => {
+      lookups.delete(key);
+      throw e;
+    });
+    lookups.set(key, p);
+  }
+  return p;
+}
+
+/**
  * Build a patrol that follows an actual power line.
  *
  * MSFS renders its powerlines from OpenStreetMap, so a line OSM knows about is
@@ -1290,15 +1312,24 @@ export function searchAreaOf(
 export async function generatePowerlinePatrol(
   reputation: number,
   base: { lat: number; lon: number; icao: string | null; airports?: Airport[] },
+  /**
+   * An aeroplane flies the same kind of line higher and faster: below 1,500 ft
+   * AGL instead of 900, a wider zone per section, and a longer line so the trip
+   * is worth making.
+   */
+  wing: WingType = "rotary",
 ): Promise<Record<string, unknown> | null> {
-  const lines = await findPowerLines({ lat: base.lat, lon: base.lon }, 40);
+  const fixed = wing === "fixed";
+  const where = `${base.lat.toFixed(3)},${base.lon.toFixed(3)}`;
+  const lines = await once(`lines:${where}`, () => findPowerLines({ lat: base.lat, lon: base.lon }, 40));
   if (lines.length === 0) return null;
 
   // Prefer a line that's a sensible patrol length rather than the longest.
+  const idealNm = fixed ? 40 : 25;
   const usable = lines
     .map((l) => ({ l, len: pathLengthNm(l.geometry) }))
-    .filter((x) => x.len >= 3)
-    .sort((a, b) => Math.abs(a.len - 25) - Math.abs(b.len - 25));
+    .filter((x) => x.len >= (fixed ? 10 : 3))
+    .sort((a, b) => Math.abs(a.len - idealNm) - Math.abs(b.len - idealNm));
   if (usable.length === 0) return null;
 
   const { l: line, len } = usable[0];
@@ -1320,7 +1351,9 @@ export async function generatePowerlinePatrol(
   // is a bonus applied to each point independently, and a point with no tower
   // within ~280 m simply stays where the geometry put it.
   try {
-    const towers = await findPowerTowers({ lat: base.lat, lon: base.lon }, 40);
+    const towers = await once(`towers:${where}`, () =>
+      findPowerTowers({ lat: base.lat, lon: base.lon }, 40),
+    );
     if (towers.length > 0) {
       points = points.map((p) => {
         let best: { lat: number; lon: number } | null = null;
@@ -1353,8 +1386,10 @@ export async function generatePowerlinePatrol(
     // than the corridor a line actually occupies. 0.2 lands at 0.27 nm --
     // about 500 m, which is close enough to the towers to see them and
     // still holds a margin for a crosswind at 90 kts.
-    radius_nm: 0.2,
-    max_agl_ft: 900,
+    // Not yet flown in an aeroplane: 0.35 nm is a guess at how tightly one can
+    // track a line at 120 kts, where a helicopter at 60 manages 0.2.
+    radius_nm: fixed ? 0.35 : 0.2,
+    max_agl_ft: fixed ? 1500 : 900,
   }));
 
   objectives.push({
@@ -1371,16 +1406,20 @@ export async function generatePowerlinePatrol(
 
   return {
     role: "patrol",
-    title: line.name ? `Line Patrol — ${line.name}` : "Powerline Patrol",
+    title: fixed
+      ? line.name ? `Aerial Line Patrol — ${line.name}` : "Aerial Line Patrol"
+      : line.name ? `Line Patrol — ${line.name}` : "Powerline Patrol",
     description:
-      `Low-level inspection of ${label}` +
+      `${fixed ? "Fixed-wing" : "Low-level"} inspection of ${label}` +
       (line.voltage ? ` (${line.voltage} V)` : "") +
       `. ${len.toFixed(0)} nm of conductor, ${points.length} sections. ` +
-      `Stay below 500 ft AGL over each one — cameras rolling.`,
+      (fixed
+        ? `Stay below 1,500 ft AGL over each one, then land back at ${base.icao ?? "base"}.`
+        : `Stay below 500 ft AGL over each one — cameras rolling.`),
     required_tags: ["survey", "patrol"] as AircraftTag[],
     required_certs: [],
     min_payload: 300,
-    payout: Math.round((3800 + len * 90) * variance * (1 + reputation / 200)),
+    payout: Math.round((fixed ? 5000 : 3800 + len * 90) * variance * (1 + reputation / 200)),
     distance_nm: Math.round(len * 1.6),
     difficulty: 2,
     weather_factor: 2,
@@ -1388,7 +1427,8 @@ export async function generatePowerlinePatrol(
     destination: base.icao,
     scene_lat: Number(start.lat.toFixed(5)),
     scene_lon: Number(start.lon.toFixed(5)),
-    scene_type: "field" as SceneType,
+    // `airport` files it with the aeroplane work, and the bridge stages nothing for it.
+    scene_type: (fixed ? "airport" : "field") as SceneType,
     scene_name: line.name ?? "Transmission line",
     nearest_airport_icao: nearest?.icao ?? null,
     nearest_airport_nm: nearest?.distance_nm ?? null,

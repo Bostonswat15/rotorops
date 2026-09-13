@@ -12,15 +12,16 @@
  * cache and topped up from OSM -- which means a destination here is a field
  * that genuinely exists at a distance the aircraft can actually make.
  *
- * Objectives reuse the existing kinds (`land`, `reach`, `overfly`), so the sim
- * bridge needs no changes: it already resolves an ICAO through the facility
- * cache and already knows what overflying a point at height means.
+ * A few jobs aren't runway to runway. A skydive lift climbs over its own field,
+ * a floatplane run lands on water, a spotting patrol goes low over smoke. Those
+ * use `climb`, `land_off` and `overfly`; `climb` is the one objective the bridge
+ * had to learn for them.
  */
 
 import type { AircraftTag } from "./game-data";
 import {
   distanceNm, nearestAirport, offsetPosition,
-  type Airport, type Objective,
+  type Airport, type Objective, type PlacementSites,
 } from "./missions";
 
 /** How a fixed-wing job is shaped. */
@@ -30,7 +31,15 @@ export type FixedWingKind =
   /** Out, then home again: charters, air ambulance, anything with a return leg. */
   | "round_trip"
   /** A track flown at height and back -- survey, patrol, photography. */
-  | "survey";
+  | "survey"
+  /** Jumpers aboard, a climb over the home field, back down. */
+  | "skydive"
+  /** Several fields in a row -- a mail run, a hopper -- and maybe home after. */
+  | "multi_stop"
+  /** Low passes over reported smoke, then home. */
+  | "spotting"
+  /** Down on the water at a lodge and back to the float base. No runway at either end. */
+  | "water";
 
 export type FixedWingTemplate = {
   role: string;
@@ -42,7 +51,8 @@ export type FixedWingTemplate = {
   required_certs: string[];
   min_payload: number;
   /**
-   * Shortest strip the contract can be flown into, in feet.
+   * Shortest strip the contract can be flown into, in feet. 0 for a job with
+   * no runway at all.
    *
    * The one figure that decides whether a job is a bush job or an airline job.
    * Nothing enforces it against the airframe yet -- the sim's facility cache
@@ -51,10 +61,36 @@ export type FixedWingTemplate = {
    */
   min_runway_ft: number;
   base_payout: number;
-  /** How far out the destination sits, in nautical miles. */
+  /** How far out the destination sits, in nautical miles. Per leg for multi_stop. */
   leg_range: [number, number];
   difficulty: number;
   weather_factor: number;
+  /** multi_stop: how many fields, in order. */
+  stops?: number;
+  /** multi_stop: fly home after the last one. */
+  returns?: boolean;
+  /** multi_stop: added to base_payout for each field on the run. */
+  per_stop_payout?: number;
+  /** Used instead of `title` when the base is on the coast. */
+  coastal_title?: string;
+};
+
+/** How high a skydive lift climbs, above the field. */
+export const SKYDIVE_AGL_FT = 10000;
+
+/**
+ * How close the nearest water has to be for a base to have a float base at
+ * all. A floatplane can't use the runway, so water 30 nm away is no use.
+ */
+const FLOAT_BASE_MAX_NM = 10;
+
+export type FixedWingBase = {
+  lat: number;
+  lon: number;
+  icao: string | null;
+  airports?: Airport[];
+  /** The base's scanned water, roads and hospitals. Only the floatplane run needs it. */
+  sites?: PlacementSites | null;
 };
 
 export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
@@ -86,6 +122,15 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     min_payload: 3000, min_runway_ft: 3500, base_payout: 9400,
     leg_range: [70, 240], difficulty: 2, weather_factor: 3,
   },
+  {
+    role: "mail",
+    title: "Mail Run",
+    brief: "Mailbags for {dest}, landing at each in that order. The last stop keeps the aircraft overnight.",
+    kind: "multi_stop", stops: 3, returns: false, per_stop_payout: 1000,
+    required_tags: ["cargo", "light_utility", "bush"], required_certs: [],
+    min_payload: 300, min_runway_ft: 1500, base_payout: 3000,
+    leg_range: [20, 60], difficulty: 2, weather_factor: 2,
+  },
 
   // --- Passengers ----------------------------------------------------------
   {
@@ -100,11 +145,42 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
   {
     role: "charter",
     title: "Regional Shuttle",
-    brief: "Scheduled passenger rotation to {dest}. Full load, tight turnaround, back before dark.",
+    brief: "Scheduled passenger rotation to {dest}. Full cabin, tight turnaround, back before dark.",
     kind: "round_trip",
-    required_tags: ["airline"], required_certs: [],
-    min_payload: 6000, min_runway_ft: 4000, base_payout: 15500,
+    // Was 6,000 lb for the airline tag alone: more than any aeroplane in the
+    // catalogue carries (the King Air 350i tops out at 5,150), so nothing could
+    // ever fly it.
+    required_tags: ["airline", "medium_utility", "vip"], required_certs: [],
+    min_payload: 2500, min_runway_ft: 4000, base_payout: 15500,
     leg_range: [70, 200], difficulty: 2, weather_factor: 3,
+  },
+  {
+    role: "charter",
+    title: "Lodge Hopper",
+    coastal_title: "Island Hopper",
+    brief: "Guests to drop at {dest}, then home empty. Short hops and a lot of landings.",
+    kind: "multi_stop", stops: 2, returns: true, per_stop_payout: 0,
+    required_tags: ["medium_utility", "vip", "bush"], required_certs: [],
+    min_payload: 1000, min_runway_ft: 1800, base_payout: 6500,
+    leg_range: [25, 80], difficulty: 2, weather_factor: 2,
+  },
+  {
+    role: "floatplane",
+    title: "Floatplane Lodge Run",
+    brief: "Supplies and guests for a lodge on the water, {dest}. No runway at the other end — put it down by the dock, then bring it home to the float base.",
+    kind: "water",
+    required_tags: ["floats"], required_certs: [],
+    min_payload: 600, min_runway_ft: 0, base_payout: 5500,
+    leg_range: [10, 50], difficulty: 3, weather_factor: 3,
+  },
+  {
+    role: "skydive",
+    title: "Skydive Lift",
+    brief: "A load of jumpers out of {dest}. Climb to 10,000 ft above the field, let them go over the drop zone, and come back down.",
+    kind: "skydive",
+    required_tags: ["medium_utility"], required_certs: [],
+    min_payload: 800, min_runway_ft: 1800, base_payout: 2800,
+    leg_range: [0, 0], difficulty: 1, weather_factor: 2,
   },
   {
     role: "training",
@@ -156,6 +232,15 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     leg_range: [60, 200], difficulty: 2, weather_factor: 3,
   },
   {
+    role: "patrol",
+    title: "Fire Spotting Patrol",
+    brief: "Smoke reported in three places around {dest}. Get down low over each for a proper look, then report back.",
+    kind: "spotting",
+    required_tags: ["patrol", "survey"], required_certs: [],
+    min_payload: 300, min_runway_ft: 2000, base_payout: 6000,
+    leg_range: [20, 60], difficulty: 2, weather_factor: 2,
+  },
+  {
     role: "positioning",
     title: "Ferry Flight",
     brief: "Airframe is wanted at {dest} for tomorrow. Empty legs pay poorly, but they beat leaving it parked.",
@@ -167,6 +252,10 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
 ];
 
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
+
+/** "A", "A and B", "A, B and C". */
+const listOf = (xs: string[]) =>
+  xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
 
 /**
  * Choose a destination field roughly the requested distance out.
@@ -216,17 +305,101 @@ export function pickDestination(
 }
 
 /**
+ * A run of fields one after another, each a leg from the last, never visiting
+ * the same field twice or coming back through base. Null when the base doesn't
+ * know enough airports to string that many together.
+ */
+function pickChain(
+  base: FixedWingBase,
+  stops: number,
+  [lo, hi]: [number, number],
+): { icao: string; lat: number; lon: number; distance_nm: number }[] | null {
+  const visited = new Set([String(base.icao ?? "").toUpperCase()]);
+  const chain: { icao: string; lat: number; lon: number; distance_nm: number }[] = [];
+  let from: { lat: number; lon: number; icao: string | null } = base;
+  for (let i = 0; i < stops; i++) {
+    const unvisited = (base.airports ?? []).filter((a) => !visited.has(String(a.icao).toUpperCase()));
+    const next = pickDestination(from, unvisited, lo + Math.random() * (hi - lo));
+    if (!next) return null;
+    visited.add(next.icao.toUpperCase());
+    chain.push(next);
+    from = next;
+  }
+  return chain;
+}
+
+/**
  * Turn a fixed-wing template into a live contract.
  *
- * Returns null when the base has no usable airports, since the whole contract
- * is built around a real destination and there is nothing honest to fall back
- * on -- unlike a scene, an airport cannot be invented.
+ * Returns null when the base can't honestly support the job -- no airports for
+ * a destination, not enough of them in a row for a mail run, no water near the
+ * field for a floatplane. Unlike a scene, an airport or a lake cannot be invented.
  */
 export function generateFixedWingMission(
   t: FixedWingTemplate,
   reputation: number,
-  base: { lat: number; lon: number; icao: string | null; airports?: Airport[] },
+  base: FixedWingBase,
 ): Record<string, unknown> | null {
+  switch (t.kind) {
+    case "skydive":
+      return skydiveLift(t, reputation, base);
+    case "multi_stop":
+      return multiStop(t, reputation, base);
+    case "spotting":
+      return spottingPatrol(t, reputation, base);
+    case "water":
+      return floatplaneRun(t, reputation, base);
+    default:
+      return pointToPoint(t, reputation, base);
+  }
+}
+
+/** The columns every fixed-wing contract shares, whatever shape the job is. */
+function contractRow(
+  t: FixedWingTemplate,
+  reputation: number,
+  base: FixedWingBase,
+  job: {
+    objectives: Objective[];
+    destination: string | null;
+    distance_nm: number;
+    scene: { lat: number; lon: number; name: string };
+    brief: string;
+    title?: string;
+    payout?: number;
+  },
+): Record<string, unknown> {
+  const variance = 0.85 + Math.random() * 0.4;
+  const nearest = nearestAirport(job.scene.lat, job.scene.lon, base.airports);
+  return {
+    role: t.role,
+    title: job.title ?? t.title,
+    description:
+      job.brief +
+      (t.min_runway_ft > 0 ? ` Shortest usable strip: ${t.min_runway_ft.toLocaleString()} ft.` : ""),
+    required_tags: t.required_tags,
+    required_certs: t.required_certs,
+    min_payload: t.min_payload,
+    payout: Math.round((job.payout ?? t.base_payout) * variance * (1 + reputation / 200)),
+    distance_nm: Math.max(2, Math.round(job.distance_nm)),
+    difficulty: t.difficulty,
+    weather_factor: t.weather_factor,
+    origin: base.icao,
+    destination: job.destination,
+    scene_lat: job.scene.lat,
+    scene_lon: job.scene.lon,
+    // `airport` is what marks a contract as fixed-wing. scene_type is plain
+    // text, so this needs no migration and no new column.
+    scene_type: "airport",
+    scene_name: job.scene.name,
+    nearest_airport_icao: nearest?.icao ?? null,
+    nearest_airport_nm: nearest?.distance_nm ?? null,
+    objectives: job.objectives as unknown as Record<string, unknown>[],
+  };
+}
+
+/** Delivery, round trip and survey: out to a real field and, maybe, back. */
+function pointToPoint(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
   const [lo, hi] = t.leg_range;
   const legNm = lo + Math.random() * (hi - lo);
   const dest = pickDestination(base, base.airports, legNm);
@@ -272,35 +445,146 @@ export function generateFixedWingMission(
     }
   }
 
-  const variance = 0.85 + Math.random() * 0.4;
   const roundTrip = t.kind !== "delivery";
-  const nearest = nearestAirport(dest.lat, dest.lon, base.airports);
-
-  return {
-    role: t.role,
-    title: t.title,
-    description:
-      t.brief.replace("{dest}", dest.icao) +
-      ` Shortest usable strip: ${t.min_runway_ft.toLocaleString()} ft.`,
-    required_tags: t.required_tags,
-    required_certs: t.required_certs,
-    min_payload: t.min_payload,
-    payout: Math.round(t.base_payout * variance * (1 + reputation / 200)),
-    distance_nm: Math.max(2, Math.round(dest.distance_nm * (roundTrip ? 2 : 1))),
-    difficulty: t.difficulty,
-    weather_factor: t.weather_factor,
-    origin: base.icao,
+  return contractRow(t, reputation, base, {
+    objectives,
     destination: roundTrip ? base.icao : dest.icao,
-    scene_lat: dest.lat,
-    scene_lon: dest.lon,
-    // `airport` is what marks a contract as fixed-wing. scene_type is plain
-    // text, so this needs no migration and no new column.
-    scene_type: "airport",
-    scene_name: dest.icao,
-    nearest_airport_icao: nearest?.icao ?? dest.icao,
-    nearest_airport_nm: nearest?.distance_nm ?? 0,
-    objectives: objectives as unknown as Record<string, unknown>[],
-  };
+    distance_nm: dest.distance_nm * (roundTrip ? 2 : 1),
+    scene: { lat: dest.lat, lon: dest.lon, name: dest.icao },
+    brief: t.brief.replace("{dest}", dest.icao),
+  });
+}
+
+/** Jumpers aboard at the home field, a climb over it, and back down. */
+function skydiveLift(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
+  const field = base.icao ?? "the field";
+  const objectives: Objective[] = [
+    // The bridge puts the weight aboard once you're stopped on the ground,
+    // exactly as it boards a casualty.
+    { id: "board", kind: "payload", label: "Board the jumpers", min_delta_lb: t.min_payload },
+    {
+      id: "jump_run", kind: "climb",
+      label: `Climb to ${SKYDIVE_AGL_FT.toLocaleString()} ft AGL over ${field}`,
+      lat: base.lat, lon: base.lon, radius_nm: 3, min_agl_ft: SKYDIVE_AGL_FT,
+    },
+    { id: "return", kind: "land", label: `Land back at ${field}`, icao: base.icao, radius_nm: 2 },
+  ];
+  return contractRow(t, reputation, base, {
+    objectives,
+    destination: base.icao,
+    distance_nm: 20,
+    scene: { lat: base.lat, lon: base.lon, name: `${field} drop zone` },
+    brief: t.brief.replace("{dest}", field),
+  });
+}
+
+/** A mail run or a hopper: several fields in order, home afterwards or not. */
+function multiStop(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
+  const stops = t.stops ?? 2;
+  const chain = pickChain(base, stops, t.leg_range);
+  if (!chain) return null;
+
+  const objectives: Objective[] = chain.map(
+    (s, i): Objective => ({
+      id: `stop${i + 1}`, kind: "land",
+      label: `Stop ${i + 1} of ${stops}: land at ${s.icao}`,
+      icao: s.icao, radius_nm: 2,
+    }),
+  );
+  let distance = chain.reduce((sum, s) => sum + s.distance_nm, 0);
+  const last = chain[chain.length - 1];
+  if (t.returns) {
+    objectives.push({
+      id: "return", kind: "land",
+      label: `Home to ${base.icao ?? "base"}`,
+      icao: base.icao, radius_nm: 2,
+    });
+    distance += distanceNm(last.lat, last.lon, base.lat, base.lon);
+  }
+
+  const coastal = !!base.sites && (base.sites.offshore.length > 0 || base.sites.shore.length > 0);
+  return contractRow(t, reputation, base, {
+    objectives,
+    destination: t.returns ? base.icao : last.icao,
+    distance_nm: distance,
+    scene: { lat: chain[0].lat, lon: chain[0].lon, name: chain.map((s) => s.icao).join(" → ") },
+    brief: t.brief.replace("{dest}", listOf(chain.map((s) => s.icao))),
+    title: coastal && t.coastal_title ? t.coastal_title : t.title,
+    payout: t.base_payout + (t.per_stop_payout ?? 0) * stops,
+  });
+}
+
+/** Three smoke reports around a real field, passed over low, then home. */
+function spottingPatrol(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
+  const [lo, hi] = t.leg_range;
+  const dest = pickDestination(base, base.airports, lo + Math.random() * (hi - lo));
+  if (!dest) return null;
+
+  // Spread round the field a few miles out, so it's a patrol rather than three
+  // passes over one hillside.
+  const first = Math.random() * 360;
+  const objectives: Objective[] = [0, 1, 2].map((i): Objective => {
+    const p = offsetPosition(dest.lat, dest.lon, 4 + Math.random() * 6, first + i * 120);
+    return {
+      id: `smoke${i + 1}`, kind: "overfly",
+      label: `Check smoke report ${i + 1} of 3`,
+      lat: p.lat, lon: p.lon, radius_nm: 1, max_agl_ft: 3000,
+    };
+  });
+  objectives.push({
+    id: "return", kind: "land",
+    label: `Report back at ${base.icao ?? "base"}`,
+    icao: base.icao, radius_nm: 2,
+  });
+
+  return contractRow(t, reputation, base, {
+    objectives,
+    destination: base.icao,
+    distance_nm: dest.distance_nm * 2 + 30,
+    scene: { lat: dest.lat, lon: dest.lon, name: `Smoke near ${dest.icao}` },
+    brief: t.brief.replace("{dest}", dest.icao),
+  });
+}
+
+/**
+ * A lodge on mapped water and back to the float base -- the water nearest the
+ * home field. Lakes and shoreline both count; rivers are too narrow to trust.
+ *
+ * Not yet flown: this relies on the sim reporting a floatplane on the water as
+ * on the ground, which is how land_off and boarding know it has landed.
+ */
+function floatplaneRun(t: FixedWingTemplate, reputation: number, base: FixedWingBase) {
+  const water = [...(base.sites?.lake ?? []), ...(base.sites?.shore ?? [])].map(([lat, lon]) => ({
+    lat, lon, fromBase: distanceNm(base.lat, base.lon, lat, lon),
+  }));
+  if (water.length < 2) return null;
+
+  const home = water.reduce((a, b) => (b.fromBase < a.fromBase ? b : a));
+  if (home.fromBase > FLOAT_BASE_MAX_NM) return null;
+
+  const [lo, hi] = t.leg_range;
+  const want = lo + Math.random() * (hi - lo);
+  const lodges = water
+    .map((w) => ({ ...w, leg: distanceNm(home.lat, home.lon, w.lat, w.lon) }))
+    .filter((w) => w.leg >= 5)
+    .sort((a, b) => Math.abs(a.leg - want) - Math.abs(b.leg - want))
+    .slice(0, 5);
+  if (lodges.length === 0) return null;
+  const lodge = pick(lodges);
+
+  const objectives: Objective[] = [
+    { id: "board", kind: "payload", label: "Take the guests and supplies aboard", min_delta_lb: t.min_payload },
+    { id: "lodge", kind: "land_off", label: "Land on the water at the lodge", lat: lodge.lat, lon: lodge.lon, radius_nm: 0.8 },
+    { id: "home", kind: "land_off", label: "Back to the float base", lat: home.lat, lon: home.lon, radius_nm: 1 },
+  ];
+
+  return contractRow(t, reputation, base, {
+    objectives,
+    destination: base.icao,
+    distance_nm: lodge.leg * 2,
+    scene: { lat: lodge.lat, lon: lodge.lon, name: "Lodge on the water" },
+    brief: t.brief.replace("{dest}", `${Math.round(lodge.leg)} nm out`),
+  });
 }
 
 /** Is this contract an aeroplane job? */

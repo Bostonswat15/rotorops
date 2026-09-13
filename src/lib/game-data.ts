@@ -25,7 +25,9 @@ export type AircraftTag =
   // Fixed-wing work.
   | "cargo"
   | "bush"
-  | "airline";
+  | "airline"
+  /** On floats: lands on water, and can't use a runway. */
+  | "floats";
 
 export const ALL_TAGS: AircraftTag[] = [
   "trainer",
@@ -42,6 +44,7 @@ export const ALL_TAGS: AircraftTag[] = [
   "cargo",
   "bush",
   "airline",
+  "floats",
 ];
 
 export const TAG_LABELS: Record<AircraftTag, string> = {
@@ -59,6 +62,7 @@ export const TAG_LABELS: Record<AircraftTag, string> = {
   cargo: "Freight",
   bush: "Bush / Short Field",
   airline: "Regional Airline",
+  floats: "Floatplane",
 };
 
 export const ALL_CERTS = [

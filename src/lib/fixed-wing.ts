@@ -72,12 +72,22 @@ export type FixedWingTemplate = {
   returns?: boolean;
   /** multi_stop: added to base_payout for each field on the run. */
   per_stop_payout?: number;
+  /**
+   * Pay by distance (user approved 2026-09-14): the contract pays
+   * PAY_FEE_SHARE of base_payout as a fee, plus this much per nautical mile of
+   * the trip -- a delivery counts the flight home too. Absent means the old
+   * flat base_payout, which only the skydive lift keeps.
+   */
+  pay_per_nm?: number;
   /** Used instead of `title` when the base is on the coast. */
   coastal_title?: string;
 };
 
 /** How high a skydive lift climbs, above the field. */
 export const SKYDIVE_AGL_FT = 10000;
+
+/** Share of base_payout paid as the fee on a contract that pays by distance. */
+export const PAY_FEE_SHARE = 0.5;
 
 /**
  * Runway matching (user approved 2026-09-13). A bush job only goes to a strip:
@@ -130,7 +140,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Palletised freight out to {dest}. Routine, and it pays the bills between the interesting jobs.",
     kind: "delivery",
     required_tags: ["cargo", "medium_utility"], required_certs: [],
-    min_payload: 1500, min_runway_ft: 2500, base_payout: 4200,
+    min_payload: 1500, min_runway_ft: 2500, base_payout: 4200, pay_per_nm: 40,
     leg_range: [35, 150], difficulty: 1, weather_factor: 2,
   },
   {
@@ -139,7 +149,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Stores into {dest}. Short, unpaved and no go-around worth the name — check your numbers before you commit.",
     kind: "delivery",
     required_tags: ["bush", "cargo"], required_certs: [],
-    min_payload: 900, min_runway_ft: 1200, base_payout: 6800,
+    min_payload: 900, min_runway_ft: 1200, base_payout: 6800, pay_per_nm: 25,
     leg_range: [40, 160], difficulty: 4, weather_factor: 3,
     bush_strip: true,
   },
@@ -149,7 +159,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Time-critical consignment to {dest}. Wheels up as soon as you can — the courier is waiting the other end.",
     kind: "delivery",
     required_tags: ["cargo", "airline"], required_certs: [],
-    min_payload: 3000, min_runway_ft: 3500, base_payout: 9400,
+    min_payload: 3000, min_runway_ft: 3500, base_payout: 9400, pay_per_nm: 60,
     leg_range: [70, 240], difficulty: 2, weather_factor: 3,
   },
   {
@@ -158,7 +168,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Mailbags for {dest}, landing at each in that order. The last stop keeps the aircraft overnight.",
     kind: "multi_stop", stops: 3, returns: false, per_stop_payout: 1000,
     required_tags: ["cargo", "light_utility", "bush"], required_certs: [],
-    min_payload: 300, min_runway_ft: 1500, base_payout: 3000,
+    min_payload: 300, min_runway_ft: 1500, base_payout: 3000, pay_per_nm: 25,
     leg_range: [20, 60], difficulty: 2, weather_factor: 2,
   },
 
@@ -169,7 +179,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Two directors out to {dest} and back the same day. They will notice the landing.",
     kind: "round_trip",
     required_tags: ["vip"], required_certs: [],
-    min_payload: 700, min_runway_ft: 2500, base_payout: 8600,
+    min_payload: 700, min_runway_ft: 2500, base_payout: 8600, pay_per_nm: 40,
     leg_range: [45, 170], difficulty: 2, weather_factor: 2,
   },
   {
@@ -181,7 +191,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     // catalogue carries (the King Air 350i tops out at 5,150), so nothing could
     // ever fly it.
     required_tags: ["airline", "medium_utility", "vip"], required_certs: [],
-    min_payload: 2500, min_runway_ft: 4000, base_payout: 15500,
+    min_payload: 2500, min_runway_ft: 4000, base_payout: 15500, pay_per_nm: 60,
     leg_range: [70, 200], difficulty: 2, weather_factor: 3,
   },
   {
@@ -191,7 +201,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Guests to drop at {dest}, then home empty. Short hops and a lot of landings.",
     kind: "multi_stop", stops: 2, returns: true, per_stop_payout: 0,
     required_tags: ["medium_utility", "vip", "bush"], required_certs: [],
-    min_payload: 1000, min_runway_ft: 1800, base_payout: 6500,
+    min_payload: 1000, min_runway_ft: 1800, base_payout: 6500, pay_per_nm: 25,
     leg_range: [25, 80], difficulty: 2, weather_factor: 2,
     bush_strip: true,
   },
@@ -201,7 +211,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Supplies and guests for a lodge on the water, {dest}. No runway at the other end — put it down by the dock, then bring it home to the float base.",
     kind: "water",
     required_tags: ["floats"], required_certs: [],
-    min_payload: 600, min_runway_ft: 0, base_payout: 5500,
+    min_payload: 600, min_runway_ft: 0, base_payout: 5500, pay_per_nm: 25,
     leg_range: [10, 50], difficulty: 3, weather_factor: 3,
   },
   {
@@ -219,7 +229,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Student needs a qualifying cross-country to {dest} and back. You are along for the ride and the paperwork.",
     kind: "round_trip",
     required_tags: ["trainer"], required_certs: ["training"],
-    min_payload: 350, min_runway_ft: 1800, base_payout: 1900,
+    min_payload: 350, min_runway_ft: 1800, base_payout: 1900, pay_per_nm: 25,
     leg_range: [40, 120], difficulty: 1, weather_factor: 1,
   },
 
@@ -230,7 +240,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Stable patient and a nurse escort, moving to the specialist unit at {dest}. Smooth and straight.",
     kind: "delivery",
     required_tags: ["medevac"], required_certs: ["medevac"],
-    min_payload: 900, min_runway_ft: 3000, base_payout: 11200,
+    min_payload: 900, min_runway_ft: 3000, base_payout: 11200, pay_per_nm: 40,
     leg_range: [55, 190], difficulty: 2, weather_factor: 3,
   },
   {
@@ -239,7 +249,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Transplant team on the clock. Direct to {dest}, no deviations, and every minute is somebody's.",
     kind: "delivery",
     required_tags: ["medevac", "vip"], required_certs: ["medevac"],
-    min_payload: 600, min_runway_ft: 3200, base_payout: 18500,
+    min_payload: 600, min_runway_ft: 3200, base_payout: 18500, pay_per_nm: 60,
     leg_range: [90, 280], difficulty: 3, weather_factor: 4,
   },
 
@@ -250,7 +260,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Photographic run over the survey block beyond {dest}. Height and heading held, cameras rolling.",
     kind: "survey",
     required_tags: ["survey", "patrol"], required_certs: [],
-    min_payload: 400, min_runway_ft: 2000, base_payout: 7300,
+    min_payload: 400, min_runway_ft: 2000, base_payout: 7300, pay_per_nm: 40,
     leg_range: [40, 140], difficulty: 3, weather_factor: 3,
   },
   {
@@ -259,7 +269,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Track out past {dest} and work the legs. Looking for anything without a transponder.",
     kind: "survey",
     required_tags: ["patrol", "survey"], required_certs: [],
-    min_payload: 500, min_runway_ft: 2400, base_payout: 8100,
+    min_payload: 500, min_runway_ft: 2400, base_payout: 8100, pay_per_nm: 40,
     leg_range: [60, 200], difficulty: 2, weather_factor: 3,
   },
   {
@@ -268,7 +278,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Smoke reported in three places around {dest}. Get down low over each for a proper look, then report back.",
     kind: "spotting",
     required_tags: ["patrol", "survey"], required_certs: [],
-    min_payload: 300, min_runway_ft: 2000, base_payout: 6000,
+    min_payload: 300, min_runway_ft: 2000, base_payout: 6000, pay_per_nm: 25,
     leg_range: [20, 60], difficulty: 2, weather_factor: 2,
   },
   {
@@ -277,7 +287,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "Airframe is wanted at {dest} for tomorrow. Empty legs pay poorly, but they beat leaving it parked.",
     kind: "delivery",
     required_tags: ["light_utility", "trainer"], required_certs: [],
-    min_payload: 200, min_runway_ft: 1800, base_payout: 2400,
+    min_payload: 200, min_runway_ft: 1800, base_payout: 2400, pay_per_nm: 25,
     leg_range: [45, 160], difficulty: 1, weather_factor: 2,
   },
 ];
@@ -421,11 +431,19 @@ function contractRow(
     brief: string;
     title?: string;
     payout?: number;
+    /** Miles paid for, when the template pays by distance. Defaults to distance_nm. */
+    pay_nm?: number;
+    /** multi_stop: the per-stop fees, added to the fee. */
+    stop_fees?: number;
     /** Added to the briefing. */
     note?: string;
   },
 ): Record<string, unknown> {
   const variance = 0.85 + Math.random() * 0.4;
+  // A long leg burns more hours than a short one, so it has to pay more.
+  const pay = t.pay_per_nm
+    ? t.base_payout * PAY_FEE_SHARE + (job.stop_fees ?? 0) + t.pay_per_nm * (job.pay_nm ?? job.distance_nm)
+    : (job.payout ?? t.base_payout);
   const nearest = nearestAirport(job.scene.lat, job.scene.lon, base.airports);
   return {
     role: t.role,
@@ -437,7 +455,7 @@ function contractRow(
     required_tags: t.required_tags,
     required_certs: t.required_certs,
     min_payload: t.min_payload,
-    payout: Math.round((job.payout ?? t.base_payout) * variance * (1 + reputation / 200)),
+    payout: Math.round(pay * variance * (1 + reputation / 200)),
     distance_nm: Math.max(2, Math.round(job.distance_nm)),
     difficulty: t.difficulty,
     weather_factor: t.weather_factor,
@@ -512,6 +530,7 @@ function pointToPoint(t: FixedWingTemplate, reputation: number, base: FixedWingB
     objectives,
     destination: roundTrip ? base.icao : dest.icao,
     distance_nm: dest.distance_nm * (roundTrip ? 2 : 1),
+    pay_nm: dest.distance_nm * 2,
     scene: { lat: dest.lat, lon: dest.lon, name: dest.icao },
     brief: t.brief.replace("{dest}", dest.icao),
     note: t.kind === "survey" ? undefined : runwayNote(t, [dest]),
@@ -575,6 +594,7 @@ function multiStop(t: FixedWingTemplate, reputation: number, base: FixedWingBase
     brief: t.brief.replace("{dest}", listOf(chain.map((s) => s.icao))),
     title: coastal && t.coastal_title ? t.coastal_title : t.title,
     payout: t.base_payout + (t.per_stop_payout ?? 0) * stops,
+    stop_fees: (t.per_stop_payout ?? 0) * stops,
     note: runwayNote(t, chain),
   });
 }

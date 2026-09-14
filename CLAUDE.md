@@ -134,7 +134,18 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   / cash instead of a Book check ride button that only errors.
 - **In Flight keeps flights apart:** a contract dispatched to a different aircraft than the one
   loaded in the sim (`simAircraft.matchedId`) is not drawn as this flight; the panel shows it
-  as positioning with a note naming the aircraft the contract is on.
+  as positioning with a note naming the aircraft the contract is on. Since v0.6.3/v0.6.4 In
+  Flight and the Dashboard show only your own contracts, jobs, flights and aircraft
+  (`assigned_pilot_id` / `pilot_id` = you); company totals stay shared.
+- **Plane contracts pay by distance (user approved 2026-09-14):** `pay_per_nm` on each
+  `FIXED_WING_TEMPLATES` entry; payout = `base_payout x PAY_FEE_SHARE (0.5)` + per-stop fees +
+  `pay_per_nm x` miles (a delivery counts the flight home, `pay_nm`), then variance and
+  reputation as before. Light $25/nm (mail, instruction, ferry, spotting, floatplane, hopper,
+  bush resupply), utility $40/nm (scheduled freight, exec charter, survey, fisheries, air
+  ambulance), premium $60/nm (overnight freight, regional shuttle, organ transport). Skydive
+  stays flat. Only new boards: existing contracts keep their baked payout. Still only proposed,
+  not approved: Cargo Hub plane $12 -> $20/nm, lease 0.08% -> 0.03%/hr, fleet-aware board and
+  light bush contracts, realistic helicopter prices (option A hard-only / B everywhere).
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

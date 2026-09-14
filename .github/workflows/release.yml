@@ -73,6 +73,13 @@ jobs:
       # A GitHub Windows runner has the symlink privilege a normal desktop
       # account lacks, so electron-builder can unpack its signing toolchain and
       # the NSIS installer actually builds here.
+      # The updater compares version numbers, so the app has to carry the tag's.
+      # Every build used to call itself 0.1.0.
+      - name: Set app version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: npm --prefix desktop version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
       - name: Build installer
         working-directory: desktop
         env:
@@ -84,6 +91,8 @@ jobs:
           name: rotorops-windows
           path: |
             desktop/dist/*.exe
+            desktop/dist/latest.yml
+            desktop/dist/*.blockmap
             bridge/dist/rotorops-bridge.exe
           if-no-files-found: warn
 
@@ -91,14 +100,20 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          # latest.yml and the blockmap are what an installed copy reads to
+          # find, download and verify the new version.
           files: |
             desktop/dist/*.exe
+            desktop/dist/latest.yml
+            desktop/dist/*.blockmap
             bridge/dist/rotorops-bridge.exe
           generate_release_notes: true
           body: |
             ## Installing
 
-            Download **RotorOps Setup**, run it, and sign in.
+            Download **RotorOps Setup**, run it, and sign in. From here on the app
+            updates itself: it downloads new releases in the background and asks
+            to restart.
 
             To join someone's company, choose **Join with a code** on the setup
             screen and enter the invite code they generated from their Crew page.

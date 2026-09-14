@@ -92,6 +92,17 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
 
 - **Released `v0.4.4`** (2026-09-12, commit `dffbe95`, built by `release.yml` on tag push).
   Later work is committed locally, not pushed; tag or push only when the user asks.
+- **Auto-update (built 2026-09-14, at the user's request):** installed copies update from the
+  GitHub releases with `electron-updater` (`desktop/main.js` `setupUpdates`; check at startup
+  and every 4 h, background download, "Restart now / Later" dialog defaulting to Later while a
+  flight is tracked, install on quit, tray "Check for updates" / "Restart to update"). Needs:
+  `build.publish` github Bostonswat15/rotorops and `nsis.artifactName`
+  `RotorOps-Setup-${version}.${ext}` (GitHub renames spaces in asset names) in
+  `desktop/package.json`; `release.yml` stamps the tag's version into `desktop/package.json`
+  before electron-builder and uploads `desktop/dist/latest.yml` and `*.blockmap` with the
+  installer. Skipped when not packaged (start.bat); the package-for-friends zip logs an updater
+  error. Everyone on v0.6.0 or earlier installs the first updater release by hand. **Not yet
+  seen working:** needs two releases with the updater (e.g. v0.6.1 updating to v0.6.2).
 - **Migration to run:** `20260912000000_cliff_sites.sql` (adds the `cliff` key to
   `set_base_sites`). Until run, cliff rescues fall back to old placement.
 - **Migrations to run (2026-09-13), in order:** `20260913000000_transaction_aircraft.sql`

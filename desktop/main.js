@@ -9,7 +9,7 @@
  * signed in, so it mints a device token over IPC the first time it runs.
  */
 
-const { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Tray, Menu, nativeImage, dialog } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -321,6 +321,125 @@ ipcMain.handle('bridge:restart', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Updates
+//
+// An installed copy updates itself from the GitHub releases (electron-updater;
+// the provider is `build.publish` in package.json). It checks at startup and
+// every few hours, downloads in the background, then asks to restart -- and
+// installs on the next quit if the answer is later. Every release used to be a
+// fresh download and reinstall.
+//
+// Only an installed build can replace itself: start.bat runs from source, and
+// the zipped copy from package-for-friends has no installer to hand over to
+// (electron-updater errors there, which is logged and otherwise ignored).
+// ---------------------------------------------------------------------------
+
+const UPDATE_CHECK_MS = 4 * 60 * 60 * 1000;
+/** idle | checking | downloading | ready | none | error */
+let updateState = 'idle';
+let updateVersion = null;
+let updatePrompted = false;
+let manualCheck = false;
+let checkForUpdatesNow = null;
+let installUpdateNow = null;
+
+function setupUpdates() {
+  if (isDev) return;
+  let autoUpdater;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    diag(`updates: electron-updater unavailable: ${e.message}`);
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = {
+    info: (m) => diag(`updates: ${m}`),
+    warn: (m) => diag(`updates: ${m}`),
+    error: (m) => diag(`updates: ${m}`),
+    debug: () => {},
+  };
+
+  autoUpdater.on('checking-for-update', () => {
+    updateState = 'checking';
+    updateTray();
+  });
+  autoUpdater.on('update-not-available', () => {
+    updateState = 'none';
+    updateTray();
+    if (manualCheck) {
+      tray?.displayBalloon?.({ title: 'RotorOps is up to date', content: `You have the latest version, ${app.getVersion()}.` });
+    }
+    manualCheck = false;
+  });
+  autoUpdater.on('update-available', (info) => {
+    updateState = 'downloading';
+    updateVersion = info?.version ?? null;
+    manualCheck = false;
+    updateTray();
+  });
+  autoUpdater.on('error', (e) => {
+    updateState = 'error';
+    manualCheck = false;
+    diag(`updates: ${e?.message ?? e}`);
+    updateTray();
+  });
+  autoUpdater.on('update-downloaded', async (info) => {
+    updateState = 'ready';
+    updateVersion = info?.version ?? updateVersion;
+    updateTray();
+    if (updatePrompted) return;
+    updatePrompted = true;
+
+    // Restarting mid-flight would lose the flight, so the default is Later then.
+    const flying = !!lastStatus.flight;
+    const { response } = await dialog.showMessageBox(mainWindow ?? undefined, {
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      defaultId: flying ? 1 : 0,
+      cancelId: 1,
+      title: 'RotorOps update ready',
+      message: `RotorOps ${updateVersion ?? 'update'} has downloaded.`,
+      detail: flying
+        ? 'A flight is being tracked -- finish it first. The update installs when you quit RotorOps, or restart from the tray icon.'
+        : 'Restart now to use it, or it installs the next time you quit RotorOps.',
+    });
+    if (response === 0) installUpdateNow?.();
+  });
+
+  const check = () =>
+    autoUpdater.checkForUpdates().catch((e) => diag(`updates: check failed: ${e?.message ?? e}`));
+  checkForUpdatesNow = () => {
+    manualCheck = true;
+    updatePrompted = false;
+    check();
+  };
+  installUpdateNow = () => {
+    app.isQuitting = true;
+    bridge?.stop();
+    // Installs silently and opens the new version when it's done.
+    autoUpdater.quitAndInstall(true, true);
+  };
+
+  check();
+  setInterval(check, UPDATE_CHECK_MS);
+}
+
+function updateMenuItems() {
+  if (isDev) return [];
+  if (updateState === 'ready') {
+    return [{ label: `Restart to update${updateVersion ? ` to ${updateVersion}` : ''}`, click: () => installUpdateNow?.() }];
+  }
+  if (updateState === 'downloading') {
+    return [{ label: `Downloading update${updateVersion ? ` ${updateVersion}` : ''}…`, enabled: false }];
+  }
+  if (updateState === 'checking') return [{ label: 'Checking for updates…', enabled: false }];
+  return [{ label: `Check for updates (v${app.getVersion()})`, click: () => checkForUpdatesNow?.() }];
+}
+
+// ---------------------------------------------------------------------------
 // Window and tray
 // ---------------------------------------------------------------------------
 
@@ -335,6 +454,7 @@ function updateTray() {
     { label: sim, enabled: false },
     { label: flight, enabled: false },
     { type: 'separator' },
+    ...updateMenuItems(),
     { label: 'Open RotorOps', click: () => mainWindow?.show() },
     { label: 'Quit RotorOps', click: () => { app.isQuitting = true; bridge?.stop(); app.quit(); } },
   ]));
@@ -409,6 +529,7 @@ app.whenReady().then(async () => {
 
   await createWindow();
   probeSupabase();
+  setupUpdates();
 
   const token = readToken();
   if (token) {

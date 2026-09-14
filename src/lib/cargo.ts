@@ -11,6 +11,7 @@
  */
 
 import type { WingType } from "./game-data";
+import { PAY_SCALE } from "./economy";
 import { distanceNm, type Airport } from "./missions";
 import { INDUSTRY_DEFS, type IndustryKind } from "./industries";
 import { goodById } from "./goods";
@@ -141,7 +142,7 @@ export function jobPay(
   let pay = p.base + p.perNm * nm + p.perLb * lb;
   if (drop.kind === "site" || drop.kind === "hospital") pay *= OFF_AIRPORT_MULT;
   else if (wing === "fixed" && isBushStrip(drop)) pay *= BUSH_STRIP_MULT;
-  return Math.round(pay * variance * (1 + reputation / 200));
+  return Math.round(pay * PAY_SCALE * variance * (1 + reputation / 200));
 }
 
 export type CargoContext = {

@@ -21,6 +21,7 @@
  */
 
 import type { AircraftTag, WingType } from "./game-data";
+import { PAY_SCALE } from "./economy";
 import {
   findPowerLines, findPowerTowers, pathLengthNm, samplePath, bearingBetween,
   type SiteFeatures,
@@ -1256,7 +1257,7 @@ export function generateSceneMission(
     required_tags: t.required_tags,
     required_certs: t.required_certs,
     min_payload: t.min_payload,
-    payout: Math.round(t.base_payout * variance * (1 + reputation / 200)),
+    payout: Math.round(t.base_payout * PAY_SCALE * variance * (1 + reputation / 200)),
     // Out and back, so the economy charges roughly the right flight time.
     distance_nm: Math.max(2, Math.round(actualNm * 2)),
     difficulty: t.difficulty,
@@ -1439,7 +1440,7 @@ export async function generatePowerlinePatrol(
     required_tags: ["survey", "patrol"] as AircraftTag[],
     required_certs: [],
     min_payload: 300,
-    payout: Math.round((fixed ? 5000 : 3800 + len * 90) * variance * (1 + reputation / 200)),
+    payout: Math.round((fixed ? 5000 : 3800 + len * 90) * PAY_SCALE * variance * (1 + reputation / 200)),
     distance_nm: Math.round(len * 1.6),
     difficulty: 2,
     weather_factor: 2,

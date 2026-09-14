@@ -153,8 +153,18 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   plane pay $20/nm; plane jobs sized by `planeLimits` from the biggest plane: 60 lb to 70% of
   its payload (max 2,500), passengers up to its seats behind the pilot. Lease rate 0.03% of
   price per flight hour (`20260925000000_lease_rate.sql`, new leases only; mirrored in
-  market.tsx). Realistic helicopter prices everywhere (option B) chosen but not yet built: needs
-  a full price/payout table approved first.
+  market.tsx).
+- **Half-real economy (user approved 2026-09-14):** every catalogue aircraft (88) is priced at
+  about half its real-world value (helicopters were the sim's own figures, 5-15x too low; e.g.
+  H125 $1.3M, H145 $4.25M, Cabri $175k, C152 $30k, Caravan $1.4M). `src/lib/economy.ts`:
+  `PAY_SCALE = 2` multiplies every app-generated payout (missions, patrols, charters,
+  industries, fixed-wing, cargo `jobPay`, game-data templates); `STARTER_MAX_COST = 175_000`
+  limits free starters (both wings, cheapest first). `20260926000000_half_real_economy.sql`
+  (built by `scratchpad/build-economy.mjs`; carries create_company from 20260827120300,
+  company_loan_limit from 20260914, dispatch_trade_run from 20260918): starting cash Easy $1M /
+  Normal $500k / Hard $250k, starter guard, loan limit $250k + half resale, trade run margin x2,
+  and reprices owned non-leased aircraft to the new prices. Contracts already on a board keep
+  their old payout. Cert costs, lease deposit (2%) and royalties unchanged.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

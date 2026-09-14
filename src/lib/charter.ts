@@ -12,6 +12,7 @@
  */
 
 import type { AircraftTag } from "./game-data";
+import { PAY_SCALE } from "./economy";
 import { distanceNm, nearestAirport, type Airport, type Objective } from "./missions";
 import { homeField, pickDestination } from "./fixed-wing";
 
@@ -135,7 +136,7 @@ export function generateCharterMission(
     required_tags: t.required_tags,
     required_certs: t.required_certs,
     min_payload: t.min_payload,
-    payout: Math.round(t.base_payout * variance * (1 + reputation / 200)),
+    payout: Math.round(t.base_payout * PAY_SCALE * variance * (1 + reputation / 200)),
     distance_nm: Math.max(2, Math.round(dest.distance_nm * (roundTrip ? 2 : 1))),
     difficulty: t.difficulty,
     weather_factor: t.weather_factor,

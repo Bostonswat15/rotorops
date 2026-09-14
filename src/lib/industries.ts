@@ -18,6 +18,7 @@
  */
 
 import type { AircraftTag } from "./game-data";
+import { PAY_SCALE } from "./economy";
 import { GOODS, goodById, type Good } from "./goods";
 import {
   distanceNm, offsetPosition, nearestAirport,
@@ -304,7 +305,7 @@ export function generateIndustryHaul(
     required_tags: ["cargo", "medium_utility", "heavy_lift"] as AircraftTag[],
     required_certs: [],
     min_payload: Math.round(weight * 0.85),
-    payout: Math.round(payout * variance * (1 + reputation / 200)),
+    payout: Math.round(payout * PAY_SCALE * variance * (1 + reputation / 200)),
     distance_nm: Math.max(2, Math.round(legNm)),
     difficulty: 2,
     weather_factor: 2,
@@ -453,7 +454,7 @@ export function generateMarketHaul(
     required_tags: ["cargo", "medium_utility", "heavy_lift"] as AircraftTag[],
     required_certs: [],
     min_payload: Math.round(weight * 0.85),
-    payout: Math.round(qty * good.base_value * mult * variance * (1 + reputation / 200)),
+    payout: Math.round(qty * good.base_value * mult * PAY_SCALE * variance * (1 + reputation / 200)),
     distance_nm: Math.max(2, Math.round(distanceNm(base.lat, base.lon, from.lat, from.lon) + market.nm)),
     difficulty: 2,
     weather_factor: 2,
@@ -551,7 +552,7 @@ export function generatePlaneHaul(
     required_tags: ["cargo", "medium_utility"] as AircraftTag[],
     required_certs: [],
     min_payload: Math.round(weight * 0.85),
-    payout: Math.round(qty * unitPrice * variance * (1 + reputation / 200)),
+    payout: Math.round(qty * unitPrice * PAY_SCALE * variance * (1 + reputation / 200)),
     distance_nm: Math.max(2, Math.round(distanceNm(base.lat, base.lon, pickup.lat, pickup.lon) + legNm)),
     difficulty: 2,
     weather_factor: 2,

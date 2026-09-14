@@ -1,5 +1,6 @@
 // Helicopter archetypes for seeding & mission catalog.
 import { CATALOG_ARCHETYPES as CATALOG_ARCHETYPES_IMPL } from "./aircraft-catalog";
+import { PAY_SCALE } from "./economy";
 /**
  * Fixed-wing or rotary.
  *
@@ -375,7 +376,7 @@ export function generateMissionFromTemplate(
     required_tags: t.required_tags,
     required_certs: t.required_certs,
     min_payload: t.min_payload,
-    payout: Math.round(t.base_payout * variance * (1 + repBonus / 200)),
+    payout: Math.round(t.base_payout * PAY_SCALE * variance * (1 + repBonus / 200)),
     distance_nm: Math.round(t.distance_nm * (0.8 + Math.random() * 0.5)),
     difficulty: t.difficulty,
     weather_factor: t.weather_factor,

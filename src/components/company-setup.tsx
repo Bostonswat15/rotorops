@@ -7,16 +7,15 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ArrowLeft, Helicopter, Plane } from "lucide-react";
 import { toast } from "sonner";
 import { AIRCRAFT_ARCHETYPES, type AircraftArchetype, type WingType } from "@/lib/game-data";
+import { STARTER_MAX_COST } from "@/lib/economy";
 
-// What a new company can start with. Helicopters keep the three they always
-// had; planes get every stock fixed-wing airframe, cheapest first, so the list
-// reads trainer to jet.
-const STARTERS: Record<WingType, AircraftArchetype[]> = {
-  rotary: AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === "rotary").slice(0, 3),
-  fixed: AIRCRAFT_ARCHETYPES.filter((a) => a.wing === "fixed").sort(
+// What a new company can start with: anything up to STARTER_MAX_COST, cheapest
+// first. Planes used to offer every airframe, a $28.5M Citation included, free.
+const starters = (wing: WingType) =>
+  AIRCRAFT_ARCHETYPES.filter((a) => (a.wing ?? "rotary") === wing && a.acquisition_cost <= STARTER_MAX_COST).sort(
     (a, b) => a.acquisition_cost - b.acquisition_cost,
-  ),
-};
+  );
+const STARTERS: Record<WingType, AircraftArchetype[]> = { rotary: starters("rotary"), fixed: starters("fixed") };
 
 const DEFAULT_BASE: Record<WingType, string> = {
   rotary: "Main Heliport",
@@ -201,9 +200,9 @@ export function CompanySetup({
             <Label className="mb-2 block">Difficulty</Label>
             <RadioGroup value={difficulty} onValueChange={setDifficulty} className="grid grid-cols-3 gap-2">
               {[
-                ["easy", "Easy", "$500k start"],
-                ["normal", "Normal", "$250k start"],
-                ["hard", "Hard", "$120k start"],
+                ["easy", "Easy", "$1M start"],
+                ["normal", "Normal", "$500k start"],
+                ["hard", "Hard", "$250k start"],
               ].map(([v, l, sub]) => (
                 <label key={v} className="flex cursor-pointer flex-col rounded-md border border-border bg-background p-3 has-[:checked]:border-primary has-[:checked]:bg-accent">
                   <RadioGroupItem value={v} className="sr-only" />

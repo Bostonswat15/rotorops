@@ -104,13 +104,16 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `20260918000000_industry_flow.sql` (hauls move stock via `industry_deliveries`, mills get
   `input_stock`, floats tag backfill), then `20260919000000_pilot_ratings.sql` (check rides
   inside a company). Each of the last six carries `rotorops_resolve_flight` forward; any later
-  change must start from the 20260919 copy. 20260919 also carries `dispatch_mission` and
+  change must start from the 20260922 copy (`20260922000000_fix_incident_lists.sql`, which
+  changes only its five `v_incidents || 'literal'` lines to `array_append` -- the untyped literal
+  was parsed as an array, so every flight with an incident failed to submit with "malformed
+  array literal"). 20260919 also carries `dispatch_mission` and
   `cancel_dispatch`; 20260918 last carried `dispatch_trade_run` and `industry_tick`;
   `service_aircraft` and `bridge_state` were last carried in 20260916. The Finance and Bases
   pages show a notice until theirs is run. 20260918 was built by carrying each function forward
   programmatically from its newest file, never retyped. Then `20260920000000_company_switch.sql`
   (carries `bridge_device` and `create_pairing_code` from 20260826120000_sim_bridge.sql), then
-  `20260921000000_delete_company.sql`.
+  `20260921000000_delete_company.sql`, then `20260922000000_fix_incident_lists.sql`.
 - **Several companies per account (built 2026-09-13):** the sidebar header is a switcher
   (`src/components/company-switcher.tsx`: `my_companies`, `set_active_company`, Start a new
   company, Join with a code; `CompanySetup` takes `onCancel`/`initialMode`). After any switch,

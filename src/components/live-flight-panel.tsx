@@ -23,16 +23,25 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   const { flight, track } = useLiveFlight();
   const objectives = useBridgeObjectives();
   const trip = useBridgeTrip();
-  const [simAircraft, setSimAircraft] = useState<BridgeStatus["simAircraft"]>(null);
+  const [bridge, setBridge] = useState<Pick<BridgeStatus, "simAircraft" | "paired" | "simConnected"> | null>(
+    null,
+  );
+  const simAircraft = bridge?.simAircraft ?? null;
 
-  // Only needed to explain why objectives are not arming, so it rides along
-  // with the status stream rather than getting its own poll.
+  // Only needed to explain why objectives are not arming, or why there is no
+  // map at all, so it rides along with the status stream rather than getting
+  // its own poll.
   useEffect(() => {
     const app = desktop();
     if (!app) return;
     let live = true;
-    app.status().then((st) => live && setSimAircraft(st?.simAircraft ?? null)).catch(() => {});
-    const off = app.onStatus((st) => live && setSimAircraft(st?.simAircraft ?? null));
+    const apply = (st: BridgeStatus | null) =>
+      live &&
+      setBridge(
+        st ? { simAircraft: st.simAircraft ?? null, paired: !!st.paired, simConnected: !!st.simConnected } : null,
+      );
+    app.status().then(apply).catch(() => {});
+    const off = app.onStatus(apply);
     return () => {
       live = false;
       off?.();
@@ -78,17 +87,28 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
 
   if (!flight) {
     // On the dashboard this panel simply is not there when nothing is flying.
-    // On a screen of its own, an empty screen would read as broken.
-    return fill ? (
+    // On a screen of its own, an empty screen would read as broken -- and one
+    // message for every cause left a pilot with no bridge running at all
+    // looking for a fault in MSFS. Say which step is missing.
+    if (!fill) return null;
+    const [headline, detail] = !desktop()
+      ? ["In Flight needs the RotorOps desktop app.", "The browser version can't talk to the sim."]
+      : !bridge?.paired
+        ? [
+            "The sim bridge isn't linked yet.",
+            "It links itself when the app opens. If this stays, open Settings → Sim Link.",
+          ]
+        : !bridge.simConnected
+          ? ["MSFS isn't connected.", "Start MSFS 2024 and get past the main menu — this connects by itself."]
+          : ["Connected to MSFS — waiting for a position.", "Load into a flight and the map fills in by itself."];
+    return (
       <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
         <div>
-          <p>No flight in progress.</p>
-          <p className="mt-1">
-            Load an aircraft in MSFS with the bridge connected and this fills in by itself.
-          </p>
+          <p>{headline}</p>
+          <p className="mt-1">{detail}</p>
         </div>
       </div>
-    ) : null;
+    );
   }
 
   // Public half of a SAR tasking: where they were last seen, and how far they

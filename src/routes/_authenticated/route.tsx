@@ -56,6 +56,17 @@ function AuthedLayout() {
     },
   });
 
+  // The desktop bridge only started once Settings -> Sim Link had been opened,
+  // or after founding or joining a company. A pilot who joined by invite and
+  // went straight to In Flight had no bridge running at all -- no map, and no
+  // flight logged. A no-op in a browser and once this install is linked.
+  useEffect(() => {
+    if (!company?.id) return;
+    ensureDesktopBridgeLinked().catch((e) =>
+      toast.error(`Could not link the sim bridge: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  }, [company?.id]);
+
   async function signOut() {
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });

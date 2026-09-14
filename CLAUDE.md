@@ -186,6 +186,16 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   string, and that the beacon rule sees the lights at engine start. A missing SimVar only
   drops its rule. CATEGORY decides rotary vs fixed limits (defaults rotary). No cloud-base
   SimVar is read, so the low-cloud half of the low-visibility bonus isn't implemented.
+- **Failed flight submissions are retried (built 2026-09-14):** `bridge/src/pending-flights.ts`
+  keeps them in `%APPDATA%\RotorOps\pending-flights.json` with the exact telemetry sent.
+  `classifyFailure`: server "mission already resolved / not found / assigned to another pilot"
+  -> dropped; a 5xx on a positioning flight -> not retried (may have logged; nothing stops a
+  duplicate); everything else (no response, 4xx, 5xx on a contract) -> retried after 1, 2, 5, 10
+  min then every 15, for 48 h. `api.ts` throws `RpcError` with the HTTP status (null = no
+  response). The runner retries all at start, due ones every 30 s, drops a contract entry once
+  `bridge_state.dispatched` no longer lists it, and the resumed-after-restart submit defers to
+  a queued flight for the same contract. Desktop runner only; the CLI `run` loop in index.ts
+  does not queue. **Not yet seen retrying live.**
 - **Crash rule (user's, 2026-09-13):** crash -> wear 100, grounded, Repair = 10% of price and
   restores pre-crash wear; contract back on the board reserved for that pilot with
   `restart_from` = origin; rep -2 x difficulty; only counts if the flight departs

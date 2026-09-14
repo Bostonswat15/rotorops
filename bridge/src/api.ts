@@ -92,6 +92,20 @@ export type ResolveResult = {
   restart_from?: string | null;
 };
 
+/**
+ * A failed call. `status` is the HTTP status, or null when no response came
+ * back at all -- which a retry needs to know: a 504 may have come after the
+ * work was done, a 400 is the database refusing it.
+ */
+export class RpcError extends Error {
+  readonly status: number | null;
+  constructor(message: string, status: number | null) {
+    super(message);
+    this.name = 'RpcError';
+    this.status = status;
+  }
+}
+
 async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
   const { url, key } = supabaseEnv();
   const headers: Record<string, string> = {
@@ -116,7 +130,7 @@ async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
     // detail (DNS, refused, TLS) is on the cause.
     const cause = (e as { cause?: { message?: string; code?: string } }).cause;
     const detail = cause?.message || cause?.code || (e as Error).message;
-    throw new Error(`${fn}: could not reach ${url} (${detail})`);
+    throw new RpcError(`${fn}: could not reach ${url} (${detail})`, null);
   }
 
   const text = await res.text();
@@ -128,7 +142,7 @@ async function rpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
     } catch {
       /* not JSON; use the raw body */
     }
-    throw new Error(`${fn}: ${message}`);
+    throw new RpcError(`${fn}: ${message}`, res.status);
   }
   return (text ? JSON.parse(text) : null) as T;
 }

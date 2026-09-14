@@ -16,7 +16,9 @@ import {
   fetchState, submitFlight, matchAircraft, setBasePosition, setBaseAirports, completeObjective,
   type BridgeState, type BridgeAircraft, type BridgeMission, type ResolveResult,
 } from './api.ts';
-import { readSceneObjects } from './config.ts';
+import { CONFIG_DIR, readSceneObjects } from './config.ts';
+import { PendingFlights, classifyFailure } from './pending-flights.ts';
+import { join } from 'node:path';
 import { roadWithRetry } from './roads.ts';
 
 /** How close to the filed destination counts as arriving there. */
@@ -77,6 +79,10 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
   let pollTimer: NodeJS.Timeout | null = null;
   let progressTimer: NodeJS.Timeout | null = null;
   let reconnectTimer: NodeJS.Timeout | null = null;
+  let retryTimer: NodeJS.Timeout | null = null;
+  /** Flights the server turned away, sent again until they log. */
+  const pending = new PendingFlights(join(CONFIG_DIR, 'pending-flights.json'));
+  let retrying = false;
   let stopped = false;
 
   const log = (message: string) => emit({ type: 'log', message });
@@ -598,6 +604,14 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       return;
     }
 
+    // A flight of this contract already failed to log and is queued with its
+    // real hours, fuel and score. Send that, not a stand-in with none of them.
+    if (pending.hasMission(m.id)) {
+      log(`"${m.title}" already has a flight waiting to log -- retrying it now.`);
+      void retryPending(true);
+      return;
+    }
+
     // No flown segment to close out -- the bridge was restarted after the job
     // was flown, so the flight tracker only knows about sitting on the pad.
     // This used to stop with a warning in a log file, which from the cockpit
@@ -855,52 +869,119 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       payload = Math.max(payload, mission.min_payload ?? 0);
     }
 
+    // Built once, so a submission that fails can be saved and sent again as it was.
+    const telemetry: Record<string, unknown> = {
+      // Never stand the contract's origin in for an unknown departure on a
+      // restart: where it took off from is exactly what is being checked.
+      departure: t.departure ?? (mission?.restart_from ? null : (mission?.origin ?? null)),
+      arrival,
+      duration_hr: t.duration_hr,
+      fuel_used: t.fuel_used,
+      payload,
+      touchdown_fpm: t.touchdown_fpm,
+      crashed: t.crashed,
+      incidents: t.incidents,
+      distance_flown_nm: t.distance_flown_nm,
+      sim_title: t.sim_title,
+      max_g: t.max_g,
+      started_at: t.started_at,
+      ended_at: t.ended_at,
+      score: t.score,
+      grade: t.grade,
+      score_items: t.score_items,
+    };
+
     try {
-      const result = await submitFlight(token, ac.id, mission?.id ?? null, {
-        // Never stand the contract's origin in for an unknown departure on a
-        // restart: where it took off from is exactly what is being checked.
-        departure: t.departure ?? (mission?.restart_from ? null : (mission?.origin ?? null)),
-        arrival,
-        duration_hr: t.duration_hr,
-        fuel_used: t.fuel_used,
-        payload,
-        touchdown_fpm: t.touchdown_fpm,
-        crashed: t.crashed,
-        incidents: t.incidents,
-        distance_flown_nm: t.distance_flown_nm,
-        sim_title: t.sim_title,
-        max_g: t.max_g,
-        started_at: t.started_at,
-        ended_at: t.ended_at,
-        score: t.score,
-        grade: t.grade,
-        score_items: t.score_items,
-      });
+      const result = await submitFlight(token, ac.id, mission?.id ?? null, telemetry);
       if (t.score != null) log(`Flight score: ${t.grade} (${t.score}/100)`);
       director?.clear();
       director?.setCasualtyWeight(0);
       casualtyLb = 0;
       boardSince = null;
-      emit({
-        type: 'flight-logged',
-        result,
-        aircraft: ac.display_name,
-        mission: mission?.title ?? null,
-      });
-      if (result.restart_required && mission) {
-        warn(
-          result.crashed
-            ? `CRASH: "${mission.title}" is reset and back on the board for you. Repair ` +
-                `${ac.display_name} on the Maintenance page, then restart it from ${result.restart_from ?? 'its origin'}.`
-            : `"${mission.title}" did not take off from ${result.restart_from ?? 'its origin'}, so it is reset again.`,
-        );
-      } else if (result.crashed) {
-        warn(`CRASH: ${ac.display_name} is grounded with crash damage -- repair it on the Maintenance page.`);
-      }
+      announceLogged(result, ac.display_name, mission?.title ?? null);
       await refresh();
     } catch (e) {
-      warn(`Failed to submit flight: ${(e as Error).message}`);
+      const message = (e as Error).message;
+      const verdict = classifyFailure(e, mission?.id ?? null);
+      if (verdict === 'drop') {
+        warn(`Failed to submit flight: ${message}`);
+        return;
+      }
+      if (verdict === 'unsure') {
+        warn(
+          `Failed to submit flight: ${message}. It may have been logged anyway -- check Flight Logs. ` +
+            'Not retried, so it cannot be logged twice.',
+        );
+        return;
+      }
+      pending.add(
+        {
+          aircraftId: ac.id,
+          missionId: mission?.id ?? null,
+          telemetry,
+          aircraft: ac.display_name,
+          mission: mission?.title ?? null,
+        },
+        message,
+      );
+      warn(`Failed to submit flight: ${message}. Saved -- it will be retried until it logs, including after a restart.`);
     }
+  }
+
+  /** Tell the app a flight logged, and anything it did to the contract. */
+  function announceLogged(result: ResolveResult, aircraft: string, missionTitle: string | null) {
+    emit({ type: 'flight-logged', result, aircraft, mission: missionTitle });
+    if (result.restart_required && missionTitle) {
+      warn(
+        result.crashed
+          ? `CRASH: "${missionTitle}" is reset and back on the board for you. Repair ` +
+              `${aircraft} on the Maintenance page, then restart it from ${result.restart_from ?? 'its origin'}.`
+          : `"${missionTitle}" did not take off from ${result.restart_from ?? 'its origin'}, so it is reset again.`,
+      );
+    } else if (result.crashed) {
+      warn(`CRASH: ${aircraft} is grounded with crash damage -- repair it on the Maintenance page.`);
+    }
+  }
+
+  /**
+   * Send queued flights again: the ones whose retry is due, or every one when
+   * `all` -- at startup, and when a finished contract turns out to be queued.
+   */
+  async function retryPending(all = false) {
+    if (retrying || pending.size === 0) return;
+    retrying = true;
+    let logged = false;
+    try {
+      for (const f of all ? pending.list() : pending.due()) {
+        const what = `${f.aircraft}${f.mission ? ` -- "${f.mission}"` : ''}`;
+        // Logged by hand or cancelled in the meantime: nothing left to send.
+        if (f.missionId && state && !state.dispatched.some((m) => m.id === f.missionId)) {
+          pending.remove(f.key);
+          log(`Dropped the queued flight ${what}: the contract is no longer in progress.`);
+          continue;
+        }
+        try {
+          const result = await submitFlight(token, f.aircraftId, f.missionId, f.telemetry);
+          pending.remove(f.key);
+          logged = true;
+          log(`Logged the queued flight ${what} after ${f.attempts} failed attempt${f.attempts === 1 ? '' : 's'}.`);
+          announceLogged(result, f.aircraft, f.mission);
+        } catch (e) {
+          const message = (e as Error).message;
+          if (classifyFailure(e, f.missionId) !== 'retry') {
+            pending.remove(f.key);
+            warn(`Gave up on the queued flight ${what}: ${message}`);
+          } else if (!pending.failed(f.key, message)) {
+            warn(`Gave up on the queued flight ${what} after two days of failing: ${message}`);
+          } else {
+            log(`Queued flight ${what} still not logged: ${message}`);
+          }
+        }
+      }
+    } finally {
+      retrying = false;
+    }
+    if (logged) await refresh();
   }
 
   async function connect() {
@@ -995,6 +1076,10 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       stopped = false;
       await refresh();
       pollTimer = setInterval(refresh, STATE_POLL_MS);
+      // Anything that failed to log before the app last closed goes again now,
+      // with the state just fetched to tell whether it is still wanted.
+      void retryPending(true);
+      retryTimer = setInterval(() => void retryPending(), 30_000);
       // Mid-flight figures for the status bar.
       progressTimer = setInterval(() => {
         const p = tracker?.progress;
@@ -1024,7 +1109,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       if (pollTimer) clearInterval(pollTimer);
       if (progressTimer) clearInterval(progressTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      pollTimer = progressTimer = null;
+      if (retryTimer) clearInterval(retryTimer);
+      pollTimer = progressTimer = retryTimer = null;
       reconnectTimer = null;
       sim?.close();
       sim = null;

@@ -23,7 +23,7 @@
 import type { AircraftTag, WingType } from "./game-data";
 import { PAY_SCALE } from "./economy";
 import {
-  findPowerLines, findPowerTowers, pathLengthNm, samplePath, bearingBetween,
+  findPowerLines, findPowerTowers, pathLengthNm, samplePath, bearingBetween, type PowerLine,
   type SiteFeatures,
 } from "./osm";
 
@@ -1320,6 +1320,47 @@ function once<T>(key: string, fn: () => Promise<T>): Promise<T> {
   return p;
 }
 
+/** How many of the best-fitting lines a patrol chooses between. */
+export const PATROL_CHOICES = 6;
+/** A line passing this close to the start of a patrol already on the board is that line. */
+export const PATROL_AVOID_NM = 0.5;
+
+/**
+ * Which line a patrol follows, and from which end.
+ *
+ * Always taking the line closest to the ideal length sent every patrol from a
+ * base down the same line in the same direction, generate after generate --
+ * the lines are cached for the session, so nothing else ever changed. Picks at
+ * random from the PATROL_CHOICES best fits, skips any line a patrol already on
+ * the board starts on (unless that leaves nothing), and flies it from either end.
+ */
+export function choosePatrolLine(
+  lines: PowerLine[],
+  opts: {
+    idealNm: number;
+    minNm: number;
+    avoid?: { lat: number; lon: number }[];
+    random?: () => number;
+  },
+): { line: PowerLine; len: number; path: { lat: number; lon: number }[] } | null {
+  const rnd = opts.random ?? Math.random;
+  const avoid = opts.avoid ?? [];
+  const best = lines
+    .map((l) => ({ l, len: pathLengthNm(l.geometry) }))
+    .filter((x) => x.len >= opts.minNm)
+    .sort((a, b) => Math.abs(a.len - opts.idealNm) - Math.abs(b.len - opts.idealNm))
+    .slice(0, PATROL_CHOICES);
+  if (best.length === 0) return null;
+
+  const onBoard = (geometry: { lat: number; lon: number }[]) =>
+    avoid.some((a) => geometry.some((g) => distanceNm(a.lat, a.lon, g.lat, g.lon) < PATROL_AVOID_NM));
+  const fresh = best.filter((x) => !onBoard(x.l.geometry));
+  const from = fresh.length > 0 ? fresh : best;
+  const pick = from[Math.min(from.length - 1, Math.floor(rnd() * from.length))];
+  const path = rnd() < 0.5 ? pick.l.geometry : [...pick.l.geometry].reverse();
+  return { line: pick.l, len: pick.len, path };
+}
+
 /**
  * Build a patrol that follows an actual power line.
  *
@@ -1339,22 +1380,19 @@ export async function generatePowerlinePatrol(
    * is worth making.
    */
   wing: WingType = "rotary",
+  /** Start points of patrols already on the board, so a new one takes another line. */
+  avoid: { lat: number; lon: number }[] = [],
 ): Promise<Record<string, unknown> | null> {
   const fixed = wing === "fixed";
   const where = `${base.lat.toFixed(3)},${base.lon.toFixed(3)}`;
   const lines = await once(`lines:${where}`, () => findPowerLines({ lat: base.lat, lon: base.lon }, 40));
   if (lines.length === 0) return null;
 
-  // Prefer a line that's a sensible patrol length rather than the longest.
-  const idealNm = fixed ? 40 : 25;
-  const usable = lines
-    .map((l) => ({ l, len: pathLengthNm(l.geometry) }))
-    .filter((x) => x.len >= (fixed ? 10 : 3))
-    .sort((a, b) => Math.abs(a.len - idealNm) - Math.abs(b.len - idealNm));
-  if (usable.length === 0) return null;
-
-  const { l: line, len } = usable[0];
-  let points = samplePath(line.geometry, 6);
+  // A sensible patrol length rather than the longest -- and not the same line every time.
+  const chosen = choosePatrolLine(lines, { idealNm: fixed ? 40 : 25, minNm: fixed ? 10 : 3, avoid });
+  if (!chosen) return null;
+  const { line, len } = chosen;
+  let points = samplePath(chosen.path, 6);
   const label = line.name ?? `${line.operator ?? "the"} transmission line`;
 
   // Snap each inspection point onto a real tower where there is one.

@@ -161,6 +161,16 @@ function MissionsPage() {
     const base = locatedBase;
 
     let rows: any[] = [];
+    // Where the patrols already on the board start, so a new one follows another line.
+    const patrolStarts = (missions ?? [])
+      .filter(
+        (m) =>
+          m.role === "patrol" &&
+          (m.status === "available" || m.status === "in_progress") &&
+          m.scene_lat != null &&
+          m.scene_lon != null,
+      )
+      .map((m) => ({ lat: Number(m.scene_lat), lon: Number(m.scene_lon) }));
     let droppedForSites = 0;
     let rotaryNote: string | null = null;
     if (base) {
@@ -286,7 +296,7 @@ function MissionsPage() {
         // there is one; otherwise it's appended rather than lost.
         const sceneSlots = pool.length > 0 ? 6 : 0;
         try {
-          const patrol = await generatePowerlinePatrol(company.reputation, site);
+          const patrol = await generatePowerlinePatrol(company.reputation, site, "rotary", patrolStarts);
           if (patrol) {
             const row = { company_id: company.id, ...patrol };
             if (sceneSlots > 0) rows[sceneSlots - 1] = row;
@@ -326,7 +336,7 @@ function MissionsPage() {
 
         // One line patrol for the aeroplanes, in place of the last contract.
         try {
-          const patrol = await generatePowerlinePatrol(company.reputation, site, "fixed");
+          const patrol = await generatePowerlinePatrol(company.reputation, site, "fixed", patrolStarts);
           if (patrol) {
             const row = { company_id: company.id, ...patrol };
             if (fwCount > 0) rows[rows.length - 1] = row;

@@ -81,15 +81,63 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   // Public half of a SAR tasking: where they were last seen, and how far they
   // could have got. Never where they are.
   const searchArea = activeMission ? searchAreaOf(activeMission.objectives) : null;
-  const sceneRange =
-    activeMission?.scene_lat != null
-      ? nmBetween(
-          flight.lat,
-          flight.lon,
-          Number(activeMission.scene_lat),
-          Number(activeMission.scene_lon),
-        )
-      : null;
+
+  // Where to fly next: the objective the bridge is working on, not the scene.
+  // A line patrol's scene is its first tower, so with every section ticked
+  // the leg still pointed back up the line instead of home. A landing with no
+  // position of its own ("Return to base") is placed at the base it names.
+  // Once everything is done there is nowhere left to point.
+  const live = objectives?.missionId === activeMission?.id ? objectives : null;
+  const allDone = !!live && live.items.length > 0 && live.items.every((o) => o.done);
+  const legTarget: { lat: number; lon: number; label: string; kind: "next" | "base" | "scene" } | null =
+    (() => {
+      if (!activeMission || allDone) return null;
+      const raw = (Array.isArray(activeMission.objectives) ? activeMission.objectives : []) as Record<
+        string,
+        unknown
+      >[];
+      const currentId = live?.items.find((o) => !o.done)?.id;
+      const current = currentId ? raw.find((o) => String(o?.id) === currentId) : null;
+      if (current) {
+        const lat = current.lat ?? current.datum_lat;
+        const lon = current.lon ?? current.datum_lon;
+        if (lat != null && lon != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
+          return {
+            lat: Number(lat),
+            lon: Number(lon),
+            label: typeof current.label === "string" ? current.label : "Next",
+            kind: "next",
+          };
+        }
+        if (current.kind === "land") {
+          const icao = String(current.icao ?? "").toUpperCase();
+          const named = icao
+            ? (data?.bases ?? []).find(
+                (b) => b.latitude != null && b.longitude != null && String(b.icao ?? "").toUpperCase() === icao,
+              )
+            : null;
+          const field = named ?? (!icao ? homeBase : null);
+          if (field) {
+            return {
+              lat: Number(field.latitude),
+              lon: Number(field.longitude),
+              label: field.name ?? "Base",
+              kind: "base",
+            };
+          }
+        }
+      }
+      return activeMission.scene_lat != null
+        ? {
+            lat: Number(activeMission.scene_lat),
+            lon: Number(activeMission.scene_lon),
+            label: activeMission.scene_name ?? "Scene",
+            kind: "scene",
+          }
+        : null;
+    })();
+  const legRange = legTarget ? nmBetween(flight.lat, flight.lon, legTarget.lat, legTarget.lon) : null;
+  const legLabel = legTarget?.kind === "base" ? "To base" : legTarget?.kind === "next" ? "To next" : "To scene";
 
   // Every objective that has a place on the map, married up with whether the
   // bridge has ticked it.
@@ -155,7 +203,7 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
           {flight.distance != null && (
             <Readout label="Track" value={`${flight.distance.toFixed(1)} nm`} />
           )}
-          {sceneRange != null && <Readout label="To scene" value={`${sceneRange.toFixed(1)} nm`} />}
+          {legRange != null && <Readout label={legLabel} value={`${legRange.toFixed(1)} nm`} />}
         </div>
       </div>
 
@@ -207,6 +255,7 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
               }
             : null
         }
+        next={legTarget}
         waypoints={mapWaypoints}
         search={searchArea}
         sighted={objectives?.sighted ?? null}

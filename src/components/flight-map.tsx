@@ -85,6 +85,11 @@ export type FlightMapProps = {
     label?: string;
     done?: boolean;
   }[];
+  /**
+   * Where the dashed leg from the aircraft points: the objective being flown.
+   * Left out, the leg goes to the scene; null draws no leg at all.
+   */
+  next?: { lat: number; lon: number; label?: string } | null;
   /** Breadcrumb of where the aircraft has been this flight. */
   track?: [number, number][];
   className?: string;
@@ -133,7 +138,7 @@ function nmScale() {
 }
 
 export function FlightMap({
-  aircraft, scene, search, sighted, base, waypoints = [], track = [], className,
+  aircraft, scene, next, search, sighted, base, waypoints = [], track = [], className,
 }: FlightMapProps) {
   const holder = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
@@ -154,6 +159,8 @@ export function FlightMap({
   // Stop recentring once the user has panned somewhere deliberately. Mirrored
   // into state as well so the Follow control can show whether it is currently
   // on, rather than being a button with no visible effect.
+  // A leg that has just been switched off still has to redraw the map.
+  const noLeg = next === null;
   const followed = useRef(true);
   const [following, setFollowing] = useState(true);
   const [basemap, setBasemap] = useState<BaseMapId>("map");
@@ -468,8 +475,9 @@ export function FlightMap({
     }
 
     // The leg to the job: a clear line you can follow, labelled with range.
-    if (scene) {
-      const leg: [number, number][] = [pos, [scene.lat, scene.lon]];
+    const target = next === undefined ? scene : next;
+    if (target) {
+      const leg: [number, number][] = [pos, [target.lat, target.lon]];
       if (!layers.current.legTo) {
         layers.current.legTo = L.polyline(leg, {
           color: "#f5a623",
@@ -481,16 +489,22 @@ export function FlightMap({
         layers.current.legTo.setLatLngs(leg);
       }
 
-      const rangeNm = haversineNm(pos[0], pos[1], scene.lat, scene.lon);
-      const brg = bearingDeg(pos[0], pos[1], scene.lat, scene.lon);
+      const rangeNm = haversineNm(pos[0], pos[1], target.lat, target.lon);
+      const brg = bearingDeg(pos[0], pos[1], target.lat, target.lon);
       layers.current.legTo.bindTooltip(
-        `${scene.label ?? "Scene"} · ${rangeNm.toFixed(1)} nm · ${Math.round(brg)}°`,
+        `${target.label ?? "Scene"} · ${rangeNm.toFixed(1)} nm · ${Math.round(brg)}°`,
         { sticky: true },
       );
+    } else if (layers.current.legTo) {
+      layers.current.legTo.remove();
+      layers.current.legTo = undefined;
     }
 
     if (followed.current) m.panTo(pos, { animate: true, duration: 0.5 });
-  }, [aircraft?.lat, aircraft?.lon, aircraft?.heading, track.length, scene?.lat, scene?.lon]);
+  }, [
+    aircraft?.lat, aircraft?.lon, aircraft?.heading, track.length,
+    scene?.lat, scene?.lon, next?.lat, next?.lon, noLeg,
+  ]);
 
   return (
     <>

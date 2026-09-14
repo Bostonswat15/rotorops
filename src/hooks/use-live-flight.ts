@@ -98,6 +98,25 @@ export function useLiveFlight() {
 }
 
 /** The flight score from the sim bridge, live while flying. Null when there's none. */
+/** The open cargo trip on the loaded aircraft, from the sim bridge. */
+export function useBridgeTrip() {
+  const [trip, setTrip] = useState<BridgeStatus["trip"]>(null);
+
+  useEffect(() => {
+    const app = desktop();
+    if (!app) return;
+    let live = true;
+    app.status().then((s) => live && setTrip(s?.trip ?? null)).catch(() => {});
+    const off = app.onStatus((s) => live && setTrip(s?.trip ?? null));
+    return () => {
+      live = false;
+      off?.();
+    };
+  }, []);
+
+  return trip ?? null;
+}
+
 export function useBridgeScore() {
   const [score, setScore] = useState<BridgeStatus["score"]>(null);
 

@@ -33,6 +33,8 @@ const EVENT_FREEZE_LATLON = 940;
 const EVENT_FREEZE_ALT = 941;
 const EVENT_FREEZE_ATT = 942;
 const DEF_PAYLOAD = 920;
+/** One definition per fuel tank written, from here up. */
+const DEF_FUEL_BASE = 980;
 const DEF_FX = 921;
 const DEF_WALK = 922;
 /** Position of a walker, read to keep them near their spot and written to bring them back. */
@@ -743,6 +745,10 @@ export class SceneDirector {
   private planes: string[] = [];
   private spawned: number[] = [];
   private payloadReady = false;
+  /** The two things written to the payload station, summed: a casualty and a trip's cargo. */
+  private casualtyLb = 0;
+  private cargoLb = 0;
+  private fuelDefs = new Map<string, number>();
   private freezeReady = false;
   /**
    * Spawns awaiting an object id, in request order.
@@ -1401,6 +1407,54 @@ export class SceneDirector {
    * crew and fuel stations. Set to 0 to unload.
    */
   setCasualtyWeight(pounds: number) {
+    this.casualtyLb = Math.max(0, pounds);
+    return this.writePayload();
+  }
+
+  /**
+   * A cargo trip's weight aboard. The same station as a casualty, so the two add
+   * up rather than one overwriting the other. Set to 0 to unload everything.
+   */
+  setCargoWeight(pounds: number) {
+    this.cargoLb = Math.max(0, pounds);
+    return this.writePayload();
+  }
+
+  /**
+   * Fuel, as gallons per legacy tank ("CENTER", "LEFT MAIN"). Not every aircraft
+   * lets its tanks be written; the caller checks what the sim reports after.
+   */
+  setFuel(tanks: { name: string; gallons: number }[]) {
+    try {
+      for (const t of tanks) {
+        let def = this.fuelDefs.get(t.name);
+        if (def === undefined) {
+          def = DEF_FUEL_BASE + this.fuelDefs.size;
+          this.handle.addToDataDefinition(
+            def,
+            `FUEL TANK ${t.name} QUANTITY`,
+            'gallons',
+            SimConnectDataType.FLOAT64,
+          );
+          this.fuelDefs.set(t.name, def);
+        }
+        const buf = new RawBuffer(8);
+        buf.writeFloat64(t.gallons);
+        this.handle.setDataOnSimObject(def, SimConnectConstants.OBJECT_ID_USER, {
+          buffer: buf,
+          arrayCount: 0,
+          tagged: false,
+        });
+      }
+      return true;
+    } catch (e) {
+      this.log(`could not set fuel: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
+  private writePayload() {
+    const pounds = this.casualtyLb + this.cargoLb;
     try {
       if (!this.payloadReady) {
         this.handle.addToDataDefinition(
@@ -1424,7 +1478,7 @@ export class SceneDirector {
       });
       return true;
     } catch (e) {
-      this.log(`could not set casualty weight: ${(e as Error).message}`);
+      this.log(`could not set payload weight: ${(e as Error).message}`);
       return false;
     }
   }

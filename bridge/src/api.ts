@@ -7,6 +7,7 @@
  */
 
 import { supabaseEnv } from './config.ts';
+import type { BridgeTrip } from './trips.ts';
 
 export type BridgeAircraft = {
   id: string;
@@ -19,6 +20,10 @@ export type BridgeAircraft = {
   wear: number;
   cruise_kts: number;
   fuel_burn_pph: number;
+  /** As the sim last reported them. Absent until 20260923000000_cargo_inventory.sql is run. */
+  empty_weight_lb?: number | null;
+  max_gross_lb?: number | null;
+  fuel_capacity_lb?: number | null;
 };
 
 export type BridgeMission = {
@@ -63,6 +68,20 @@ export type BridgeState = {
   dispatched: BridgeMission[];
   bases: BridgeBase[];
   bases_needing_position: { id: string; icao: string }[];
+  /** Open cargo trips. Absent until 20260923000000_cargo_inventory.sql is run. */
+  trips?: BridgeTrip[];
+};
+
+export type DeliverResult = {
+  job_id: string;
+  title: string;
+  payout: number;
+  reputation_delta: number;
+  xp_gained: number;
+  loan_repayment: number;
+  haul_delivered_units: number;
+  jobs_left: number;
+  trip_completed: boolean;
 };
 
 export type ResolveResult = {
@@ -192,6 +211,27 @@ export function submitFlight(
     _mission_id: missionId,
     _telemetry: telemetry,
   });
+}
+
+export function setAircraftLimits(
+  token: string,
+  aircraftId: string,
+  emptyLb: number,
+  maxGrossLb: number,
+  fuelCapacityLb: number | null,
+) {
+  return rpc<boolean>('bridge_set_aircraft_limits', {
+    _token: token, _aircraft_id: aircraftId,
+    _empty_lb: emptyLb, _max_gross_lb: maxGrossLb, _fuel_capacity_lb: fuelCapacityLb,
+  });
+}
+
+export function tripLoaded(token: string, tripId: string) {
+  return rpc<boolean>('bridge_trip_loaded', { _token: token, _trip_id: tripId });
+}
+
+export function deliverJob(token: string, jobId: string) {
+  return rpc<DeliverResult>('bridge_deliver_job', { _token: token, _job_id: jobId });
 }
 
 /**

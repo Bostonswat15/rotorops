@@ -29,7 +29,9 @@ import {
   siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
   type SceneType, type PlacementSites,
 } from "@/lib/missions";
-import { findAerodromes, findSites, findIndustrySites, findCliffs, nmBetween, type Aerodrome } from "@/lib/osm";
+import { findSites, findIndustrySites, findCliffs } from "@/lib/osm";
+import { airfieldsNear } from "@/lib/airfields";
+import { isCargoJob } from "@/lib/cargo";
 import { cliffSitesFrom } from "@/lib/missions";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf,
@@ -41,38 +43,6 @@ import {
   type IndustryRow,
 } from "@/lib/industries";
 
-/**
- * Airfields near a base, remembered for the session.
- *
- * The runway lookup is the slowest thing Generate does, and a base's airfields
- * don't move between clicks. A result with runways serves a helicopter batch
- * too. A plane result with no runway data at all means Overpass failed the
- * second query, so it isn't kept -- the next click tries again.
- */
-const aerodromeCache = new Map<string, Promise<Aerodrome[]>>();
-function aerodromesNear(centre: { lat: number; lon: number }, withRunways: boolean): Promise<Aerodrome[]> {
-  const where = `${centre.lat.toFixed(3)},${centre.lon.toFixed(3)}`;
-  const full = aerodromeCache.get(`${where}:runways`);
-  if (full) return full;
-  if (!withRunways) {
-    const plain = aerodromeCache.get(`${where}:plain`);
-    if (plain) return plain;
-  }
-  const key = `${where}:${withRunways ? "runways" : "plain"}`;
-  const p = findAerodromes(centre, 140, withRunways).then(
-    (fields) => {
-      const noRunways = withRunways && fields.every((f) => f.runway_ft === null);
-      if (fields.length === 0 || noRunways) aerodromeCache.delete(key);
-      return fields;
-    },
-    (e: unknown) => {
-      aerodromeCache.delete(key);
-      throw e;
-    },
-  );
-  aerodromeCache.set(key, p);
-  return p;
-}
 
 export const Route = createFileRoute("/_authenticated/missions")({
   head: () => ({ meta: [{ title: "Mission Board — RotorOps" }] }),
@@ -259,50 +229,9 @@ function MissionsPage() {
         }
       }
 
-      // Airfields come from two places: the sim's facility cache (reported by
-      // the bridge) and OSM. Either alone can be empty -- the cache before the
-      // bridge has run, OSM in poorly-mapped regions -- so merge them and
-      // de-duplicate. One query per batch, not one per contract.
-      const fromBridge = ((base.nearby_airports ?? []) as any[]).filter(
-        (a) => a && Number.isFinite(a.lat) && Number.isFinite(a.lon),
-      );
-      let fromOsm: Aerodrome[] = [];
-      try {
-        // Planes need each field's runways; a helicopter lands beside them.
-        fromOsm = await aerodromesNear(centre, !heli);
-      } catch {
-        // Overpass unavailable; the bridge's list still stands.
-      }
-      //
-      // The sim's list has no runways, so a field it shares with OSM takes
-      // OSM's runway data: matched by ident, else by position, since OSM often
-      // names a strip the sim knows by ident. A position match is the same
-      // field, so its OSM copy is dropped rather than offered twice.
-      const osmCopyOf = (a: { icao: unknown; lat: number; lon: number }) => {
-        const icao = String(a.icao).toUpperCase();
-        let near: Aerodrome | null = null;
-        let nearNm = 1;
-        for (const o of fromOsm) {
-          if (String(o.icao).toUpperCase() === icao) return o;
-          const d = nmBetween(a, o);
-          if (d <= nearNm) {
-            nearNm = d;
-            near = o;
-          }
-        }
-        return near;
-      };
-      const seen = new Set(fromBridge.map((a) => String(a.icao).toUpperCase()));
-      const copied = new Set<Aerodrome>();
-      const airports = [
-        ...fromBridge.map((a) => {
-          const o = osmCopyOf(a);
-          if (!o) return a;
-          copied.add(o);
-          return { ...a, runway_ft: o.runway_ft, surface: o.surface };
-        }),
-        ...fromOsm.filter((a) => !copied.has(a) && !seen.has(String(a.icao).toUpperCase())),
-      ];
+      // The sim's airfields and OSM's, merged (src/lib/airfields.ts). Planes
+      // need each field's runways; a helicopter lands beside them.
+      const airports = await airfieldsNear(base, !heli);
 
       const site = {
         lat: centre.lat,
@@ -582,7 +511,9 @@ function MissionsPage() {
       .eq("company_id", company.id)
       .eq("status", "available")
       // A contract reset by a crash is still someone's to restart; leave it.
-      .is("assigned_pilot_id", null);
+      .is("assigned_pilot_id", null)
+      // Cargo jobs are cleared from the Cargo Hub.
+      .is("manifest", null);
     // Only the tab you're looking at, as Generate does. `airport` is what
     // marks plane work (isFixedWingMission); anything else is helicopter work,
     // including an old contract with no scene type at all.
@@ -601,9 +532,11 @@ function MissionsPage() {
     qc.invalidateQueries();
   }
 
-  const available = missions?.filter((m: any) => m.status === "available") ?? [];
-  const inProgress = missions?.filter((m: any) => m.status === "in_progress") ?? [];
-  const completed = missions?.filter((m: any) => m.status === "completed" || m.status === "failed").slice(0, 10) ?? [];
+  // Cargo and passenger jobs live on the Cargo Hub.
+  const contracts = missions?.filter((m) => !isCargoJob(m)) ?? [];
+  const available = contracts.filter((m: any) => m.status === "available");
+  const inProgress = contracts.filter((m: any) => m.status === "in_progress");
+  const completed = contracts.filter((m: any) => m.status === "completed" || m.status === "failed").slice(0, 10);
   // Split first, then filter by role: the role lists differ between the two
   // halves, so offering "freight" while looking at helicopters is just noise.
   const forWing = available.filter((m: any) =>

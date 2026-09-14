@@ -14,9 +14,14 @@ import { SceneDirector, setSceneOverrides, type SceneType, type SceneOverrides }
 import { bearingTo, clockPosition, resolveSearchTarget, type LatLon } from './search.ts';
 import {
   fetchState, submitFlight, matchAircraft, setBasePosition, setBaseAirports, completeObjective,
+  setAircraftLimits, tripLoaded, deliverJob,
   type BridgeState, type BridgeAircraft, type BridgeMission, type ResolveResult,
 } from './api.ts';
 import { CONFIG_DIR, readSceneObjects } from './config.ts';
+import {
+  TRIP_HOLD_MS, aboardLb, fuelCapacityLb, fuelTanks, tripAction,
+  type BridgeTrip, type BridgeTripJob,
+} from './trips.ts';
 import { PendingFlights, classifyFailure } from './pending-flights.ts';
 import { join } from 'node:path';
 import { roadWithRetry } from './roads.ts';
@@ -62,7 +67,31 @@ export type BridgeEvent =
   // not. The moving map uses this so it works while planning, not just in the
   // air.
   | { type: 'position'; lat: number; lon: number; heading: number; agl: number;
-      groundSpeed: number; altitude: number; onGround: boolean };
+      groundSpeed: number; altitude: number; onGround: boolean }
+  // The open cargo trip on the loaded aircraft, whenever what it should say changes.
+  | { type: 'trip'; trip: TripStatus | null }
+  | { type: 'cargo-delivered'; jobId: string; title: string; payout: number; tripCompleted: boolean };
+
+/** What the app shows of a cargo trip. Mirrored in src/lib/desktop.ts. */
+export type TripStatus = {
+  id: string;
+  loaded: boolean;
+  aboardLb: number;
+  pickup: string | null;
+  pickupLat: number | null;
+  pickupLon: number | null;
+  pickupRadiusNm: number | null;
+  hint: string;
+  jobs: {
+    id: string;
+    title: string;
+    drop: string | null;
+    delivered: boolean;
+    lat: number | null;
+    lon: number | null;
+    radiusNm: number | null;
+  }[];
+};
 
 export type Bridge = {
   start(): Promise<void>;
@@ -160,6 +189,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
 
   const missionFor = (ac: BridgeAircraft): BridgeMission | null =>
     state?.dispatched.find((m) => m.aircraft_id === ac.id) ?? null;
+  const tripFor = (ac: BridgeAircraft): BridgeTrip | null =>
+    state?.trips?.find((t) => t.aircraft_id === ac.id) ?? null;
 
   // --- Objectives ----------------------------------------------------------
 
@@ -646,6 +677,231 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     });
   }
 
+  // --- Cargo trips -------------------------------------------------------------
+  //
+  // Jobs loaded at one pickup on the Cargo Hub. Stopped at the pickup for
+  // TRIP_HOLD_MS, the weight goes aboard and the load sheet's fuel is set;
+  // stopped at a drop, that job's weight comes off and it is paid. See trips.ts.
+
+  /** Trip id and weight last written aboard, so a reconnect or a delivery re-applies it. */
+  let cargoKey: string | null = null;
+  let tripSettledSince: number | null = null;
+  let tripBusy = false;
+  let tripHint: string | null = null;
+  /** Done here before the server's next state says so, to keep from doing it twice. */
+  const loadedHere = new Set<string>();
+  const deliveredHere = new Set<string>();
+  /** Aircraft whose limits have been sent (or tried) this session. */
+  const limitsReported = new Set<string>();
+
+  const locateField = (icao: string) => {
+    const a = sim?.airportCache.get(icao.trim().toUpperCase());
+    return a ? { lat: a.lat, lon: a.lon } : null;
+  };
+
+  function effectiveTrip(trip: BridgeTrip): BridgeTrip {
+    return {
+      ...trip,
+      loaded_at: trip.loaded_at ?? (loadedHere.has(trip.id) ? new Date().toISOString() : null),
+      jobs: trip.jobs.map((j) => (deliveredHere.has(j.id) ? { ...j, delivered: true } : j)),
+    };
+  }
+
+  function emitTrip(trip: BridgeTrip, hint: string) {
+    emit({
+      type: 'trip',
+      trip: {
+        id: trip.id,
+        loaded: !!trip.loaded_at,
+        aboardLb: trip.loaded_at ? aboardLb(trip) : 0,
+        pickup: trip.pickup_name ?? trip.pickup_icao,
+        pickupLat: trip.pickup_lat,
+        pickupLon: trip.pickup_lon,
+        pickupRadiusNm: trip.pickup_radius_nm,
+        hint,
+        jobs: trip.jobs.map((j) => ({
+          id: j.id,
+          title: j.title,
+          drop: j.drop_name ?? j.drop_icao,
+          delivered: j.delivered,
+          lat: j.drop_lat,
+          lon: j.drop_lon,
+          radiusNm: j.drop_radius_nm,
+        })),
+      },
+    });
+  }
+
+  /** Tell the server what the sim says this aircraft weighs empty, may weigh, and holds in fuel. */
+  function reportLimits(ac: BridgeAircraft, s: Record<string, number | string>) {
+    if (limitsReported.has(ac.id)) return;
+    const empty = n(s.emptyWeight);
+    const gross = n(s.maxGrossWeight);
+    if (!(empty > 0 && gross > empty)) return; // not read yet, or not reported
+    limitsReported.add(ac.id);
+    const fuelCap = fuelCapacityLb(s);
+    const near = (a: number | null | undefined, b: number) =>
+      a != null && Math.abs(Number(a) - b) <= Math.max(5, b * 0.01);
+    if (
+      near(ac.empty_weight_lb, empty) &&
+      near(ac.max_gross_lb, gross) &&
+      (fuelCap === null || near(ac.fuel_capacity_lb, fuelCap))
+    ) {
+      return;
+    }
+    void setAircraftLimits(token, ac.id, empty, gross, fuelCap)
+      .then(() =>
+        log(
+          `Reported ${ac.display_name}'s limits: empty ${Math.round(empty)} lb, max gross ` +
+            `${Math.round(gross)} lb${fuelCap ? `, fuel ${fuelCap} lb` : ''}.`,
+        ),
+      )
+      .catch((e) => warn(`Could not report ${ac.display_name}'s limits: ${(e as Error).message}`));
+  }
+
+  function maybeTrip(s: Record<string, number | string>) {
+    const ac = state && currentSimTitle ? matchAircraft(state.aircraft, currentSimTitle) : null;
+    if (ac) reportLimits(ac, s);
+    if (!director) return;
+    const raw = ac ? tripFor(ac) : null;
+    if (!raw) {
+      tripSettledSince = null;
+      if (cargoKey !== null || tripHint !== null) {
+        if (cargoKey !== null) {
+          director.setCargoWeight(0);
+          log('No open cargo trip on this aircraft -- cargo weight taken off.');
+        }
+        cargoKey = null;
+        tripHint = null;
+        emit({ type: 'trip', trip: null });
+      }
+      return;
+    }
+
+    const trip = effectiveTrip(raw);
+    // Keep the weight aboard: after a reconnect, a restart or a delivery.
+    if (trip.loaded_at) {
+      const lb = aboardLb(trip);
+      const key = `${trip.id}:${lb}`;
+      if (cargoKey !== key && director.setCargoWeight(lb)) cargoKey = key;
+    }
+
+    const action = tripAction(trip, { lat: n(s.lat), lon: n(s.lon) }, locateField);
+    const hint =
+      action.kind === 'wait'
+        ? action.hint
+        : action.kind === 'load'
+          ? `hold still at ${trip.pickup_name ?? 'the pickup'} to load`
+          : action.kind === 'deliver'
+            ? 'hold still to unload'
+            : 'everything delivered';
+    if (hint !== tripHint) {
+      tripHint = hint;
+      emitTrip(trip, hint);
+    }
+
+    const settled = n(s.onGround) === 1 && n(s.groundSpeed) < 2;
+    if (!settled || (action.kind !== 'load' && action.kind !== 'deliver')) {
+      tripSettledSince = null;
+      return;
+    }
+    const now = Date.now();
+    if (tripSettledSince === null) {
+      tripSettledSince = now;
+      director.say(action.kind === 'load' ? 'Hold still — loading…' : 'Hold still — unloading…', 6);
+      return;
+    }
+    if (tripBusy || now - tripSettledSince < TRIP_HOLD_MS) return;
+    tripSettledSince = null;
+    if (action.kind === 'load') void loadTrip(trip, s);
+    else void deliverJobs(trip, action.jobs);
+  }
+
+  async function loadTrip(trip: BridgeTrip, s: Record<string, number | string>) {
+    tripBusy = true;
+    try {
+      let fuelNote = '';
+      if (trip.fuel_lb != null) {
+        const target = trip.fuel_lb;
+        const tanks = fuelTanks(target, s);
+        if (tanks && director?.setFuel(tanks)) {
+          fuelNote = ` Fuel set to ${Math.round(target).toLocaleString()} lb.`;
+          // Not every aircraft lets its tanks be written: see what it reads a moment later.
+          setTimeout(() => {
+            const reads = n(lastSnapshot?.fuelWeight);
+            if (Math.abs(reads - target) > Math.max(20, target * 0.05)) {
+              warn(
+                `Could not set the fuel: the aircraft reads ${Math.round(reads)} lb, not ` +
+                  `${Math.round(target)} lb. Set the fuel in the sim.`,
+              );
+              director?.say('The fuel could not be set on this aircraft — set it in the sim.', 10);
+            }
+          }, 4000);
+        } else {
+          fuelNote = ' This aircraft does not report its fuel tanks, so set the fuel in the sim.';
+        }
+      }
+
+      await tripLoaded(token, trip.id);
+      loadedHere.add(trip.id);
+      const loaded = effectiveTrip(trip);
+      const lb = aboardLb(loaded);
+      director?.setCargoWeight(lb);
+      cargoKey = `${trip.id}:${lb}`;
+      const count = loaded.jobs.filter((j) => !j.delivered).length;
+      log(
+        `Loaded ${count} job${count === 1 ? '' : 's'} at ${trip.pickup_name ?? 'the pickup'}: ` +
+          `+${lb} lb aboard.${fuelNote}`,
+      );
+      director?.say(`Loaded — ${lb.toLocaleString()} lb aboard.${fuelNote}`, 10);
+      tripHint = null; // re-announce with the first drop
+      await refresh();
+    } catch (e) {
+      warn(`Could not record the load: ${(e as Error).message}. Hold still again to retry.`);
+    } finally {
+      tripBusy = false;
+    }
+  }
+
+  async function deliverJobs(trip: BridgeTrip, jobs: BridgeTripJob[]) {
+    tripBusy = true;
+    try {
+      for (const j of jobs) {
+        try {
+          const r = await deliverJob(token, j.id);
+          deliveredHere.add(j.id);
+          const lb = aboardLb(effectiveTrip(trip));
+          director?.setCargoWeight(lb);
+          cargoKey = `${trip.id}:${lb}`;
+          log(
+            `Delivered "${j.title}" at ${j.drop_name ?? j.drop_icao ?? 'the drop'}: ` +
+              `+$${Number(r.payout).toLocaleString()}. ${lb} lb still aboard.`,
+          );
+          director?.say(`Delivered: ${j.title} — $${Number(r.payout).toLocaleString()}`, 8);
+          emit({
+            type: 'cargo-delivered',
+            jobId: j.id,
+            title: j.title,
+            payout: Number(r.payout),
+            tripCompleted: !!r.trip_completed,
+          });
+        } catch (e) {
+          const message = (e as Error).message;
+          if (/already delivered|not on a trip|this trip is (completed|cancelled)/.test(message)) {
+            deliveredHere.add(j.id);
+            log(`"${j.title}" was already settled: ${message}`);
+          } else {
+            warn(`Could not deliver "${j.title}": ${message}. Hold still here again to retry.`);
+          }
+        }
+      }
+      tripHint = null;
+      await refresh();
+    } finally {
+      tripBusy = false;
+    }
+  }
+
   /**
    * The winch operator, in the sim.
    *
@@ -889,6 +1145,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       score: t.score,
       grade: t.grade,
       score_items: t.score_items,
+      // A leg of an open cargo trip; the server keeps the aircraft on it.
+      trip_id: tripFor(ac)?.id ?? null,
     };
 
     try {
@@ -998,6 +1256,9 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       // Learn what this install can place at a scene, then re-arm so a contract
       // accepted before the sim connected still gets staged.
       director = new SceneDirector(sim!.connection, log);
+      // A new session starts with nothing written aboard.
+      cargoKey = null;
+      tripHint = null;
       // Custom SimObject mappings, if the player has authored any.
       const custom = readSceneObjects() as SceneOverrides | null;
       setSceneOverrides(custom);
@@ -1032,6 +1293,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       reportScore();
       trackObjectives(s);
       maybeResolve(s);
+      maybeTrip(s);
     });
     sim.on('touchdown', (fpm, g) => {
       tracker!.onTouchdown(fpm, g);

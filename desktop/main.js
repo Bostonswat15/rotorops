@@ -86,7 +86,7 @@ let serverProcess = null;
 let tray = null;
 let bridge = null;
 let bridgeLog = [];
-let lastStatus = { simConnected: false, paired: false, flight: null, simAircraft: null, position: null, objectives: null, score: null };
+let lastStatus = { simConnected: false, paired: false, flight: null, simAircraft: null, position: null, objectives: null, score: null, trip: null };
 let hasExplainedTray = false;
 
 // ---------------------------------------------------------------------------
@@ -270,6 +270,7 @@ function onBridgeEvent(event) {
   // The contract resolved or went away: drop its list rather than leaving a
   // finished contract on screen until the next one happens to arm.
   if (event.type === 'objectives-cleared') pushStatus({ objectives: null });
+  if (event.type === 'trip') pushStatus({ trip: event.trip });
   if (event.type === 'sim-aircraft') {
     pushStatus({ simAircraft: { simTitle: event.simTitle, matchedId: event.matchedId, matchedName: event.matchedName } });
   }

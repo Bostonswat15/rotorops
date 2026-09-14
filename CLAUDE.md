@@ -104,7 +104,8 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `20260918000000_industry_flow.sql` (hauls move stock via `industry_deliveries`, mills get
   `input_stock`, floats tag backfill), then `20260919000000_pilot_ratings.sql` (check rides
   inside a company). Each of the last six carries `rotorops_resolve_flight` forward; any later
-  change must start from the 20260922 copy (`20260922000000_fix_incident_lists.sql`, which
+  change must start from the 20260923 copy (`20260923000000_cargo_inventory.sql`, which also
+  carries `bridge_state`; before it, 20260922 `20260922000000_fix_incident_lists.sql`, which
   changes only its five `v_incidents || 'literal'` lines to `array_append` -- the untyped literal
   was parsed as an array, so every flight with an incident failed to submit with "malformed
   array literal"). 20260919 also carries `dispatch_mission` and
@@ -113,7 +114,40 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   pages show a notice until theirs is run. 20260918 was built by carrying each function forward
   programmatically from its newest file, never retyped. Then `20260920000000_company_switch.sql`
   (carries `bridge_device` and `create_pairing_code` from 20260826120000_sim_bridge.sql), then
-  `20260921000000_delete_company.sql`, then `20260922000000_fix_incident_lists.sql`.
+  `20260921000000_delete_company.sql`, then `20260922000000_fix_incident_lists.sql`, then
+  `20260923000000_cargo_inventory.sql` (built by carrying `bridge_state` from 20260916 and
+  `rotorops_resolve_flight` from 20260922 with anchored substitutions).
+- **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
+  rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
+  `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's
+  contract query all exclude them (`manifest IS NULL` / `trip_id IS NULL`). Page
+  `src/routes/_authenticated/cargo.tsx` (nav "Cargo Hub", added to `routeTree.gen.ts` by hand);
+  generation, pay, weights and the load-sheet check in `src/lib/cargo.ts`; airfield merge moved
+  to `src/lib/airfields.ts` (shared with the Mission Board). Numbers: 190 lb a passenger with a
+  bag, seats = pax_seats - 1; limit = sim max gross - empty (cargo + pax + chosen fuel), else
+  catalogue `payload_lbs` for cargo + pax only; pickups/drops 2 nm at a field, 0.5 nm at a
+  site/hospital (x1.35, min 0.25, as objectives); hold still 8 s to load or unload; pay
+  rotary $1,000 + $18/nm + $1.85/lb, fixed $900 + $12/nm + $1.50/lb, x1.7 off-airport, x1.8 plane
+  into a bush strip, x0.9-1.15 variance, x(1 + rep/200) (fitted to today's charter and freight
+  contracts); rotary legs 10-60 nm to fields, 5-40 to sites/hospitals, 150-1,200 lb, <= 4 pax;
+  fixed 30-200 nm field to field, 200-2,500 lb, <= 8 pax; base + 2 (rotary, within 25 nm) or 3
+  (fixed, within 80 nm) nearby fields get 3-4 jobs each, max 12, plus 2 rotary goods jobs from
+  company industries (tier 1 to its processor, tier 2 to the base market) that take stock at
+  dispatch via `industry_deliveries`. Server: `dispatch_trip(aircraft, job_ids[], fuel_lb)`
+  (ratings as dispatch_mission, one pickup, seats, weight, fuel capacity; one active trip per
+  aircraft), `cancel_trip`, `release_trip_jobs` (undelivered back to available, goods refunded),
+  `bridge_trip_loaded`, `bridge_deliver_job` (payout x ace_pilot, rep = difficulty, XP 10 +
+  5 x difficulty, loan 10%, settles goods, completes the trip when the last job lands),
+  `bridge_set_aircraft_limits`. Legs log as positioning flights with `flight_logs.trip_id`;
+  resolve keeps the aircraft `on_mission` while its trip is open and cancels the trip on a
+  crash. Bridge: `bridge/src/trips.ts` (pure: tripAction, aboardLb, fuelTanks), runner
+  `maybeTrip` writes cargo to the casualty payload station (summed with a casualty), sets fuel
+  per legacy tank (`FUEL TANK <name> QUANTITY`, gallons, only tanks reporting a capacity) and
+  warns if the sim then reads a different fuel weight, reports empty/max gross/fuel capacity
+  once per aircraft per session; emits `trip` status for the In Flight trip card and map.
+  **Not yet run or flown:** the migration, MAX GROSS WEIGHT / FUEL TANK * CAPACITY resolving on
+  this install, writing fuel tanks on the 206/H125/Dolphin, the payload station taking cargo on
+  a plane.
 - **Several companies per account (built 2026-09-13):** the sidebar header is a switcher
   (`src/components/company-switcher.tsx`: `my_companies`, `set_active_company`, Start a new
   company, Join with a code; `CompanySetup` takes `onCancel`/`initialMode`). After any switch,

@@ -16,6 +16,10 @@ export type Database = {
     Tables: {
       aircraft: {
         Row: {
+          empty_weight_lb: number | null
+          max_gross_lb: number | null
+          fuel_capacity_lb: number | null
+          limits_reported_at: string | null
           acquisition_cost: number
           base_id: string | null
           category: string
@@ -53,6 +57,10 @@ export type Database = {
           wear: number
         }
         Insert: {
+          empty_weight_lb?: number | null
+          max_gross_lb?: number | null
+          fuel_capacity_lb?: number | null
+          limits_reported_at?: string | null
           acquisition_cost?: number
           base_id?: string | null
           category?: string
@@ -90,6 +98,10 @@ export type Database = {
           wear?: number
         }
         Update: {
+          empty_weight_lb?: number | null
+          max_gross_lb?: number | null
+          fuel_capacity_lb?: number | null
+          limits_reported_at?: string | null
           acquisition_cost?: number
           base_id?: string | null
           category?: string
@@ -815,6 +827,21 @@ export type Database = {
       }
       missions: {
         Row: {
+          manifest: Json | null
+          cargo_lb: number | null
+          pickup_name: string | null
+          pickup_icao: string | null
+          pickup_lat: number | null
+          pickup_lon: number | null
+          pickup_radius_nm: number | null
+          drop_name: string | null
+          drop_icao: string | null
+          drop_lat: number | null
+          drop_lon: number | null
+          drop_radius_nm: number | null
+          expires_at: string | null
+          trip_id: string | null
+          delivered_at: string | null
           aircraft_id: string | null
           assigned_pilot_id: string | null
           haul_from_industry_id: string | null
@@ -850,6 +877,21 @@ export type Database = {
           weather_factor: number
         }
         Insert: {
+          manifest?: Json | null
+          cargo_lb?: number | null
+          pickup_name?: string | null
+          pickup_icao?: string | null
+          pickup_lat?: number | null
+          pickup_lon?: number | null
+          pickup_radius_nm?: number | null
+          drop_name?: string | null
+          drop_icao?: string | null
+          drop_lat?: number | null
+          drop_lon?: number | null
+          drop_radius_nm?: number | null
+          expires_at?: string | null
+          trip_id?: string | null
+          delivered_at?: string | null
           aircraft_id?: string | null
           assigned_pilot_id?: string | null
           haul_from_industry_id?: string | null
@@ -885,6 +927,21 @@ export type Database = {
           weather_factor?: number
         }
         Update: {
+          manifest?: Json | null
+          cargo_lb?: number | null
+          pickup_name?: string | null
+          pickup_icao?: string | null
+          pickup_lat?: number | null
+          pickup_lon?: number | null
+          pickup_radius_nm?: number | null
+          drop_name?: string | null
+          drop_icao?: string | null
+          drop_lat?: number | null
+          drop_lon?: number | null
+          drop_radius_nm?: number | null
+          expires_at?: string | null
+          trip_id?: string | null
+          delivered_at?: string | null
           aircraft_id?: string | null
           assigned_pilot_id?: string | null
           haul_from_industry_id?: string | null
@@ -1065,6 +1122,63 @@ export type Database = {
         }
         Relationships: []
       }
+      trips: {
+        Row: {
+          aircraft_id: string
+          cargo_lb: number
+          company_id: string
+          completed_at: string | null
+          created_at: string
+          fuel_lb: number | null
+          id: string
+          loaded_at: string | null
+          pax: number
+          pickup_icao: string | null
+          pickup_lat: number | null
+          pickup_lon: number | null
+          pickup_name: string | null
+          pickup_radius_nm: number
+          pilot_id: string | null
+          status: string
+        }
+        Insert: {
+          aircraft_id: string
+          cargo_lb?: number
+          company_id: string
+          completed_at?: string | null
+          created_at?: string
+          fuel_lb?: number | null
+          id?: string
+          loaded_at?: string | null
+          pax?: number
+          pickup_icao?: string | null
+          pickup_lat?: number | null
+          pickup_lon?: number | null
+          pickup_name?: string | null
+          pickup_radius_nm?: number
+          pilot_id?: string | null
+          status?: string
+        }
+        Update: {
+          aircraft_id?: string
+          cargo_lb?: number
+          company_id?: string
+          completed_at?: string | null
+          created_at?: string
+          fuel_lb?: number | null
+          id?: string
+          loaded_at?: string | null
+          pax?: number
+          pickup_icao?: string | null
+          pickup_lat?: number | null
+          pickup_lon?: number | null
+          pickup_name?: string | null
+          pickup_radius_nm?: number
+          pilot_id?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1166,6 +1280,11 @@ export type Database = {
         Args: { _company_id: string; _confirm_name: string }
         Returns: Json
       }
+      dispatch_trip: {
+        Args: { _aircraft_id: string; _job_ids: string[]; _fuel_lb?: number }
+        Returns: string
+      }
+      cancel_trip: { Args: { _trip_id: string }; Returns: number }
       set_active_company: { Args: { _company_id: string }; Returns: undefined }
       set_base_sites: { Args: { _base_id: string; _sites: Json }; Returns: string }
       site_industries: {

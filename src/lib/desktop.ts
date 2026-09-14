@@ -5,6 +5,27 @@
  * returns null and every caller falls back to the browser flow.
  */
 
+/** An open cargo trip on the loaded aircraft. Mirrors TripStatus in bridge/src/runner.ts. */
+export type TripStatus = {
+  id: string;
+  loaded: boolean;
+  aboardLb: number;
+  pickup: string | null;
+  pickupLat: number | null;
+  pickupLon: number | null;
+  pickupRadiusNm: number | null;
+  hint: string;
+  jobs: {
+    id: string;
+    title: string;
+    drop: string | null;
+    delivered: boolean;
+    lat: number | null;
+    lon: number | null;
+    radiusNm: number | null;
+  }[];
+};
+
 export type BridgeStatus = {
   simConnected: boolean;
   simVersion?: string;
@@ -37,6 +58,8 @@ export type BridgeStatus = {
     grade: string;
     items: { code: string; label: string; points: number }[];
   } | null;
+  /** The cargo trip on the loaded aircraft. Absent from an older desktop build. */
+  trip?: TripStatus | null;
   flight: {
     simTitle?: string;
     departure?: string | null;

@@ -33,11 +33,11 @@ function Dashboard() {
           .select("*")
           .eq("company_id", c.id)
           .not("status", "in", "(sold,returned,destroyed)"),
-        supabase.from("missions").select("*").eq("company_id", c.id).in("status", ["available", "accepted"]),
+        supabase.from("missions").select("*").eq("company_id", c.id).in("status", ["available", "accepted"]).is("manifest", null),
         supabase.from("flight_logs").select("*").eq("company_id", c.id).order("flown_at", { ascending: false }).limit(5),
         supabase.from("maintenance_events").select("*").eq("company_id", c.id).eq("status", "in_progress"),
         supabase.from("economy_transactions").select("*").eq("company_id", c.id).gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()),
-        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress"),
+        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress").is("trip_id", null),
         supabase.from("bases").select("*").eq("company_id", c.id),
       ]);
       return {

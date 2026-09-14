@@ -3,9 +3,9 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { FlightMap } from "@/components/flight-map";
-import { useLiveFlight, useBridgeObjectives, useBridgeScore } from "@/hooks/use-live-flight";
+import { useLiveFlight, useBridgeObjectives, useBridgeScore, useBridgeTrip } from "@/hooks/use-live-flight";
 import { searchAreaOf } from "@/lib/missions";
-import { desktop, type BridgeStatus } from "@/lib/desktop";
+import { desktop, type BridgeStatus, type TripStatus } from "@/lib/desktop";
 
 /**
  * The live flight readout: telemetry, objective list, and the map.
@@ -22,6 +22,7 @@ import { desktop, type BridgeStatus } from "@/lib/desktop";
 export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   const { flight, track } = useLiveFlight();
   const objectives = useBridgeObjectives();
+  const trip = useBridgeTrip();
   const [simAircraft, setSimAircraft] = useState<BridgeStatus["simAircraft"]>(null);
 
   // Only needed to explain why objectives are not arming, so it rides along
@@ -48,7 +49,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
       const c = await fetchCurrentCompany();
       if (!c) return null;
       const [active, bases] = await Promise.all([
-        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress"),
+        // Cargo jobs fly as a trip, shown from the bridge's own status.
+        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress").is("trip_id", null),
         supabase.from("bases").select("*").eq("company_id", c.id),
       ]);
       return { active: active.data ?? [], bases: bases.data ?? [] };
@@ -91,7 +93,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   const allDone = !!live && live.items.length > 0 && live.items.every((o) => o.done);
   const legTarget: { lat: number; lon: number; label: string; kind: "next" | "base" | "scene" } | null =
     (() => {
-      if (!activeMission || allDone) return null;
+      if (!activeMission) return tripTarget(trip, flight);
+      if (allDone) return null;
       const raw = (Array.isArray(activeMission.objectives) ? activeMission.objectives : []) as Record<
         string,
         unknown
@@ -227,6 +230,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
 
       <LiveObjectives state={objectives} fill={fill} />
 
+      {trip && <TripCard trip={trip} />}
+
       {/*
         Every objective ticked is not the same as the contract being logged.
         The bridge closes it out once the aircraft is down and still -- but
@@ -256,7 +261,7 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
             : null
         }
         next={legTarget}
-        waypoints={mapWaypoints}
+        waypoints={activeMission ? mapWaypoints : tripWaypoints(trip)}
         search={searchArea}
         sighted={objectives?.sighted ?? null}
         base={
@@ -275,6 +280,91 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
             : "h-96 w-full rounded-lg border border-border"
         }
       />
+    </div>
+  );
+}
+
+/**
+ * Where a cargo trip goes next: the pickup until it is loaded, then the
+ * nearest drop still to make.
+ */
+function tripTarget(
+  trip: TripStatus | null,
+  at: { lat: number; lon: number },
+): { lat: number; lon: number; label: string; kind: "next" } | null {
+  if (!trip) return null;
+  if (!trip.loaded) {
+    return trip.pickupLat != null && trip.pickupLon != null
+      ? { lat: trip.pickupLat, lon: trip.pickupLon, label: `Load at ${trip.pickup ?? "the pickup"}`, kind: "next" }
+      : null;
+  }
+  let best: { lat: number; lon: number; label: string; kind: "next" } | null = null;
+  let bestNm = Infinity;
+  for (const j of trip.jobs) {
+    if (j.delivered || j.lat == null || j.lon == null) continue;
+    const d = nmBetween(at.lat, at.lon, j.lat, j.lon);
+    if (d < bestNm) {
+      bestNm = d;
+      best = { lat: j.lat, lon: j.lon, label: `Drop at ${j.drop ?? "the next stop"}`, kind: "next" };
+    }
+  }
+  return best;
+}
+
+/** A trip's pickup and drops as map rings, sized as the bridge counts them. */
+function tripWaypoints(trip: TripStatus | null) {
+  if (!trip) return [];
+  const ring = (r: number | null, fallback: number) => Math.max(0.25, (r ?? fallback) * 1.35);
+  const points = [];
+  if (trip.pickupLat != null && trip.pickupLon != null) {
+    points.push({
+      id: `pickup-${trip.id}`,
+      lat: trip.pickupLat,
+      lon: trip.pickupLon,
+      radiusNm: ring(trip.pickupRadiusNm, 2),
+      label: `Load at ${trip.pickup ?? "the pickup"}`,
+      done: trip.loaded,
+    });
+  }
+  for (const j of trip.jobs) {
+    if (j.lat == null || j.lon == null) continue;
+    points.push({
+      id: `drop-${j.id}`,
+      lat: j.lat,
+      lon: j.lon,
+      radiusNm: ring(j.radiusNm, 2),
+      label: `${j.title}`,
+      done: j.delivered,
+    });
+  }
+  return points;
+}
+
+/** The cargo trip being flown: what is aboard, what is left, and what to do now. */
+function TripCard({ trip }: { trip: TripStatus }) {
+  const left = trip.jobs.filter((j) => !j.delivered).length;
+  return (
+    <div className="rounded-lg border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          Cargo trip ·{" "}
+          {trip.loaded
+            ? `${trip.aboardLb.toLocaleString()} lb aboard · ${left} of ${trip.jobs.length} to deliver`
+            : `load at ${trip.pickup ?? "the pickup"}`}
+        </p>
+        <p className="text-xs text-warning">{trip.hint}</p>
+      </div>
+      <ul className="mt-2 space-y-1 text-sm">
+        {trip.jobs.map((j) => (
+          <li key={j.id} className="flex items-center justify-between gap-3">
+            <span className={j.delivered ? "text-success" : ""}>
+              {j.delivered ? "✓ " : "• "}
+              {j.title}
+            </span>
+            <span className="font-mono text-xs text-muted-foreground">{j.drop}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

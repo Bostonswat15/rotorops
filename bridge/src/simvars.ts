@@ -64,6 +64,25 @@ export const TOUCHDOWN_DATA: Datum[] = [
  * a sling shouldn't cost us the whole telemetry stream. `npm run probe` reports
  * which resolved on a given install.
  */
+/**
+ * The legacy fuel tanks, by the name SimConnect uses for their CAPACITY and
+ * QUANTITY variables. A load sheet's fuel is written to whichever of these an
+ * aircraft reports a capacity for (trips.ts, fuelTanks).
+ */
+export const FUEL_TANKS = [
+  { key: 'center', name: 'CENTER' },
+  { key: 'center2', name: 'CENTER2' },
+  { key: 'center3', name: 'CENTER3' },
+  { key: 'leftMain', name: 'LEFT MAIN' },
+  { key: 'rightMain', name: 'RIGHT MAIN' },
+  { key: 'leftAux', name: 'LEFT AUX' },
+  { key: 'rightAux', name: 'RIGHT AUX' },
+  { key: 'leftTip', name: 'LEFT TIP' },
+  { key: 'rightTip', name: 'RIGHT TIP' },
+  { key: 'external1', name: 'EXTERNAL1' },
+  { key: 'external2', name: 'EXTERNAL2' },
+] as const;
+
 export const OPTIONAL_DATA: Datum[] = [
   // Indexed by ENGINE index, not rotor. Native unit is "percent over 100";
   // asking for "percent" makes SimConnect convert to a 0-100 scale.
@@ -109,6 +128,17 @@ export const OPTIONAL_DATA: Datum[] = [
   { key: 'gForceLive', name: 'G FORCE', unit: 'GForce', type: 'f64' },
   { key: 'timeOfDay', name: 'TIME OF DAY', unit: 'Enum', type: 'i32' },
   { key: 'visibilityM', name: 'AMBIENT VISIBILITY', unit: 'meters', type: 'f64' },
+
+  // Cargo trips. The limits are reported to the server for the load sheet; the
+  // tank capacities decide which tanks the chosen fuel is written to. Not yet
+  // probed on this install -- an aircraft that doesn't resolve them keeps its
+  // fuel as set in the sim, and the load sheet falls back to catalogue payload.
+  { key: 'maxGrossWeight', name: 'MAX GROSS WEIGHT', unit: 'pounds', type: 'f64' },
+  { key: 'fuelTotalCapacity', name: 'FUEL TOTAL CAPACITY', unit: 'gallons', type: 'f64' },
+  { key: 'fuelWeightPerGallon', name: 'FUEL WEIGHT PER GALLON', unit: 'pounds', type: 'f64' },
+  ...FUEL_TANKS.map((t): Datum => ({
+    key: `tankCap_${t.key}`, name: `FUEL TANK ${t.name} CAPACITY`, unit: 'gallons', type: 'f64',
+  })),
 ];
 
 export type Snapshot = {

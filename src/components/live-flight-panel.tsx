@@ -57,9 +57,20 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
     queryFn: async () => {
       const c = await fetchCurrentCompany();
       if (!c) return null;
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return null;
       const [active, bases, fleet] = await Promise.all([
-        // Cargo jobs fly as a trip, shown from the bridge's own status.
-        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress").is("trip_id", null),
+        // Only your own contracts. Another pilot's flight is theirs to watch
+        // on their own In Flight -- dispatch stamps assigned_pilot_id with
+        // whoever dispatched it. Cargo jobs fly as a trip, shown from the
+        // bridge's own status.
+        supabase
+          .from("missions")
+          .select("*")
+          .eq("company_id", c.id)
+          .eq("status", "in_progress")
+          .eq("assigned_pilot_id", u.user.id)
+          .is("trip_id", null),
         supabase.from("bases").select("*").eq("company_id", c.id),
         supabase.from("aircraft").select("id, display_name").eq("company_id", c.id),
       ]);

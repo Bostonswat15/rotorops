@@ -142,6 +142,15 @@ function SettingsPage() {
             {ALL_CERTS.map((c) => {
               const owned = ownedCerts.has(c);
               const meta = CERT_UNLOCKS[c as keyof typeof CERT_UNLOCKS];
+              // Say what's missing rather than offer a button that only errors.
+              const repShort = meta ? meta.minRep - Number(company.reputation ?? 0) : 0;
+              const cashShort = meta ? meta.cost - Number(company.cash ?? 0) : 0;
+              const shortBy =
+                repShort > 0
+                  ? `Need ${repShort} more reputation`
+                  : cashShort > 0
+                    ? `Need $${Math.ceil(cashShort).toLocaleString()} more cash`
+                    : null;
               return (
                 <li key={c} className="flex items-center justify-between rounded border border-border bg-background px-3 py-2 text-sm">
                   <div>
@@ -152,6 +161,8 @@ function SettingsPage() {
                     <span className="text-xs text-success">Held</span>
                   ) : bookedCerts.has(c) ? (
                     <span className="text-xs text-warning">Check ride booked — fly it on the board</span>
+                  ) : meta && shortBy ? (
+                    <span className="text-xs text-muted-foreground">{shortBy}</span>
                   ) : meta ? (
                     <Button
                       size="sm" variant="secondary" disabled={!canManage || booking === c}

@@ -127,7 +127,14 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   (carries `bridge_device` and `create_pairing_code` from 20260826120000_sim_bridge.sql), then
   `20260921000000_delete_company.sql`, then `20260922000000_fix_incident_lists.sql`, then
   `20260923000000_cargo_inventory.sql` (built by carrying `bridge_state` from 20260916 and
-  `rotorops_resolve_flight` from 20260922 with anchored substitutions).
+  `rotorops_resolve_flight` from 20260922 with anchored substitutions). Then
+  `20260924000000_cert_rep_floors.sql` (data only: lower cert check ride reputation floors,
+  user approved 2026-09-14 -- turbine 50, hoist 55, medevac 60, offshore 65, firefighting 70,
+  sar 75, heavy_lift 80; mirrored in `CERT_UNLOCKS`). Settings shows "Need N more reputation"
+  / cash instead of a Book check ride button that only errors.
+- **In Flight keeps flights apart:** a contract dispatched to a different aircraft than the one
+  loaded in the sim (`simAircraft.matchedId`) is not drawn as this flight; the panel shows it
+  as positioning with a note naming the aircraft the contract is on.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

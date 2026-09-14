@@ -48,20 +48,31 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
     queryFn: async () => {
       const c = await fetchCurrentCompany();
       if (!c) return null;
-      const [active, bases] = await Promise.all([
+      const [active, bases, fleet] = await Promise.all([
         // Cargo jobs fly as a trip, shown from the bridge's own status.
         supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress").is("trip_id", null),
         supabase.from("bases").select("*").eq("company_id", c.id),
+        supabase.from("aircraft").select("id, display_name").eq("company_id", c.id),
       ]);
-      return { active: active.data ?? [], bases: bases.data ?? [] };
+      return { active: active.data ?? [], bases: bases.data ?? [], fleet: fleet.data ?? [] };
     },
   });
 
   // The contract the bridge is actually tracking, not whichever in-progress
   // row came back first. With two dispatched at once the panel drew one
   // contract's search datum over another contract's objective list.
+  //
+  // A contract dispatched to a different aircraft is that aircraft's flight,
+  // not this one: sitting in the 206 with the Cub's type rating in progress
+  // drew the Cub's check ride over the 206 as if the 206 were flying it.
+  const loadedId = simAircraft?.matchedId ?? null;
+  const forLoaded = (m: { aircraft_id: string | null }) =>
+    !loadedId || !m.aircraft_id || m.aircraft_id === loadedId;
   const activeMission =
-    data?.active.find((m: any) => m.id === objectives?.missionId) ?? data?.active[0] ?? null;
+    data?.active.find((m) => m.id === objectives?.missionId) ?? data?.active.find(forLoaded) ?? null;
+  const elsewhere = activeMission ? [] : (data?.active ?? []).filter((m) => !forLoaded(m));
+  const aircraftName = (id: string | null) =>
+    data?.fleet.find((a) => a.id === id)?.display_name ?? "another aircraft";
   const homeBase =
     data?.bases.find((b: any) => b.latitude != null && b.longitude != null) ?? null;
 
@@ -223,6 +234,14 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
           {simAircraft && !simAircraft.matchedName
             ? `The aircraft loaded in the sim ("${simAircraft.simTitle}") is not in your fleet — link it on Settings → Sim Link.`
             : "Check that the contract is dispatched to the aircraft you are flying."}
+        </p>
+      )}
+
+      {elsewhere.length > 0 && (
+        <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          {elsewhere.map((m) => `"${m.title}" is dispatched to ${aircraftName(m.aircraft_id)}`).join("; ")}, not
+          the aircraft loaded in the sim. This flight doesn't count toward it — load that aircraft in MSFS
+          to fly it.
         </p>
       )}
 

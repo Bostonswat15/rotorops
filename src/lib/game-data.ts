@@ -90,13 +90,14 @@ export const CERT_LABELS: Record<string, string> = {
 };
 
 export const CERT_UNLOCKS: Record<string, { cost: number; minRep: number }> = {
-  turbine: { cost: 15000, minRep: 55 },
-  hoist: { cost: 25000, minRep: 65 },
-  medevac: { cost: 50000, minRep: 70 },
-  offshore: { cost: 60000, minRep: 70 },
-  firefighting: { cost: 80000, minRep: 75 },
+  // Mirrors cert_catalog (20260924000000_cert_rep_floors.sql). A company starts at 50.
+  turbine: { cost: 15000, minRep: 50 },
+  hoist: { cost: 25000, minRep: 55 },
+  medevac: { cost: 50000, minRep: 60 },
+  offshore: { cost: 60000, minRep: 65 },
+  firefighting: { cost: 80000, minRep: 70 },
   heavy_lift: { cost: 120000, minRep: 80 },
-  sar: { cost: 100000, minRep: 80 },
+  sar: { cost: 100000, minRep: 75 },
 };
 
 export type AircraftArchetype = {

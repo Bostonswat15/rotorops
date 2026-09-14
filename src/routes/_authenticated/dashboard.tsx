@@ -22,7 +22,13 @@ function Dashboard() {
     queryFn: async () => {
       const c = await fetchCurrentCompany();
       if (!c) return null;
-      const [aircraft, missions, logs, maint, txns, active, bases] = await Promise.all([
+      const { data: u } = await supabase.auth.getUser();
+      if (!u.user) return null;
+      const me = u.user.id;
+      // Company numbers (cash, fleet, maintenance, profit) are shared. Jobs,
+      // flights and what's on contract are yours only -- another pilot's work
+      // belongs on their own dashboard.
+      const [aircraft, missions, logs, maint, txns, active, bases, trips] = await Promise.all([
         // Sold, returned and destroyed airframes stay in the table as
         // history -- a flight log has to keep pointing at the aircraft that
         // flew it. They are not the fleet, though, and counting them made
@@ -33,12 +39,20 @@ function Dashboard() {
           .select("*")
           .eq("company_id", c.id)
           .not("status", "in", "(sold,returned,destroyed)"),
-        supabase.from("missions").select("*").eq("company_id", c.id).in("status", ["available", "accepted"]).is("manifest", null),
-        supabase.from("flight_logs").select("*").eq("company_id", c.id).order("flown_at", { ascending: false }).limit(5),
+        // Open jobs, plus any reserved for you -- not another pilot's check ride.
+        supabase
+          .from("missions")
+          .select("*")
+          .eq("company_id", c.id)
+          .in("status", ["available", "accepted"])
+          .is("manifest", null)
+          .or(`assigned_pilot_id.is.null,assigned_pilot_id.eq.${me}`),
+        supabase.from("flight_logs").select("*").eq("company_id", c.id).eq("pilot_id", me).order("flown_at", { ascending: false }).limit(5),
         supabase.from("maintenance_events").select("*").eq("company_id", c.id).eq("status", "in_progress"),
         supabase.from("economy_transactions").select("*").eq("company_id", c.id).gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString()),
-        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress").is("trip_id", null),
+        supabase.from("missions").select("*").eq("company_id", c.id).eq("status", "in_progress").eq("assigned_pilot_id", me).is("trip_id", null),
         supabase.from("bases").select("*").eq("company_id", c.id),
+        supabase.from("trips").select("aircraft_id").eq("company_id", c.id).eq("status", "active").eq("pilot_id", me),
       ]);
       return {
         company: c,
@@ -49,6 +63,10 @@ function Dashboard() {
         txns: txns.data ?? [],
         active: active.data ?? [],
         bases: bases.data ?? [],
+        myAircraftIds: new Set<string>([
+          ...(active.data ?? []).map((m) => m.aircraft_id).filter((id): id is string => !!id),
+          ...(trips.data ?? []).map((t) => t.aircraft_id),
+        ]),
       };
     },
   });
@@ -61,6 +79,8 @@ function Dashboard() {
   // means on_mission. Calling that grounded was wrong twice over: the
   // aircraft is working, and the rest of the list was disposed airframes.
   const onContract = data.aircraft.filter((a: any) => a.status === "on_mission");
+  // The panel lists only what you're flying; the fleet count stays company-wide.
+  const myOnContract = onContract.filter((a: any) => data.myAircraftIds.has(a.id));
   const weeklyProfit = data.txns.reduce((s: number, t: any) => s + Number(t.amount), 0);
   const alerts = data.aircraft.filter((a: any) => Number(a.wear) > 60);
 
@@ -109,9 +129,9 @@ function Dashboard() {
           ))}
         </Panel>
 
-        <Panel icon={Plane} title="Aircraft on contract">
-          {onContract.length === 0 && <Empty text="Every aircraft is at base." />}
-          {onContract.map((a: any) => (
+        <Panel icon={Plane} title="Your aircraft on contract">
+          {myOnContract.length === 0 && <Empty text="You have no aircraft out on a contract." />}
+          {myOnContract.map((a: any) => (
             <div key={a.id} className="flex items-center justify-between rounded-md px-3 py-2">
               <p className="text-sm">{a.display_name}</p>
               <span className="text-xs text-warning">on contract</span>

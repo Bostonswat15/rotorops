@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
-import { fleetWing, type WingType } from "@/lib/game-data";
+import { fleetWing, isFixedWingAircraft, type WingType } from "@/lib/game-data";
 import { ratingOf, CHECKOUT_RATING } from "@/lib/ratings";
 import { distanceNm, parsePlacementSites } from "@/lib/missions";
 import { airfieldsNear } from "@/lib/airfields";
@@ -216,6 +216,15 @@ function CargoPage() {
           name: i.name,
           stock: Number(i.stock),
         })),
+        // Plane jobs sized to the biggest plane: a Savage Cub gets Cub-sized work.
+        planeLimits: (() => {
+          const planes = fleet.filter(isFixedWingAircraft);
+          if (wing !== "fixed" || planes.length === 0) return null;
+          return {
+            payloadLb: Math.max(...planes.map((a) => Number(a.payload_lbs) || 0)),
+            seats: Math.max(...planes.map((a) => Math.max(0, (Number(a.pax_seats) || 0) - 1))),
+          };
+        })(),
       });
 
       // Jobs past their expiry make way for the new ones.

@@ -34,7 +34,7 @@ export const PAY: Record<WingType, { base: number; perNm: number; perLb: number 
   // Heavy Equipment Transfer 5,000 lb ~37 nm $11,000.
   rotary: { base: 1000, perNm: 18, perLb: 1.85 },
   // Scheduled Freight Run 1,500 lb ~92 nm $4,200; Ferry Flight 200 lb ~102 nm $2,400.
-  fixed: { base: 900, perNm: 12, perLb: 1.5 },
+  fixed: { base: 900, perNm: 20, perLb: 1.5 },
 };
 /** Setting down away from an airfield -- the approved Camp Supply Run's $4,500 for 600 lb. */
 export const OFF_AIRPORT_MULT = 1.7;
@@ -55,6 +55,13 @@ const JOB_LB: Record<WingType, [number, number]> = { rotary: [150, 1200], fixed:
 const SITE_JOB_MAX_LB = 1000;
 const HOSPITAL_JOB_LB: [number, number] = [60, 300];
 const MAX_PAX: Record<WingType, number> = { rotary: 4, fixed: 8 };
+/**
+ * Plane jobs sized to the biggest plane in the fleet (user approved
+ * 2026-09-14): PLANE_JOB_MIN_LB up to PLANE_LOAD_SHARE of its payload, the
+ * rest left for fuel, and never more than JOB_LB allows.
+ */
+export const PLANE_JOB_MIN_LB = 60;
+export const PLANE_LOAD_SHARE = 0.7;
 const PAX_SHARE: Record<WingType, number> = { rotary: 0.3, fixed: 0.35 };
 const JOBS_AT_PICKUP: [number, number] = [3, 4];
 const MAX_JOBS = 12;
@@ -145,6 +152,11 @@ export type CargoContext = {
   airports: Airport[];
   hospitals?: { lat: number; lon: number; name: string }[];
   industries?: { id: string; kind: string; lat: number; lon: number; name: string | null; stock: number }[];
+  /**
+   * Plane jobs only: the biggest payload and the most seats behind the pilot
+   * among the fleet's planes. Absent keeps the full JOB_LB and MAX_PAX.
+   */
+  planeLimits?: { payloadLb: number; seats: number } | null;
   now?: number;
   random?: () => number;
 };
@@ -168,6 +180,18 @@ export function generateCargoJobs(ctx: CargoContext): Record<string, unknown>[] 
     kind: "base",
   };
   const baseIcao = String(ctx.base.icao ?? "").toUpperCase();
+
+  // A Savage Cub can't take a 2,000 lb crate or four passengers.
+  const limits = wing === "fixed" ? (ctx.planeLimits ?? null) : null;
+  const jobLb: [number, number] = limits
+    ? [
+        PLANE_JOB_MIN_LB,
+        Math.max(PLANE_JOB_MIN_LB, Math.min(JOB_LB.fixed[1], Math.round(limits.payloadLb * PLANE_LOAD_SHARE))),
+      ]
+    : JOB_LB[wing];
+  const maxPax = limits
+    ? Math.min(MAX_PAX.fixed, Math.max(0, Math.floor(limits.seats)), Math.floor(jobLb[1] / PAX_LB))
+    : MAX_PAX[wing];
 
   const fields: CargoPlace[] = ctx.airports
     .filter(
@@ -300,9 +324,9 @@ export function generateCargoJobs(ctx: CargoContext): Record<string, unknown>[] 
     );
     const siteDrops = sites.filter((s) => inRange(pickup, s, LEG_NM[wing].site));
 
-    if (fieldDrops.length > 0 && rnd() < PAX_SHARE[wing]) {
+    if (fieldDrops.length > 0 && maxPax > 0 && rnd() < PAX_SHARE[wing]) {
       const drop = pickOne(fieldDrops);
-      const pax = 1 + Math.floor(rnd() * MAX_PAX[wing]);
+      const pax = 1 + Math.floor(rnd() * maxPax);
       const lb = pax * PAX_LB;
       return build(pickup, drop, {
         role: "passengers",
@@ -318,13 +342,21 @@ export function generateCargoJobs(ctx: CargoContext): Record<string, unknown>[] 
     if (drops.length === 0) return null;
     const drop = pickOne(drops);
     const kind = drop.kind === "hospital" ? "hospital" : drop.kind === "site" ? "site" : "field";
-    const [lo, hi] = JOB_LB[wing];
+    const [lo, hi] = jobLb;
     const target =
       kind === "hospital"
         ? between(HOSPITAL_JOB_LB[0], HOSPITAL_JOB_LB[1])
         : between(lo, kind === "site" ? Math.min(hi, SITE_JOB_MAX_LB) : hi);
-    const items = fillItems(ITEMS[kind], target);
+    // Nothing whose single unit is heavier than the job is meant to be.
+    const fits = ITEMS[kind].filter((k) => k.lb[0] <= target);
+    const items = fillItems(fits.length > 0 ? fits : ITEMS[kind], target);
+    if (limits) {
+      for (const it of items) {
+        while (it.qty > 1 && manifestWeight({ items, pax: 0 }) > hi) it.qty--;
+      }
+    }
     const lb = manifestWeight({ items, pax: 0 });
+    if (limits && lb > hi) return null;
     const lead = ITEMS[kind].find((k) => k.name === items[0].name)!;
     const single = items.length === 1 && items[0].qty === 1;
     return build(pickup, drop, {

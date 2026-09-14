@@ -143,9 +143,18 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   reputation as before. Light $25/nm (mail, instruction, ferry, spotting, floatplane, hopper,
   bush resupply), utility $40/nm (scheduled freight, exec charter, survey, fisheries, air
   ambulance), premium $60/nm (overnight freight, regional shuttle, organ transport). Skydive
-  stays flat. Only new boards: existing contracts keep their baked payout. Still only proposed,
-  not approved: Cargo Hub plane $12 -> $20/nm, lease 0.08% -> 0.03%/hr, fleet-aware board and
-  light bush contracts, realistic helicopter prices (option A hard-only / B everywhere).
+  stays flat. Only new boards: existing contracts keep their baked payout.
+- **Bush planes, cargo and lease (user approved 2026-09-14):** the Mission Board only offers plane
+  templates some plane in the fleet can fly (`fleetCanFly`: payload, shortest leg vs range, a
+  role tag; `isFixedWingAircraft` by catalogue id), falling back to every certified template.
+  Four light bush contracts, all `bush` tag, $25/nm: Backcountry Parcels (250 lb, 15-60 nm,
+  base $3,200), Hunting Camp Drop (350 lb, 20-80, $4,500), Cabin Supply Hop (300 lb, 10-50,
+  $3,800) as bush-strip round trips, Wildlife Survey (200 lb, 20-70, $4,200, survey). Cargo Hub
+  plane pay $20/nm; plane jobs sized by `planeLimits` from the biggest plane: 60 lb to 70% of
+  its payload (max 2,500), passengers up to its seats behind the pilot. Lease rate 0.03% of
+  price per flight hour (`20260925000000_lease_rate.sql`, new leases only; mirrored in
+  market.tsx). Realistic helicopter prices everywhere (option B) chosen but not yet built: needs
+  a full price/payout table approved first.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

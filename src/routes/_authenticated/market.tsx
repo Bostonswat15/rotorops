@@ -26,7 +26,7 @@ function hourlyTotal(a: AircraftArchetype) {
 // These mirror lease_rate_for / lease_deposit_for in the database. The server
 // recomputes both on lease, so these are for display only -- if they ever drift,
 // the server's figure is the one you're charged.
-const leaseRate = (a: AircraftArchetype) => Math.round(a.acquisition_cost * 0.0008);
+const leaseRate = (a: AircraftArchetype) => Math.round(a.acquisition_cost * 0.0003);
 const leaseDeposit = (a: AircraftArchetype) => Math.round(a.acquisition_cost * 0.02);
 
 /**

@@ -21,6 +21,7 @@ import {
   isAircraftEligible,
   companyHasCerts,
   fleetWing,
+  isFixedWingAircraft,
   TAG_LABELS,
 } from "@/lib/game-data";
 import { useCompanyRole } from "@/hooks/use-company";
@@ -34,7 +35,7 @@ import { airfieldsNear } from "@/lib/airfields";
 import { isCargoJob } from "@/lib/cargo";
 import { cliffSitesFrom } from "@/lib/missions";
 import {
-  FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf,
+  FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf, fleetCanFly,
 } from "@/lib/fixed-wing";
 import { CHARTER_TEMPLATES, generateCharterMission } from "@/lib/charter";
 import {
@@ -298,9 +299,16 @@ function MissionsPage() {
         // Aeroplane work, built from real airfields. Skipped when the base has
         // no airport data, since a fixed-wing contract is nothing but its
         // destination and there is no honest way to invent one.
-        const fwPool = FIXED_WING_TEMPLATES.filter((t) =>
+        const certified = FIXED_WING_TEMPLATES.filter((t) =>
           companyHasCerts(company.certifications, t.required_certs),
         );
+        // Only work a plane in the fleet can take -- a Savage Cub was offered
+        // 1,500 lb freight runs. With no plane that fits any, offer them all.
+        const planes = (aircraft ?? []).filter(
+          (a) => isFixedWingAircraft(a) && !["sold", "returned", "destroyed"].includes(a.status),
+        );
+        const flyable = certified.filter((t) => fleetCanFly(t, planes));
+        const fwPool = flyable.length > 0 ? flyable : certified;
         let fwCount = 0;
         if (fwPool.length > 0 && airports.length > 0) {
           // A template can come up empty -- no lake near this base for a

@@ -153,6 +153,14 @@ export function fleetWing(
     : "rotary";
 }
 
+/** Is this owned aircraft a plane? By catalogue internal_id, like fleetWing. */
+export function isFixedWingAircraft(a: { internal_id?: string | null }): boolean {
+  return (
+    a.internal_id != null &&
+    AIRCRAFT_ARCHETYPES.some((x) => x.wing === "fixed" && x.internal_id === a.internal_id)
+  );
+}
+
 export type MissionTemplate = {
   role: string;
   title: string;

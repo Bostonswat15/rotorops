@@ -290,7 +290,68 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     min_payload: 200, min_runway_ft: 1800, base_payout: 2400, pay_per_nm: 25,
     leg_range: [45, 160], difficulty: 1, weather_factor: 2,
   },
+
+  // --- Light bush work (user approved 2026-09-14) -------------------------
+  // Sized for a two-seat taildragger: a Savage Cub carries 470 lb, and every
+  // other bush job wanted 900 lb or more.
+  {
+    role: "freight",
+    title: "Backcountry Parcels",
+    brief: "A handful of parcels for the folks out at {dest}. Light load, short strip — drop them and come home.",
+    kind: "round_trip",
+    required_tags: ["bush"], required_certs: [],
+    min_payload: 250, min_runway_ft: 600, base_payout: 3200, pay_per_nm: 25,
+    leg_range: [15, 60], difficulty: 2, weather_factor: 3,
+    bush_strip: true,
+  },
+  {
+    role: "charter",
+    title: "Hunting Camp Drop",
+    brief: "One hunter and their gear into {dest} for the week. Quick turnaround, then home before the light goes.",
+    kind: "round_trip",
+    required_tags: ["bush"], required_certs: [],
+    min_payload: 350, min_runway_ft: 600, base_payout: 4500, pay_per_nm: 25,
+    leg_range: [20, 80], difficulty: 2, weather_factor: 3,
+    bush_strip: true,
+  },
+  {
+    role: "freight",
+    title: "Cabin Supply Hop",
+    brief: "Groceries and a box of parts for a cabin owner at {dest}. Land, unload, head home.",
+    kind: "round_trip",
+    required_tags: ["bush"], required_certs: [],
+    min_payload: 300, min_runway_ft: 600, base_payout: 3800, pay_per_nm: 25,
+    leg_range: [10, 50], difficulty: 2, weather_factor: 3,
+    bush_strip: true,
+  },
+  {
+    role: "survey",
+    title: "Wildlife Survey",
+    brief: "Count the herds out past {dest}. Fly the legs, keep your eyes on the ground, and bring the tally home.",
+    kind: "survey",
+    required_tags: ["bush", "survey"], required_certs: [],
+    min_payload: 200, min_runway_ft: 0, base_payout: 4200, pay_per_nm: 25,
+    leg_range: [20, 70], difficulty: 2, weather_factor: 3,
+  },
 ];
+
+/**
+ * Can any of these planes fly this template? Payload, the shortest leg it
+ * offers, and one of its roles -- the same checks a contract card makes, so
+ * the board stops offering work nothing in the fleet can take (user approved
+ * 2026-09-14).
+ */
+export function fleetCanFly(
+  t: Pick<FixedWingTemplate, "min_payload" | "leg_range" | "required_tags">,
+  planes: readonly { payload_lbs?: number | null; max_range_nm?: number | null; tags?: readonly string[] | null }[],
+): boolean {
+  return planes.some(
+    (a) =>
+      Number(a.payload_lbs ?? 0) >= t.min_payload &&
+      Number(a.max_range_nm ?? 0) >= t.leg_range[0] &&
+      (t.required_tags.length === 0 || t.required_tags.some((tag) => (a.tags ?? []).includes(tag))),
+  );
+}
 
 const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
 

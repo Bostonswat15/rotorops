@@ -10,9 +10,22 @@
  * instead. No child processes, no data files, and it honours a custom config.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, accessSync, constants } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+
+/** The pipe MSFS listens on by default; the same name node-simconnect checks. */
+const SIM_PIPE = '\\\\.\\pipe\\Microsoft Flight Simulator\\SimConnect';
+
+function simPipeExists(): boolean {
+  if (process.platform !== 'win32') return false;
+  try {
+    accessSync(SIM_PIPE, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export type Candidate = {
   label: string;
@@ -86,7 +99,15 @@ export function connectionCandidates(allowAutodetect: boolean): Candidate[] {
 
   // Running from source, the library's registry lookup finds the live
   // dynamic port, which beats anything we can infer.
-  if (allowAutodetect) out.push({ label: 'autodetect', options: undefined });
+  if (allowAutodetect) {
+    out.push({ label: 'autodetect', options: undefined });
+  } else if (simPipeExists()) {
+    // Packaged, autodetect is still safe while the sim's named pipe is up: the
+    // library checks the pipe before it ever reaches the registry script. A
+    // stock SimConnect.xml has no static IPv4 port, so without this an
+    // installed copy only tried 500 and 2048 and never found a default sim.
+    out.push({ label: 'named pipe', options: undefined });
+  }
 
   for (const path of configPaths()) {
     try {

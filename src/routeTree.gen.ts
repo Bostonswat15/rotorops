@@ -78,11 +78,6 @@ const AuthenticatedIndustriesRoute = AuthenticatedIndustriesRouteImport.update({
   path: '/industries',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedCargoRoute = AuthenticatedCargoRouteImport.update({
-  id: '/cargo',
-  path: '/cargo',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedFlightLogsRoute = AuthenticatedFlightLogsRouteImport.update({
   id: '/flight-logs',
   path: '/flight-logs',
@@ -106,6 +101,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
 const AuthenticatedCrewRoute = AuthenticatedCrewRouteImport.update({
   id: '/crew',
   path: '/crew',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedCargoRoute = AuthenticatedCargoRouteImport.update({
+  id: '/cargo',
+  path: '/cargo',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedBasesRoute = AuthenticatedBasesRouteImport.update({
@@ -318,13 +318,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndustriesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/cargo': {
-      id: '/_authenticated/cargo'
-      path: '/cargo'
-      fullPath: '/cargo'
-      preLoaderRoute: typeof AuthenticatedCargoRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/flight-logs': {
       id: '/_authenticated/flight-logs'
       path: '/flight-logs'
@@ -358,6 +351,13 @@ declare module '@tanstack/react-router' {
       path: '/crew'
       fullPath: '/crew'
       preLoaderRoute: typeof AuthenticatedCrewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/cargo': {
+      id: '/_authenticated/cargo'
+      path: '/cargo'
+      fullPath: '/cargo'
+      preLoaderRoute: typeof AuthenticatedCargoRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/bases': {

@@ -77,9 +77,12 @@ async function overpass(query: string, timeoutMs = TIMEOUT_MS): Promise<any[] | 
  * doubles back on itself.
  */
 export async function findPowerLines(centre: LatLon, radiusNm = 40): Promise<PowerLine[]> {
-  const elements = (await overpass(
+  const elements = await overpass(
     `[out:json][timeout:20];way["power"="line"](${bbox(centre, radiusNm)});out geom 40;`,
-  )) ?? [];
+  );
+  // Thrown, not empty: the session cache keeps whatever resolves, so an empty
+  // answer from a 504 left every patrol off the board until the app restarted.
+  if (!elements) throw new Error("Overpass unavailable for power lines");
 
   return elements
     .filter((e) => Array.isArray(e.geometry) && e.geometry.length >= 4)
@@ -113,7 +116,8 @@ export async function findPowerTowers(centre: LatLon, radiusNm = 40): Promise<La
   const elements = await overpass(
     `[out:json][timeout:25];node["power"~"^(tower|portal)$"](${bbox(centre, radiusNm)});out 2000;`,
   );
-  if (!elements) return [];
+  // Thrown for the same reason as findPowerLines; the caller carries on without towers.
+  if (!elements) throw new Error("Overpass unavailable for power towers");
   return elements
     .filter((e) => typeof e.lat === "number" && typeof e.lon === "number")
     .map((e) => ({ lat: e.lat, lon: e.lon }));

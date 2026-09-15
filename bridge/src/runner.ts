@@ -685,6 +685,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       score: null,
       grade: null,
       score_items: [],
+      // Nor to say plane or helicopter from: the server falls back to the aircraft type.
+      wing: null,
       end_lat: n(s.lat),
       end_lon: n(s.lon),
       started_at: stamp,

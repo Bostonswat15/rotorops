@@ -8,7 +8,7 @@
 
 import { EventEmitter } from 'node:events';
 import { distanceNm } from './telemetry.ts';
-import { FlightScorer, type ScoreItem } from './score.ts';
+import { FlightScorer, type ScoreItem, type WingKind } from './score.ts';
 
 export type Telemetry = {
   departure: string | null;
@@ -30,6 +30,8 @@ export type Telemetry = {
   score: number | null;
   grade: string | null;
   score_items: ScoreItem[];
+  /** Plane or helicopter, as the scorer read it from the sim. The server lands planes on plane limits. */
+  wing: WingKind | null;
 };
 
 type Snap = Record<string, number | string>;
@@ -249,6 +251,7 @@ export class FlightTracker extends EventEmitter {
       score: this.scorer ? this.scorer.score : null,
       grade: this.scorer ? this.scorer.grade : null,
       score_items: this.scorer ? this.scorer.breakdown : [],
+      wing: this.scorer ? this.scorer.kind : null,
     };
     this.reset();
 

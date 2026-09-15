@@ -383,7 +383,13 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   no runways, so strips only the sim knows stay out of bush jobs. Mission Board: the first
   `BUSH_BOARD_SHARE` (3) of 6 plane contracts come from `isBushTemplate` (bush_strip, bush or
   floats tag) when the fleet can fly any; bush tries give up after 12.
- simulated winch, walker leash/AGL waypoints, terrain casualty
+- **Scoring trimmed, plane landing check (user asked 2026-09-15):** the bank and pitch rules are
+  gone for both wings (`score.ts`). The server landing check in `rotorops_resolve_flight`
+  (migration 20261003000000_plane_landing_check.sql) grades planes on their own bands: excellent
+  to 200 fpm, normal to 500, hard to 900 ("hard landing", +3 wear), severe beyond ("gear damage
+  on touchdown", +12 wear, contract fails); helicopters keep 60/240/600. Plane or helicopter is
+  telemetry `wing` (the bridge scorer's kind, v0.7.4+), else `rating_info` by type (custom = rotary).
+- **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;
   immediate bridge refresh on dispatch (currently up to 30 s); ridgeline casualties still

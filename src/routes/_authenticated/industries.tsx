@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/select";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Factory, TrendingUp, TrendingDown, Coins, Compass, Hammer, Crosshair, Users, Minus, Plus } from "lucide-react";
+import { Factory, TrendingUp, TrendingDown, Coins, Compass, Hammer, Crosshair, Users, Minus, Plus, Trash2 } from "lucide-react";
 import { useCompanyRole } from "@/hooks/use-company";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 import { findIndustrySites } from "@/lib/osm";
@@ -40,6 +40,9 @@ function IndustriesPage() {
   const [busyTrade, setBusyTrade] = useState<string | null>(null);
   const [busyStaff, setBusyStaff] = useState<string | null>(null);
   const [busyClaim, setBusyClaim] = useState<string | null>(null);
+  // Delete asks twice: the first click arms it, the second deletes.
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [busyDelete, setBusyDelete] = useState<string | null>(null);
 
   // Build-a-camp: place a new site anywhere, not just where OSM found one.
   const [buildKind, setBuildKind] = useState<IndustryKind | "">("");
@@ -159,6 +162,18 @@ function IndustriesPage() {
     toast.success("Site claimed — it's yours to staff, invest in and haul from.");
     qc.invalidateQueries({ queryKey: ["industries"] });
     qc.invalidateQueries({ queryKey: ["company"] });
+  }
+
+  // A site you own goes for free: no charge, no refund.
+  async function removeSite(industryId: string) {
+    setBusyDelete(industryId);
+    const { error } = await supabase.rpc("delete_industry", { _industry_id: industryId });
+    setBusyDelete(null);
+    setConfirmDelete(null);
+    if (error) return toast.error(error.message);
+    toast.success("Site deleted.");
+    qc.invalidateQueries({ queryKey: ["industries"] });
+    qc.invalidateQueries({ queryKey: ["missions"] });
   }
 
   async function build() {
@@ -434,6 +449,20 @@ function IndustriesPage() {
 
                     {canManage && (
                       <div className="mt-4 space-y-3 border-t border-border pt-3">
+                        <div className="flex justify-end">
+                          <Button
+                            size="sm" variant="ghost" className="h-7 text-xs text-destructive"
+                            disabled={busyDelete !== null}
+                            onClick={() => (confirmDelete === ind.id ? removeSite(ind.id) : setConfirmDelete(ind.id))}
+                          >
+                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            {busyDelete === ind.id
+                              ? "Deleting…"
+                              : confirmDelete === ind.id
+                                ? "Click again to delete — no refund"
+                                : "Delete site"}
+                          </Button>
+                        </div>
                         <div className="flex items-center gap-2">
                           <Input
                             type="number" min={0} className="h-8 w-28 text-sm"

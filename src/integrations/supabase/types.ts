@@ -1318,6 +1318,7 @@ export type Database = {
         Returns: Database["public"]["Tables"]["industries"]["Row"]
       }
       industry_is_owned: { Args: { _industry_id: string }; Returns: boolean }
+      delete_industry: { Args: { _industry_id: string }; Returns: undefined }
       book_checkride: {
         Args: { _company_id: string; _cert: string; _mission: Json }
         Returns: Database["public"]["Tables"]["missions"]["Row"]

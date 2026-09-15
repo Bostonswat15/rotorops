@@ -218,6 +218,11 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   dressed). App: `ownsIndustry(company, site)` in play-mode.ts; the Trading Hall lists owned
   sites and a "Nearby sites" section with Claim buttons; Mission Board hauls, Cargo Hub goods
   jobs and In Flight camps use owned sites only.
+- **Deleting a site (user asked 2026-09-15, free, no refund):** `delete_industry(id)`
+  (`20261002000000_delete_industry.sql`): owners/managers, owned sites only; refused while a
+  haul/trade run/goods job to or from it, or a fuel run from it, is in progress; deletes its
+  available board missions first (refund triggers tidy stock), then the site (investments
+  cascade). Trading Hall: two-click "Delete site" on each owned site card.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

@@ -109,7 +109,7 @@ export function LocationPicker({ value, onChange, center, markers = [], classNam
     // usual z-50 loses to Leaflet every time.
     <div
       ref={holder}
-      className={`isolate ${className ?? "h-56 w-full rounded-lg border border-border"}`}
+      className={`isolate ${className ?? "h-[28rem] w-full rounded-lg border border-border"}`}
       style={{ background: "#0b1220" }}
     />
   );

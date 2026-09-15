@@ -276,7 +276,7 @@ function IndustriesPage() {
             Or click the map to place it — the boxes above update to match.
           </p>
           <LocationPicker
-            className="h-56 w-full rounded-lg border border-border"
+            className="h-[28rem] w-full rounded-lg border border-border"
             value={
               Number.isFinite(Number(buildLat)) && Number.isFinite(Number(buildLon)) && buildLat !== "" && buildLon !== ""
                 ? { lat: Number(buildLat), lon: Number(buildLon) }

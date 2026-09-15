@@ -324,15 +324,44 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         </p>
       )}
 
-      {flyToCamp && (
-        <p className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2 text-sm">
-          <span>
-            Flying to <span className="font-medium">{flyToCamp.label}</span> — the guide line points there.
-          </span>
-          <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setFlyTo(null)}>
-            Clear
-          </button>
-        </p>
+      {/*
+        Picking a camp from a list, nearest first. A marker is a few pixels at
+        the zoom a 40 nm leg needs, so clicking the map alone meant hunting for
+        it before you could head there.
+      */}
+      {campPlaces.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2 text-sm">
+          <label className="flex items-center gap-2">
+            <span className="text-muted-foreground">Fly to camp</span>
+            <select
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              value={flyTo ?? ""}
+              onChange={(e) => setFlyTo(e.target.value || null)}
+            >
+              <option value="">— none —</option>
+              {campPlaces
+                .map((p) => ({ p, nm: nmBetween(flight.lat, flight.lon, p.lat, p.lon) }))
+                .sort((a, b) => a.nm - b.nm)
+                .map(({ p, nm }) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label} · {nm.toFixed(0)} nm
+                  </option>
+                ))}
+            </select>
+          </label>
+          {flyToCamp ? (
+            <span className="flex items-center gap-3">
+              <span>
+                Guide line to <span className="font-medium">{flyToCamp.label}</span>
+              </span>
+              <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setFlyTo(null)}>
+                Clear
+              </button>
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">or click a camp on the map</span>
+          )}
+        </div>
       )}
 
       <FlightMap

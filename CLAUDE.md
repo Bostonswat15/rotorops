@@ -373,8 +373,10 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
 - **Shorter plane legs, grass strips, bush first (user approved 2026-09-15):** plane
   `leg_range`s shortened (bush: Backcountry 10-30, Cabin 8-25, Hunting 12-35, Wildlife 12-35,
   Bush Strip Resupply 25-70, Mail Run 12-35/leg, Lodge Hopper 15-45, Floatplane 8-30; others
-  e.g. Ferry 30-100, Scheduled Freight 30-90, Organ Transport 60-200). Pay per job falls with
-  distance; pay per hour rises. `findAerodromes` also takes `aeroway=airstrip` (nodes and
+  e.g. Ferry 30-100, Scheduled Freight 30-90, Organ Transport 60-200). Pay per job kept where
+  it was (user, 2026-09-15): each `base_payout` rose by twice the per-nm pay lost at the typical
+  distance (e.g. Backcountry 8,000 -> 12,200, Ferry 2,400 -> 8,400, Organ Transport 18,500 ->
+  38,300), so pay per hour rose instead. `findAerodromes` also takes `aeroway=airstrip` (nodes and
   ways, and drawn airstrips as runways), keeps up to 1,500 fields (was 400, which dropped near
   strips), and turns a land runway >= 800 ft that no field within 3 nm claims into its own strip
   named by position ("Grass strip 12 nm NE"; `stripName`). The sim's facility list still has

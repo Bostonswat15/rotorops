@@ -38,6 +38,7 @@ import { isIndustryMode, showsInIndustryMode, withFreight, ownsIndustry, INDUSTR
 import { cliffSitesFrom } from "@/lib/missions";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf, fleetCanFly,
+  isBushTemplate, BUSH_BOARD_SHARE,
 } from "@/lib/fixed-wing";
 import { CHARTER_TEMPLATES, generateCharterMission } from "@/lib/charter";
 import {
@@ -325,17 +326,26 @@ function MissionsPage() {
         );
         const flyable = certified.filter((t) => fleetCanFly(t, planes));
         const fwPool = flyable.length > 0 ? flyable : certified;
+        // Bush work first: strips, floats and backcountry drops take the
+        // first BUSH_BOARD_SHARE slots, so they come before the patrol takes
+        // the last one.
+        const bushPool = fwPool.filter(isBushTemplate);
         let fwCount = 0;
+        let bushCount = 0;
         if (fwPool.length > 0 && airports.length > 0) {
           // A template can come up empty -- no lake near this base for a
-          // floatplane, not enough fields in a row for a mail run -- so a few
-          // spare tries keep the count honest.
-          for (let tries = 0; tries < 18 && fwCount < 6; tries++) {
-            const t = fwPool[Math.floor(Math.random() * fwPool.length)];
+          // floatplane, no grass strip in range for a bush drop -- so a few
+          // spare tries keep the count honest, and bush tries give way to the
+          // rest once they stop finding strips.
+          for (let tries = 0; tries < 24 && fwCount < 6; tries++) {
+            const wantBush = bushPool.length > 0 && bushCount < BUSH_BOARD_SHARE && tries < 12;
+            const from = wantBush ? bushPool : fwPool;
+            const t = from[Math.floor(Math.random() * from.length)];
             const fw = generateFixedWingMission(t, company.reputation, site);
             if (fw) {
               rows.push({ company_id: company.id, ...fw });
               fwCount++;
+              if (isBushTemplate(t)) bushCount++;
             }
           }
         }

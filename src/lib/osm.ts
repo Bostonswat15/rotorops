@@ -130,6 +130,34 @@ export type Aerodrome = {
 };
 
 const FT_PER_NM = 6076.12;
+/** A lone runway shorter than this is a model-aircraft field, not a strip. */
+const STRIP_MIN_FT = 800;
+/** Lone runways this close together are one strip (crossing or parallel). */
+const STRIP_MERGE_NM = 0.5;
+const COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+/**
+ * A name for a strip OSM doesn't name, from where it lies: "Grass strip 12 nm NE".
+ * It stands in for an ident on the card and in "Land at ..."; the landing
+ * itself is judged on the strip's stored position.
+ */
+function stripName(centre: LatLon, at: LatLon, surface: string | null): string {
+  const nm = Math.max(1, Math.round(nmBetween(centre, at)));
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(rad(at.lon - centre.lon)) * Math.cos(rad(at.lat));
+  const x =
+    Math.cos(rad(centre.lat)) * Math.sin(rad(at.lat)) -
+    Math.sin(rad(centre.lat)) * Math.cos(rad(at.lat)) * Math.cos(rad(at.lon - centre.lon));
+  const brg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  const word = (surface ?? "").split(/[;:_]/)[0].trim().toLowerCase();
+  const kind =
+    surfaceClass(surface) === "unpaved" && word
+      ? `${word.charAt(0).toUpperCase()}${word.slice(1)} strip`
+      : surfaceClass(surface) === "paved"
+        ? "Paved strip"
+        : "Strip";
+  return `${kind} ${nm} nm ${COMPASS[Math.round(brg / 45) % 8]}`;
+}
 /** A runway this far from a field's centre can still be its runway; the nearest field wins. */
 const RUNWAY_MATCH_NM = 3;
 const PAVED = /^(asphalt|concrete|paved|bitumen|tarmac|chipseal|metal|paving_stones|sett)/;
@@ -192,6 +220,13 @@ function runwayFeet(e: OsmWay): number | null {
  *
  * Relations too: larger airports are often mapped as multipolygons (Ottawa's
  * CYOW is), and a node-and-way query never saw them.
+ *
+ * Grass strips (2026-09-15): farm and bush strips are mostly mapped as
+ * `aeroway=airstrip`, or as nothing but a runway with no aerodrome around it.
+ * Both count now: an airstrip is a field, a drawn airstrip is also a runway,
+ * and a land runway no field claims becomes a strip of its own, named for
+ * where it lies. The field list is no longer cut at 400, which dropped strips
+ * near the base in busy areas (Overpass returns by id, not by distance).
  */
 export async function findAerodromes(
   centre: LatLon,
@@ -201,27 +236,56 @@ export async function findAerodromes(
 ): Promise<Aerodrome[]> {
   const b = bbox(centre, radiusNm);
   const elements = (await overpass(
-    `[out:json][timeout:20];(node["aeroway"="aerodrome"](${b});way["aeroway"="aerodrome"](${b});relation["aeroway"="aerodrome"](${b}););out center 400;`,
+    `[out:json][timeout:25];(node["aeroway"~"^(aerodrome|airstrip)$"](${b});way["aeroway"~"^(aerodrome|airstrip)$"](${b});relation["aeroway"="aerodrome"](${b}););out center 1500;`,
   )) ?? [];
 
+  // Unnamed strips are named once their runway, and so their surface, is known.
+  const unnamed = new Set<Aerodrome>();
   const fields = elements
     .map((e): Aerodrome | null => {
       const lat = e.lat ?? e.center?.lat;
       const lon = e.lon ?? e.center?.lon;
       const t = e.tags ?? {};
+      if (typeof lat !== "number" || typeof lon !== "number") return null;
       const icao: string | null = t.icao ?? t.faa ?? t.ref ?? t.name ?? null;
-      if (typeof lat !== "number" || typeof lon !== "number" || !icao) return null;
-      return { icao: String(icao), lat, lon, runway_ft: null, surface: null };
+      const strip = t.aeroway === "airstrip";
+      if (!icao && !strip) return null;
+      // An airstrip node can carry its own length and surface; a drawn one is
+      // measured below with the runways.
+      const ft = strip && e.type === "node" ? runwayFeet({ tags: t }) : null;
+      const field: Aerodrome = {
+        icao: String(icao ?? ""),
+        lat,
+        lon,
+        runway_ft: ft,
+        surface: strip ? (t.surface ?? null) : null,
+      };
+      if (!icao) unnamed.add(field);
+      return field;
     })
     .filter((a): a is Aerodrome => a !== null);
-  if (fields.length === 0 || !withRunways) return fields;
+
+  const nameStrips = (list: Aerodrome[]) => {
+    const used = new Set(list.filter((f) => !unnamed.has(f)).map((f) => f.icao.toUpperCase()));
+    for (const f of list) {
+      if (!unnamed.has(f)) continue;
+      const name = stripName(centre, f, f.surface);
+      let unique = name;
+      for (let n = 2; used.has(unique.toUpperCase()); n++) unique = `${name} (${n})`;
+      used.add(unique.toUpperCase());
+      f.icao = unique;
+    }
+    return list;
+  };
+  if (!withRunways) return nameStrips(fields);
 
   const runways = (await overpass(
-    `[out:json][timeout:25];way["aeroway"="runway"](${b});out tags geom;`,
+    `[out:json][timeout:25];way["aeroway"~"^(runway|airstrip)$"](${b});out tags geom;`,
     30_000,
   )) ?? [];
 
   const waterOnly = new Set<Aerodrome>();
+  const lone: Aerodrome[] = [];
   for (const r of runways as OsmWay[]) {
     const pts = wayPoints(r);
     if (pts.length === 0) continue;
@@ -229,6 +293,8 @@ export async function findAerodromes(
       lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
       lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length,
     };
+    const surface: string | null = r.tags?.surface ?? null;
+    const ft = runwayFeet(r);
     let owner: Aerodrome | null = null;
     let ownerNm = RUNWAY_MATCH_NM;
     for (const f of fields) {
@@ -238,14 +304,20 @@ export async function findAerodromes(
         owner = f;
       }
     }
-    if (!owner) continue;
+    if (!owner) {
+      // A strip with no field drawn around it: a farm or bush strip. Water
+      // lanes and model-aircraft runways aren't.
+      if (surfaceClass(surface) === "water" || ft === null || ft < STRIP_MIN_FT) continue;
+      const tagText = Object.entries(r.tags ?? {}).flat().join(" ");
+      if (/model/i.test(tagText)) continue;
+      lone.push({ icao: "", lat: mid.lat, lon: mid.lon, runway_ft: ft, surface });
+      continue;
+    }
 
-    const surface: string | null = r.tags?.surface ?? null;
     if (surfaceClass(surface) === "water") {
       waterOnly.add(owner);
       continue;
     }
-    const ft = runwayFeet(r);
     if (ft === null) continue;
     if (owner.runway_ft === null || ft > owner.runway_ft) {
       owner.runway_ft = ft;
@@ -255,7 +327,14 @@ export async function findAerodromes(
   // A seaplane base: runways mapped, none of them land.
   for (const f of waterOnly) if (f.runway_ft === null) f.runway_ft = 0;
 
-  return fields;
+  // Longest first, so a strip drawn as two crossing runways keeps its longer one.
+  for (const s of lone.sort((x, y) => (y.runway_ft ?? 0) - (x.runway_ft ?? 0))) {
+    if (fields.some((f) => nmBetween(f, s) <= STRIP_MERGE_NM)) continue;
+    unnamed.add(s);
+    fields.push(s);
+  }
+
+  return nameStrips(fields);
 }
 
 /** Great-circle distance in nautical miles. */

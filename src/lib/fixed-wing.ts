@@ -100,6 +100,18 @@ export const PAY_FEE_SHARE = 0.5;
 export const BUSH_STRIP_MAX_FT = 3000;
 export const UNMAPPED_RUNWAY_MAX_FT = 2500;
 
+/**
+ * Bush work: a strip job, anything a bush or float plane is wanted for. The
+ * plane board fills BUSH_BOARD_SHARE of its six contracts with these first,
+ * whenever the fleet can fly any (user asked 2026-09-15).
+ */
+export const BUSH_BOARD_SHARE = 3;
+export function isBushTemplate(
+  t: Pick<FixedWingTemplate, "bush_strip" | "required_tags">,
+): boolean {
+  return !!t.bush_strip || t.required_tags.includes("bush") || t.required_tags.includes("floats");
+}
+
 /** Can this job be sent to this field? */
 export function fieldSuits(t: Pick<FixedWingTemplate, "min_runway_ft" | "bush_strip">, a: Airport): boolean {
   const ft = a.runway_ft;
@@ -142,7 +154,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "delivery",
     required_tags: ["cargo", "medium_utility"], required_certs: [],
     min_payload: 1500, min_runway_ft: 2500, base_payout: 4200, pay_per_nm: 60,
-    leg_range: [35, 150], difficulty: 1, weather_factor: 2,
+    leg_range: [30, 90], difficulty: 1, weather_factor: 2,
   },
   {
     role: "freight",
@@ -151,7 +163,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "delivery",
     required_tags: ["bush", "cargo"], required_certs: [],
     min_payload: 900, min_runway_ft: 1200, base_payout: 6800, pay_per_nm: 40,
-    leg_range: [40, 160], difficulty: 4, weather_factor: 3,
+    leg_range: [25, 70], difficulty: 4, weather_factor: 3,
     bush_strip: true,
   },
   {
@@ -161,7 +173,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "delivery",
     required_tags: ["cargo", "airline"], required_certs: [],
     min_payload: 3000, min_runway_ft: 3500, base_payout: 9400, pay_per_nm: 90,
-    leg_range: [70, 240], difficulty: 2, weather_factor: 3,
+    leg_range: [60, 180], difficulty: 2, weather_factor: 3,
   },
   {
     role: "mail",
@@ -170,7 +182,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "multi_stop", stops: 3, returns: false, per_stop_payout: 1000,
     required_tags: ["cargo", "light_utility", "bush"], required_certs: [],
     min_payload: 300, min_runway_ft: 1500, base_payout: 3000, pay_per_nm: 40,
-    leg_range: [20, 60], difficulty: 2, weather_factor: 2,
+    leg_range: [12, 35], difficulty: 2, weather_factor: 2,
   },
 
   // --- Passengers ----------------------------------------------------------
@@ -181,7 +193,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "round_trip",
     required_tags: ["vip"], required_certs: [],
     min_payload: 700, min_runway_ft: 2500, base_payout: 8600, pay_per_nm: 60,
-    leg_range: [45, 170], difficulty: 2, weather_factor: 2,
+    leg_range: [40, 120], difficulty: 2, weather_factor: 2,
   },
   {
     role: "charter",
@@ -193,7 +205,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     // ever fly it.
     required_tags: ["airline", "medium_utility", "vip"], required_certs: [],
     min_payload: 2500, min_runway_ft: 4000, base_payout: 15500, pay_per_nm: 90,
-    leg_range: [70, 200], difficulty: 2, weather_factor: 3,
+    leg_range: [50, 140], difficulty: 2, weather_factor: 3,
   },
   {
     role: "charter",
@@ -203,7 +215,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "multi_stop", stops: 2, returns: true, per_stop_payout: 0,
     required_tags: ["medium_utility", "vip", "bush"], required_certs: [],
     min_payload: 1000, min_runway_ft: 1800, base_payout: 6500, pay_per_nm: 40,
-    leg_range: [25, 80], difficulty: 2, weather_factor: 2,
+    leg_range: [15, 45], difficulty: 2, weather_factor: 2,
     bush_strip: true,
   },
   {
@@ -213,7 +225,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "water",
     required_tags: ["floats"], required_certs: [],
     min_payload: 600, min_runway_ft: 0, base_payout: 5500, pay_per_nm: 40,
-    leg_range: [10, 50], difficulty: 3, weather_factor: 3,
+    leg_range: [8, 30], difficulty: 3, weather_factor: 3,
   },
   {
     role: "skydive",
@@ -231,7 +243,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "round_trip",
     required_tags: ["trainer"], required_certs: ["training"],
     min_payload: 350, min_runway_ft: 1800, base_payout: 1900, pay_per_nm: 40,
-    leg_range: [40, 120], difficulty: 1, weather_factor: 1,
+    leg_range: [25, 70], difficulty: 1, weather_factor: 1,
   },
 
   // --- Medical -------------------------------------------------------------
@@ -242,7 +254,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "delivery",
     required_tags: ["medevac"], required_certs: ["medevac"],
     min_payload: 900, min_runway_ft: 3000, base_payout: 11200, pay_per_nm: 60,
-    leg_range: [55, 190], difficulty: 2, weather_factor: 3,
+    leg_range: [40, 130], difficulty: 2, weather_factor: 3,
   },
   {
     role: "medevac",
@@ -251,7 +263,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "delivery",
     required_tags: ["medevac", "vip"], required_certs: ["medevac"],
     min_payload: 600, min_runway_ft: 3200, base_payout: 18500, pay_per_nm: 90,
-    leg_range: [90, 280], difficulty: 3, weather_factor: 4,
+    leg_range: [60, 200], difficulty: 3, weather_factor: 4,
   },
 
   // --- Survey and patrol ---------------------------------------------------
@@ -262,7 +274,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "survey",
     required_tags: ["survey", "patrol"], required_certs: [],
     min_payload: 400, min_runway_ft: 2000, base_payout: 7300, pay_per_nm: 60,
-    leg_range: [40, 140], difficulty: 3, weather_factor: 3,
+    leg_range: [25, 80], difficulty: 3, weather_factor: 3,
   },
   {
     role: "patrol",
@@ -271,7 +283,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "survey",
     required_tags: ["patrol", "survey"], required_certs: [],
     min_payload: 500, min_runway_ft: 2400, base_payout: 8100, pay_per_nm: 60,
-    leg_range: [60, 200], difficulty: 2, weather_factor: 3,
+    leg_range: [40, 120], difficulty: 2, weather_factor: 3,
   },
   {
     role: "patrol",
@@ -280,7 +292,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "spotting",
     required_tags: ["patrol", "survey"], required_certs: [],
     min_payload: 300, min_runway_ft: 2000, base_payout: 6000, pay_per_nm: 40,
-    leg_range: [20, 60], difficulty: 2, weather_factor: 2,
+    leg_range: [15, 45], difficulty: 2, weather_factor: 2,
   },
   {
     role: "positioning",
@@ -289,7 +301,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "delivery",
     required_tags: ["light_utility", "trainer"], required_certs: [],
     min_payload: 200, min_runway_ft: 1800, base_payout: 2400, pay_per_nm: 40,
-    leg_range: [45, 160], difficulty: 1, weather_factor: 2,
+    leg_range: [30, 100], difficulty: 1, weather_factor: 2,
   },
 
   // --- Light bush work (user approved 2026-09-14) -------------------------
@@ -302,7 +314,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "round_trip",
     required_tags: ["bush"], required_certs: [],
     min_payload: 250, min_runway_ft: 600, base_payout: 8000, pay_per_nm: 60,
-    leg_range: [15, 60], difficulty: 2, weather_factor: 3,
+    leg_range: [10, 30], difficulty: 2, weather_factor: 3,
     bush_strip: true,
   },
   {
@@ -312,7 +324,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "round_trip",
     required_tags: ["bush"], required_certs: [],
     min_payload: 350, min_runway_ft: 600, base_payout: 4500, pay_per_nm: 40,
-    leg_range: [20, 80], difficulty: 2, weather_factor: 3,
+    leg_range: [12, 35], difficulty: 2, weather_factor: 3,
     bush_strip: true,
   },
   {
@@ -322,7 +334,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "round_trip",
     required_tags: ["bush"], required_certs: [],
     min_payload: 300, min_runway_ft: 600, base_payout: 3800, pay_per_nm: 40,
-    leg_range: [10, 50], difficulty: 2, weather_factor: 3,
+    leg_range: [8, 25], difficulty: 2, weather_factor: 3,
     bush_strip: true,
   },
   {
@@ -332,7 +344,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     kind: "survey",
     required_tags: ["bush", "survey"], required_certs: [],
     min_payload: 200, min_runway_ft: 0, base_payout: 4200, pay_per_nm: 40,
-    leg_range: [20, 70], difficulty: 2, weather_factor: 3,
+    leg_range: [12, 35], difficulty: 2, weather_factor: 3,
   },
 ];
 

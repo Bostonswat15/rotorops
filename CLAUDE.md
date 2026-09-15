@@ -147,7 +147,7 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
 - **Bush planes, cargo and lease (user approved 2026-09-14):** the Mission Board only offers plane
   templates some plane in the fleet can fly (`fleetCanFly`: payload, shortest leg vs range, a
   role tag; `isFixedWingAircraft` by catalogue id), falling back to every certified template.
-  Four light bush contracts, all `bush` tag, $40/nm: Backcountry Parcels (250 lb, 15-60 nm,
+  Four light bush contracts, all `bush` tag, $40/nm: Backcountry Parcels (250 lb, 15-60 nm, raised 2026-09-15 to base $8,000 + $60/nm;
   base $3,200), Hunting Camp Drop (350 lb, 20-80, $4,500), Cabin Supply Hop (300 lb, 10-50,
   $3,800) as bush-strip round trips, Wildlife Survey (200 lb, 20-70, $4,200, survey). Cargo Hub
   plane pay $20/nm; plane jobs sized by `planeLimits` from the biggest plane: 60 lb to 70% of

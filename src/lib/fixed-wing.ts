@@ -301,7 +301,7 @@ export const FIXED_WING_TEMPLATES: FixedWingTemplate[] = [
     brief: "A handful of parcels for the folks out at {dest}. Light load, short strip — drop them and come home.",
     kind: "round_trip",
     required_tags: ["bush"], required_certs: [],
-    min_payload: 250, min_runway_ft: 600, base_payout: 3200, pay_per_nm: 40,
+    min_payload: 250, min_runway_ft: 600, base_payout: 8000, pay_per_nm: 60,
     leg_range: [15, 60], difficulty: 2, weather_factor: 3,
     bush_strip: true,
   },

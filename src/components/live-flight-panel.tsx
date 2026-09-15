@@ -84,8 +84,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         active: active.data ?? [],
         bases: bases.data ?? [],
         fleet: fleet.data ?? [],
-        // Your own camps only: in Industry mode, the ones you built or claimed.
-        camps: (camps.data ?? []).filter((i) => i.latitude != null && i.longitude != null && ownsIndustry(c, i)),
+        // Your own camps only: the ones you built or claimed.
+        camps: (camps.data ?? []).filter((i) => i.latitude != null && i.longitude != null && ownsIndustry(i)),
       };
     },
   });

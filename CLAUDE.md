@@ -389,6 +389,14 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   to 200 fpm, normal to 500, hard to 900 ("hard landing", +3 wear), severe beyond ("gear damage
   on touchdown", +12 wear, contract fails); helicopters keep 60/240/600. Plane or helicopter is
   telemetry `wing` (the bridge scorer's kind, v0.7.4+), else `rating_info` by type (custom = rotary).
+- **Career claims too (user chose 2026-09-15):** Career no longer owns every scanned site.
+  `industry_is_owned` / `ownsIndustry(site)` = built or claimed in both modes; `claim_industry` is
+  open to Career at full build cost (migration 20261004000000_career_claims.sql). Reset: unclaimed
+  scanned Career sites stopped being owned, workers set to 0, stock kept. `industry_tick`: a Career
+  site you don't own produces at half a full crew's rate with no wages (Industry mode's unclaimed
+  sites stay idle); a mill draws only on a camp of the same ownership. Career Mission Board hauls
+  and Cargo Hub goods still use every site (contract work); staffing, investing, trade runs,
+  delete, In Flight camps and bridge dressing need an owned site.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;

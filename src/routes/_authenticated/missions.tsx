@@ -398,8 +398,9 @@ function MissionsPage() {
         }
       }
 
-      // Industry mode hauls only from sites the company owns.
-      baseIndustries = baseIndustries.filter((i: any) => ownsIndustry(company, i));
+      // Industry mode hauls only from sites the company owns. Career hauls from
+      // any site as contract work (user chose 2026-09-15).
+      if (industryMode) baseIndustries = baseIndustries.filter((i: any) => ownsIndustry(i));
       if (baseIndustries.length > 0) {
         const byKind = new Map<string, any>(baseIndustries.map((i: any) => [i.kind, i]));
         // Two hauls for this half of the board, drawn from every candidate.

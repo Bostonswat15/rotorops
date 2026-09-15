@@ -195,8 +195,9 @@ function CargoPage() {
       } catch {
         // Stale stock only means a job may be refused at dispatch.
       }
-      // Industry mode: goods only from sites the company owns.
-      industries = industries.filter((i) => ownsIndustry(company, i));
+      // Industry mode: goods only from sites the company owns. Career carries
+      // goods from any site, owned or not, as contract work.
+      if (isIndustryMode(company)) industries = industries.filter((i) => ownsIndustry(i));
       const airports = await airfieldsNear(base, wing === "fixed");
       const sites = parsePlacementSites(base.placement_sites);
       const rows = generateCargoJobs({

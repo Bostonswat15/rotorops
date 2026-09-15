@@ -15,7 +15,7 @@ import { useCompanyRole } from "@/hooks/use-company";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 import { findIndustrySites } from "@/lib/osm";
 import { LocationPicker } from "@/components/location-picker";
-import { ownsIndustry } from "@/lib/play-mode";
+import { isIndustryMode, ownsIndustry } from "@/lib/play-mode";
 import {
   siteIndustries, INDUSTRY_DEFS, CHAIN_LABEL, buyPrice, sellPrice,
   type IndustryKind,
@@ -153,7 +153,7 @@ function IndustriesPage() {
     qc.invalidateQueries({ queryKey: ["missions"] });
   }
 
-  // Industry mode: a site a scan found becomes yours for its build cost.
+  // A site a scan found becomes yours for its build cost.
   async function claim(industryId: string) {
     setBusyClaim(industryId);
     const { error } = await supabase.rpc("claim_industry", { _industry_id: industryId });
@@ -200,9 +200,9 @@ function IndustriesPage() {
   if (!company) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
   const allSites = industries ?? [];
-  // In Industry mode only built and claimed sites are yours; the rest are nearby to claim.
-  const list = allSites.filter((i) => ownsIndustry(company, i));
-  const nearby = allSites.filter((i) => !ownsIndustry(company, i));
+  // Only built and claimed sites are yours; the rest are nearby to claim.
+  const list = allSites.filter((i) => ownsIndustry(i));
+  const nearby = allSites.filter((i) => !ownsIndustry(i));
   const byChain = new Map<string, any[]>();
   for (const ind of list) {
     const def = INDUSTRY_DEFS[ind.kind as IndustryKind];
@@ -219,7 +219,7 @@ function IndustriesPage() {
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Industries</p>
           <h1 className="mt-1 text-3xl font-semibold">Trading Hall</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {list.length} sites known near {base?.icao ?? "your base"} · cash on hand{" "}
+            {list.length} yours · {nearby.length} nearby around {base?.icao ?? "your base"} · cash on hand{" "}
             {money(Number(company.cash))}
           </p>
         </div>
@@ -228,7 +228,7 @@ function IndustriesPage() {
           {canManage && (
             <Button onClick={scan} disabled={scanning || !base}>
               <Compass className="mr-2 h-4 w-4" />
-              {scanning ? "Scanning…" : list.length === 0 ? "Scan for industries" : "Rescan"}
+              {scanning ? "Scanning…" : allSites.length === 0 ? "Scan for industries" : "Rescan"}
             </Button>
           )}
         </div>
@@ -541,9 +541,12 @@ function IndustriesPage() {
             <Compass className="h-4 w-4 text-primary" /> Nearby sites
           </h2>
           <p className="mb-3 text-sm text-muted-foreground">
-            Found by scanning the map around your base. In Industry mode a site is yours to staff,
-            invest in, trade with and haul from once you build it or claim it here — claiming costs
-            the same as building one.
+            Found by scanning the map around your base. A site is yours to staff, invest in, trade
+            with and see on In Flight once you build it or claim it here — claiming costs the same
+            as building one.{" "}
+            {isIndustryMode(company)
+              ? "In Industry mode you can only haul from sites you own."
+              : "Until then it runs on its own at half rate, and you can still fly its haul contracts."}
           </p>
           <ul className="grid gap-2 md:grid-cols-2">
             {nearby.map((ind) => {

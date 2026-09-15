@@ -37,18 +37,14 @@ export function showsInIndustryMode(m: { role?: string | null }) {
 }
 
 /**
- * Is this site the company's to use? (user chose 2026-09-15: Industry mode only,
- * claiming a scanned site costs its full build cost.)
- *
- * In Career every site a scan finds is usable, as it always was. In Industry a
- * site is the company's once it built it -- the free camp included -- or
- * claimed it; the rest are nearby sites it could claim.
+ * Is this site the company's to use? It is once the company built it -- the
+ * Industry mode free camp included -- or claimed it at its full build cost; the
+ * rest are nearby sites it could claim. Both game modes (user chose 2026-09-15:
+ * Career no longer owns every site a scan finds). In Career a site you don't
+ * own still offers haul contracts and produces at half rate on its own.
  */
-export function ownsIndustry(
-  company: { play_mode?: string | null } | null | undefined,
-  site: { source?: string | null; claimed_at?: string | null },
-) {
-  return !isIndustryMode(company) || site.source === "built" || !!site.claimed_at;
+export function ownsIndustry(site: { source?: string | null; claimed_at?: string | null }) {
+  return site.source === "built" || !!site.claimed_at;
 }
 
 /**

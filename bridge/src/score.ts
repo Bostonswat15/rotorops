@@ -2,13 +2,12 @@
  * Flight score.
  *
  * Every flight starts at 100 and loses points for what it did wrong -- a hard
- * landing, lights left off, an overspeed, a bank that would spill the coffee --
- * with a few points back for landing well in the dark or in murk. The server
+ * landing, lights left off, an overspeed, a stall -- with a few points back for landing well in the dark or in murk. The server
  * turns the score into a grade that moves pay, XP and reputation
  * (20260917000000_flight_score.sql).
  *
- * Each rule counts once per flight: a pilot who holds a steep turn for thirty
- * seconds loses the same five points as one who clips 46 degrees for a moment,
+ * Each rule counts once per flight: a pilot who holds an overspeed for thirty
+ * seconds loses the same ten points as one who clips it for a moment,
  * because the lesson is the same and a score that bleeds out every second
  * punishes the long flight rather than the bad one. The landing is the
  * exception: it is judged on the worst touchdown of the flight.
@@ -57,9 +56,7 @@ const HARD_G_POINTS = -20;
 
 /** Below this height above ground on final, the landing light should be on. */
 const LANDING_LIGHT_FT: Record<WingKind, number> = { rotary: 500, fixed: 1000 };
-/** Helicopters only (user asked 2026-09-15): a plane pitches up hard on a short-field climb-out. */
-const PITCH_LIMIT_ROTARY = 30;
-const BANK_LIMIT = 45;
+// No bank or pitch rule (removed for both wings, user asked 2026-09-15).
 const G_HIGH = 2.5;
 const G_LOW = -1;
 /** A statute mile, in metres: under this at touchdown is a low-visibility landing. */
@@ -137,12 +134,6 @@ export class FlightScorer {
   onSample(s: Snap, airborne: boolean) {
     if (!airborne) return;
 
-    if (known(s.bank) && Math.abs(s.bank) > BANK_LIMIT) {
-      this.once('bank', `Bank over ${BANK_LIMIT}°`, -5);
-    }
-    if (this.kind === 'rotary' && known(s.pitch) && Math.abs(s.pitch) > PITCH_LIMIT_ROTARY) {
-      this.once('pitch', `Pitch over ${PITCH_LIMIT_ROTARY}°`, -5);
-    }
     if (known(s.gForceLive) && (s.gForceLive > G_HIGH || s.gForceLive < G_LOW)) {
       this.once('g', `G over ${G_HIGH} or under ${G_LOW}`, -10);
     }

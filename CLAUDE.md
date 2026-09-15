@@ -183,6 +183,14 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `runner.ts` `maybeCamps` (every 10 s): stages `industryPlan` props via `campTitle(kind)` at camps
   within 5 nm, removes past 8 nm, max 3, skips a camp an armed industry contract stages within
   0.5 nm. **Not yet flown.**
+- **Company check ride follows the aircraft (2026-09-15):** `20260929000000_checkout_follows_aircraft.sql`
+  carries dispatch_mission from 20260919; dispatching the `checkout` rating ride rebuilds its
+  steps from its own reach/land for the aircraft's wing (heli hover < 50 ft 30 s + reach 0.6 +
+  land 1.5; plane reach 1.0 + land 2). The Mission Board shows it on both wing tabs. **Proposed,
+  awaiting yes:** plane versions of certification check rides -- Turbine (reach 10 nm, climb
+  5,000 ft AGL within 3 nm, land) and Medevac (land at a field 15-60 nm, 180 lb patient, land at
+  base); mixed fleets get Book (helicopter) / Book (plane); other certs "helicopter only".
+  Certification check rides (`src/lib/checkrides.ts`) are still helicopter-only.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

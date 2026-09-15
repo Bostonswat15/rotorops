@@ -557,8 +557,11 @@ function MissionsPage() {
   const completed = contracts.filter((m: any) => m.status === "completed" || m.status === "failed").slice(0, 10);
   // Split first, then filter by role: the role lists differ between the two
   // halves, so offering "freight" while looking at helicopters is just noise.
+  // The company check ride is flown in any company aircraft, and its steps
+  // follow the one it's dispatched to, so it belongs on both tabs.
+  const onBothTabs = (m: any) => m.role === "rating_ride" && m.scene_name === CHECKOUT_RATING;
   const forWing = available.filter((m: any) =>
-    wing === "fixed" ? isFixedWingMission(m) : !isFixedWingMission(m),
+    onBothTabs(m) || (wing === "fixed" ? isFixedWingMission(m) : !isFixedWingMission(m)),
   );
   const rotaryCount = available.length - available.filter(isFixedWingMission).length;
   const fixedCount = available.length - rotaryCount;

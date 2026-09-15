@@ -57,7 +57,8 @@ const HARD_G_POINTS = -20;
 
 /** Below this height above ground on final, the landing light should be on. */
 const LANDING_LIGHT_FT: Record<WingKind, number> = { rotary: 500, fixed: 1000 };
-const PITCH_LIMIT: Record<WingKind, number> = { rotary: 30, fixed: 25 };
+/** Helicopters only (user asked 2026-09-15): a plane pitches up hard on a short-field climb-out. */
+const PITCH_LIMIT_ROTARY = 30;
 const BANK_LIMIT = 45;
 const G_HIGH = 2.5;
 const G_LOW = -1;
@@ -139,8 +140,8 @@ export class FlightScorer {
     if (known(s.bank) && Math.abs(s.bank) > BANK_LIMIT) {
       this.once('bank', `Bank over ${BANK_LIMIT}°`, -5);
     }
-    if (known(s.pitch) && Math.abs(s.pitch) > PITCH_LIMIT[this.kind]) {
-      this.once('pitch', `Pitch over ${PITCH_LIMIT[this.kind]}°`, -5);
+    if (this.kind === 'rotary' && known(s.pitch) && Math.abs(s.pitch) > PITCH_LIMIT_ROTARY) {
+      this.once('pitch', `Pitch over ${PITCH_LIMIT_ROTARY}°`, -5);
     }
     if (known(s.gForceLive) && (s.gForceLive > G_HIGH || s.gForceLive < G_LOW)) {
       this.once('g', `G over ${G_HIGH} or under ${G_LOW}`, -10);

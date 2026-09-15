@@ -16,6 +16,7 @@ import { generateCheckride, hasHelicopterCheckride, hasPlaneCheckride } from "@/
 import { airfieldsNear } from "@/lib/airfields";
 import { parsePlacementSites } from "@/lib/missions";
 import { useLiveFlight } from "@/hooks/use-live-flight";
+import { distanceNm } from "@/lib/missions";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({ meta: [{ title: "Settings — RotorOps" }] }),
@@ -371,6 +372,17 @@ function HomeBase({ canManage }: { canManage: boolean }) {
     // in which case those take precedence over the auto-clear.
     const movingField = nextIcao !== (base.icao ?? "").toUpperCase();
     const manualPosition = lat.trim() !== "" && lon.trim() !== "";
+    // A new field, or a position well away from the old one, is a move (user
+    // asked 2026-09-15): the saved area scan and airport scatter describe the old
+    // place, so they're cleared for the next Generate and bridge run to refill.
+    // Camps keep their own positions.
+    const BASE_MOVE_NM = 5;
+    const movedFar =
+      manualPosition &&
+      (base.latitude == null ||
+        base.longitude == null ||
+        distanceNm(Number(base.latitude), Number(base.longitude), latNum!, lonNum!) > BASE_MOVE_NM);
+    const relocating = movingField || movedFar;
     const { error } = await supabase
       .from("bases")
       .update({
@@ -381,15 +393,18 @@ function HomeBase({ canManage }: { canManage: boolean }) {
           : movingField
             ? { latitude: null, longitude: null }
             : {}),
+        ...(relocating
+          ? { placement_sites: null, sites_scanned_at: null, nearby_airports: [], airports_updated_at: null }
+          : {}),
       })
       .eq("id", base.id);
     setBusy(false);
     if (error) return toast.error(error.message);
     toast.success(
-      manualPosition
-        ? "Base updated."
+      relocating && manualPosition
+        ? `Base moved to ${nextIcao || "the new position"}. Generate fresh contracts to scan the new area; your camps stay where they are.`
         : movingField
-          ? `Base moved to ${nextIcao}. Run the sim bridge to locate it, then generate fresh contracts.`
+          ? `Base moved to ${nextIcao}. Run the sim bridge to locate it, then generate fresh contracts. Your camps stay where they are.`
           : "Base updated.",
     );
     qc.invalidateQueries();

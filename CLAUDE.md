@@ -408,6 +408,15 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   round trip) x PAY_SCALE x variance x rep. The bridge hover objective takes optional
   `lat/lon/radius_nm` and `min_agl_ft`; `planFor('energy')` stages nothing; "technician" counts
   as people aboard. No migration.
+- **Away work and moving base (user asked 2026-09-15):** the Mission Board's "Generate here" button
+  (desktop, shown once the aircraft is more than `AWAY_MIN_NM` 5 nm from the located base, not in
+  Industry mode) finds the airfield within `AWAY_FIELD_NM` 3 nm of the aircraft (`airfieldsNear`, OSM
+  plus nothing from the bridge) and runs `generateFor(heli, away)` with a stand-in base: origin and
+  returns are that field, area scans are kept per position for the session (`awayScans`), never
+  written with `set_base_sites`, and no industry hauls are built. Settings → Home base: a new ICAO,
+  or a typed/aircraft position more than 5 nm from the old one, also clears `placement_sites`,
+  `sites_scanned_at`, `nearby_airports` and `airports_updated_at`; the bridge skips its hourly
+  airport-report throttle while any located base has none. Camps keep their positions.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;

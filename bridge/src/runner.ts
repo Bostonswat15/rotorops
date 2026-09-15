@@ -163,8 +163,12 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
   let airportsReportedAt = 0;
   async function reportNearbyAirports() {
     if (!sim || sim.airportCache.size === 0) return;
-    // The facility cache fills as you fly; refreshing hourly is plenty.
-    if (Date.now() - airportsReportedAt < 60 * 60_000) return;
+    // The facility cache fills as you fly; refreshing hourly is plenty -- unless
+    // a base has no airports at all, as one just moved in Settings doesn't.
+    const starved = (state?.bases ?? []).some(
+      (b) => b.latitude != null && b.longitude != null && (b.airport_count ?? 0) === 0,
+    );
+    if (!starved && Date.now() - airportsReportedAt < 60 * 60_000) return;
 
     for (const b of state?.bases ?? []) {
       if (b.latitude == null || b.longitude == null) continue;

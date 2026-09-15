@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Briefcase, Zap, AlertTriangle, Radio, PlaneTakeoff, PlaneLanding, Trash2, MapPin, GraduationCap } from "lucide-react";
+import { Briefcase, Zap, AlertTriangle, Radio, PlaneTakeoff, PlaneLanding, Trash2, MapPin, GraduationCap, Crosshair } from "lucide-react";
 import {
   ratingOf, isRatingRide, CHECKOUT_RATING, RATING_FEE, RATING_PASS_SCORE,
 } from "@/lib/ratings";
@@ -25,10 +25,11 @@ import {
   TAG_LABELS,
 } from "@/lib/game-data";
 import { useCompanyRole } from "@/hooks/use-company";
+import { useLiveFlight } from "@/hooks/use-live-flight";
 import {
   SCENE_TEMPLATES, SCENE_LABELS, generateSceneMission, generatePowerlinePatrol, generateEnergyContracts,
-  siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
-  type SceneType, type PlacementSites,
+  siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites, distanceNm, nearestAirport,
+  type SceneType, type PlacementSites, type Airport,
 } from "@/lib/missions";
 import { findSites, findIndustrySites, findCliffs } from "@/lib/osm";
 import { airfieldsNear } from "@/lib/airfields";
@@ -46,6 +47,21 @@ import {
   INDUSTRY_DEFS,
   type IndustryRow,
 } from "@/lib/industries";
+
+/** "Generate here" shows once the aircraft is this far from home (user asked 2026-09-15). */
+const AWAY_MIN_NM = 5;
+/** And needs an airfield this close to the aircraft to build the board around. */
+const AWAY_FIELD_NM = 3;
+
+/**
+ * Area scans for boards generated away from home, by position, for this app
+ * session. Only the home base's scan is saved on its row; a field you landed at
+ * once isn't worth writing to the company.
+ */
+const awayScans = new Map<string, PlacementSites | null>();
+
+/** The field a "Generate here" board is built around. */
+type AwayField = { icao: string; latitude: number; longitude: number };
 
 
 export const Route = createFileRoute("/_authenticated/missions")({
@@ -131,6 +147,14 @@ function MissionsPage() {
   const myPending = isOwner || !myRatings ? [] : myRatings.filter((r) => !r.passed_at);
 
   const locatedBase = (bases ?? []).find((b: any) => b.latitude != null && b.longitude != null) ?? null;
+  // Where the aircraft is now, from the desktop bridge. Away from home, "Generate
+  // here" builds a board around the field it's parked at.
+  const { flight: liveFlight } = useLiveFlight();
+  const awayFromHome =
+    !!liveFlight &&
+    (!locatedBase ||
+      distanceNm(liveFlight.lat, liveFlight.lon, Number(locatedBase.latitude), Number(locatedBase.longitude)) >
+        AWAY_MIN_NM);
   // Even without coordinates we know which field is home.
   const homeIcao =
     locatedBase?.icao ??
@@ -149,19 +173,68 @@ function MissionsPage() {
    * helicopters, airfields and their runways for planes, the power lines
    * twice -- to fill a tab you weren't looking at.
    */
-  async function generateBatch() {
+  async function generateBatch(away: AwayField | null = null) {
     if (!company || generating) return;
     setGenerating(true);
     try {
-      await generateFor(wing === "rotary");
+      await generateFor(wing === "rotary", away);
     } finally {
       setGenerating(false);
     }
   }
 
-  async function generateFor(heli: boolean) {
+  /**
+   * A board around the airfield the aircraft is parked at, for work away from
+   * home (user asked 2026-09-15). The contracts start and end there; the home
+   * base, its camps and its saved scans are left alone.
+   */
+  async function generateHere() {
+    if (!company || generating || !liveFlight) return;
+    if (isIndustryMode(company)) {
+      toast.error("Industry mode only offers goods work from your own camps, so there's nothing to generate away from home.");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const finding = toast.loading("Finding the field you're at…");
+      let fields: Airport[] = [];
+      try {
+        fields = await airfieldsNear({ latitude: liveFlight.lat, longitude: liveFlight.lon, nearby_airports: [] }, false);
+      } catch {
+        // Leave it empty; the message below says what to do.
+      } finally {
+        toast.dismiss(finding);
+      }
+      const near = nearestAirport(liveFlight.lat, liveFlight.lon, fields);
+      if (!near || near.distance_nm > AWAY_FIELD_NM) {
+        toast.error(`No airfield within ${AWAY_FIELD_NM} nm of the aircraft. Land at an airport or strip, then try again.`);
+        return;
+      }
+      await generateFor(wing === "rotary", {
+        icao: near.icao.toUpperCase(),
+        latitude: liveFlight.lat,
+        longitude: liveFlight.lon,
+      });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function generateFor(heli: boolean, away: AwayField | null = null) {
     if (!company) return;
-    const base = locatedBase;
+    // Away from home the board is built around the field the aircraft is at: a
+    // stand-in base with no saved scans, no camps and no row to write to.
+    const base = away
+      ? {
+          id: null,
+          icao: away.icao,
+          latitude: away.latitude,
+          longitude: away.longitude,
+          nearby_airports: [],
+          placement_sites: null,
+          sites_scanned_at: null,
+        }
+      : locatedBase;
     // Industry mode: only goods work for the company's own sites.
     const industryMode = isIndustryMode(company);
 
@@ -196,23 +269,31 @@ function MissionsPage() {
       // Only helicopter work scans. Planes use the cached result when there is
       // one (a floatplane's water, a hopper's coastal title) and do without
       // otherwise, rather than wait a minute for it.
-      let sites: PlacementSites | null = base.sites_scanned_at
-        ? parsePlacementSites(base.placement_sites)
-        : null;
+      const awayKey = `${centre.lat.toFixed(2)},${centre.lon.toFixed(2)}`;
+      let sites: PlacementSites | null = away
+        ? (awayScans.get(awayKey) ?? null)
+        : base.sites_scanned_at
+          ? parsePlacementSites(base.placement_sites)
+          : null;
       if (heli && !sites && !industryMode) {
         const scanning = toast.loading("Scanning the area — roads, water, cliffs and hospitals. This takes a moment.");
         try {
           const raw = await findSites(centre, 50);
           if (raw) {
             sites = summariseSites(raw, centre, 50);
-            const { error: wErr } = await supabase.rpc("set_base_sites", {
-              _base_id: base.id,
-              _sites: sites as unknown as never,
-            });
-            // A failed cache write is not a failed generation -- the sites are
-            // already in hand for this batch, we just pay for them again next
-            // time.
-            if (!wErr) qc.invalidateQueries({ queryKey: ["bases"] });
+            if (away) {
+              awayScans.set(awayKey, sites);
+            } else {
+              const { error: wErr } = await supabase.rpc("set_base_sites", {
+                // Only the home base gets here; an away board never writes to a base row.
+                _base_id: base.id as string,
+                _sites: sites as unknown as never,
+              });
+              // A failed cache write is not a failed generation -- the sites are
+              // already in hand for this batch, we just pay for them again next
+              // time.
+              if (!wErr) qc.invalidateQueries({ queryKey: ["bases"] });
+            }
           }
         } catch {
           // Leave it null: unknown, not absent. Everything stays on the board.
@@ -232,11 +313,16 @@ function MissionsPage() {
           const cliffs = await findCliffs(centre, 50);
           if (cliffs) {
             sites = { ...sites, cliff: cliffSitesFrom(cliffs, centre) };
-            const { error: cErr } = await supabase.rpc("set_base_sites", {
-              _base_id: base.id,
-              _sites: sites as unknown as never,
-            });
-            if (!cErr) qc.invalidateQueries({ queryKey: ["bases"] });
+            if (away) {
+              awayScans.set(awayKey, sites);
+            } else {
+              const { error: cErr } = await supabase.rpc("set_base_sites", {
+                // Only the home base gets here; an away board never writes to a base row.
+                _base_id: base.id as string,
+                _sites: sites as unknown as never,
+              });
+              if (!cErr) qc.invalidateQueries({ queryKey: ["bases"] });
+            }
           }
         } catch {
           // Unknown stays unknown; the next batch tries again.
@@ -377,15 +463,18 @@ function MissionsPage() {
       // -- unlike water and roads, industries have their own ongoing state
       // (stock, capacity) that has to persist and accumulate, not just a
       // position to remember.
-      let baseIndustries = (industries ?? []).filter((i: any) => i.base_id === base.id);
-      if (baseIndustries.length === 0) {
+      let baseIndustries: any[] = away ? [] : (industries ?? []).filter((i: any) => i.base_id === base.id);
+      if (away) {
+        // Away from home: the camps belong to the home base, so no hauls here.
+      } else if (baseIndustries.length === 0) {
         try {
           const rawInd = await findIndustrySites(centre, 50);
           if (rawInd && rawInd.length > 0) {
             const sited = siteIndustries(rawInd);
             if (sited.length > 0) {
               const { data: placed, error: indErr } = await supabase.rpc("site_industries", {
-                _base_id: base.id,
+                // Only the home base gets here; an away board never writes to a base row.
+                _base_id: base.id as string,
                 _sites: sited as unknown as never,
               });
               if (!indErr && placed) {
@@ -400,7 +489,7 @@ function MissionsPage() {
       } else {
         // Already sited: bring stock up to date rather than re-scanning.
         try {
-          const { data: ticked } = await supabase.rpc("tick_base_industries", { _base_id: base.id });
+          const { data: ticked } = await supabase.rpc("tick_base_industries", { _base_id: base.id as string });
           if (ticked) baseIndustries = ticked as any[];
         } catch {
           // Stale stock numbers are a worse Generate, not a broken one.
@@ -525,7 +614,7 @@ function MissionsPage() {
             .join(" and ")
         : `${rows.length} plane`;
       toast.success(
-        `Generated ${summary} contract${rows.length === 1 ? "" : "s"}.` +
+        `Generated ${summary} contract${rows.length === 1 ? "" : "s"}${away ? ` at ${away.icao}` : ""}.` +
           (notes.length ? ` ${notes.join(". ")}.` : ""),
       );
     }
@@ -656,9 +745,19 @@ function MissionsPage() {
             </Button>
           )}
           {canManage && (
-            <Button onClick={generateBatch} disabled={generating}>
+            <Button onClick={() => generateBatch()} disabled={generating}>
               <Zap className="mr-2 h-4 w-4" />
               {generating ? "Generating…" : `Generate ${wing === "fixed" ? "plane" : "helicopter"} jobs`}
+            </Button>
+          )}
+          {canManage && awayFromHome && !isIndustryMode(company) && (
+            <Button
+              variant="secondary"
+              onClick={generateHere}
+              disabled={generating}
+              title="Build contracts around the airfield your aircraft is parked at. Your home base stays where it is."
+            >
+              <Crosshair className="mr-2 h-4 w-4" /> Generate here
             </Button>
           )}
         </div>

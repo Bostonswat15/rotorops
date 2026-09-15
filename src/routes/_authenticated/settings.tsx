@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { CERT_LABELS, CERT_UNLOCKS, ALL_CERTS } from "@/lib/game-data";
+import { CERT_LABELS, CERT_UNLOCKS, ALL_CERTS, isFixedWingAircraft } from "@/lib/game-data";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 import { Radio, Trash2, MapPin, GraduationCap, Crosshair } from "lucide-react";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
 import { desktop, type BridgeStatus } from "@/lib/desktop";
-import { generateCheckride } from "@/lib/checkrides";
+import { generateCheckride, hasHelicopterCheckride, hasPlaneCheckride } from "@/lib/checkrides";
+import { airfieldsNear } from "@/lib/airfields";
+import { parsePlacementSites } from "@/lib/missions";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 
 export const Route = createFileRoute("/_authenticated/settings")({
@@ -34,6 +36,13 @@ function SettingsPage() {
     queryKey: ["bases", company?.id],
     enabled: !!company?.id,
     queryFn: async () => (await supabase.from("bases").select("*").eq("company_id", company!.id)).data ?? [],
+  });
+  // Which kinds of aircraft the company flies, so each cert offers the check ride it can take.
+  const { data: fleetRows } = useQuery({
+    queryKey: ["settings-fleet", company?.id],
+    enabled: !!company?.id,
+    queryFn: async () =>
+      (await supabase.from("aircraft").select("id, internal_id, status").eq("company_id", company!.id)).data ?? [],
   });
   const { data: checkrideMissions } = useQuery({
     queryKey: ["missions", company?.id],
@@ -76,26 +85,41 @@ function SettingsPage() {
   // Booking still charges the cost and checks the reputation floor -- that
   // gate is unchanged. What used to grant the cert outright now only puts a
   // real flight on the Mission Board; passing it is what earns the rating.
-  async function bookCheckride(c: string) {
+  //
+  // A cert can be booked as the helicopter ride or the plane ride. The plane
+  // ride flies to real fields, so it looks up the airfields around base first.
+  async function bookCheckride(c: string, wing: "rotary" | "fixed") {
     if (!company) return;
     const base = (bases ?? []).find((b: any) => b.latitude != null && b.longitude != null);
     if (!base) return toast.error("Set a home base with a real position first.");
-    const mission = generateCheckride(c, {
-      lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao,
-    });
-    if (!mission) return toast.error("No check ride profile for this rating yet.");
 
-    setBooking(c);
-    const { error } = await supabase.rpc("book_checkride", {
-      _company_id: company.id,
-      _cert: c,
-      _mission: mission as unknown as never,
-    });
-    setBooking(null);
-    if (error) return toast.error(error.message);
-    toast.success(`Check ride booked. Find it on the Mission Board and fly it to earn ${CERT_LABELS[c]}.`);
-    qc.invalidateQueries({ queryKey: ["company"] });
-    qc.invalidateQueries({ queryKey: ["missions"] });
+    setBooking(`${c}:${wing}`);
+    try {
+      const airports = wing === "fixed" ? await airfieldsNear(base, true).catch(() => []) : [];
+      const mission = generateCheckride(
+        c,
+        { lat: Number(base.latitude), lon: Number(base.longitude), icao: base.icao },
+        { wing, airports, sites: parsePlacementSites(base.placement_sites) },
+      );
+      if (!mission) {
+        return toast.error(
+          wing === "fixed"
+            ? "No airfield in range of your base for this plane check ride."
+            : "No check ride profile for this rating yet.",
+        );
+      }
+      const { error } = await supabase.rpc("book_checkride", {
+        _company_id: company.id,
+        _cert: c,
+        _mission: mission as unknown as never,
+      });
+      if (error) return toast.error(error.message);
+      toast.success(`Check ride booked. Find it on the Mission Board and fly it to earn ${CERT_LABELS[c]}.`);
+      qc.invalidateQueries({ queryKey: ["company"] });
+      qc.invalidateQueries({ queryKey: ["missions"] });
+    } finally {
+      setBooking(null);
+    }
   }
 
   if (!company) return null;
@@ -105,6 +129,10 @@ function SettingsPage() {
       .filter((m: any) => m.role === "checkride" && ["available", "in_progress"].includes(m.status))
       .map((m: any) => m.scene_name),
   );
+  const liveFleet = (fleetRows ?? []).filter((a) => !["sold", "returned", "destroyed"].includes(a.status));
+  const hasPlane = liveFleet.some(isFixedWingAircraft);
+  // No aircraft yet, or none the catalogue knows: offer the helicopter ride, as before.
+  const hasHeli = liveFleet.length === 0 || liveFleet.some((a) => !isFixedWingAircraft(a));
 
   return (
     <div className="space-y-6 p-6 md:p-8">
@@ -155,7 +183,12 @@ function SettingsPage() {
                 <li key={c} className="flex items-center justify-between rounded border border-border bg-background px-3 py-2 text-sm">
                   <div>
                     <p className="font-medium">{CERT_LABELS[c]}</p>
-                    {meta && !owned && <p className="text-xs text-muted-foreground">${meta.cost.toLocaleString()} · rep {meta.minRep}+</p>}
+                    {meta && !owned && (
+                      <p className="text-xs text-muted-foreground">
+                        ${meta.cost.toLocaleString()} · rep {meta.minRep}+
+                        {hasPlane && !hasPlaneCheckride(c) ? " · helicopter only" : ""}
+                      </p>
+                    )}
                   </div>
                   {owned ? (
                     <span className="text-xs text-success">Held</span>
@@ -164,13 +197,33 @@ function SettingsPage() {
                   ) : meta && shortBy ? (
                     <span className="text-xs text-muted-foreground">{shortBy}</span>
                   ) : meta ? (
-                    <Button
-                      size="sm" variant="secondary" disabled={!canManage || booking === c}
-                      onClick={() => bookCheckride(c)}
-                    >
-                      <GraduationCap className="mr-1.5 h-3.5 w-3.5" />
-                      {booking === c ? "Booking…" : "Book check ride"}
-                    </Button>
+                    (() => {
+                      // The rides this fleet can actually fly: a mixed fleet gets both.
+                      const wings = [
+                        hasHeli && hasHelicopterCheckride(c) ? ("rotary" as const) : null,
+                        hasPlane && hasPlaneCheckride(c) ? ("fixed" as const) : null,
+                      ].filter((w): w is "rotary" | "fixed" => w !== null);
+                      if (wings.length === 0) {
+                        return <span className="text-xs text-muted-foreground">Helicopter only</span>;
+                      }
+                      return (
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          {wings.map((w) => (
+                            <Button
+                              key={w} size="sm" variant="secondary" disabled={!canManage || booking !== null}
+                              onClick={() => bookCheckride(c, w)}
+                            >
+                              <GraduationCap className="mr-1.5 h-3.5 w-3.5" />
+                              {booking === `${c}:${w}`
+                                ? "Booking…"
+                                : wings.length > 1
+                                  ? w === "fixed" ? "Book (plane)" : "Book (helicopter)"
+                                  : "Book check ride"}
+                            </Button>
+                          ))}
+                        </div>
+                      );
+                    })()
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
                   )}

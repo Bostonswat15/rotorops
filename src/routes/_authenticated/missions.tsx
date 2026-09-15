@@ -33,6 +33,7 @@ import {
 import { findSites, findIndustrySites, findCliffs } from "@/lib/osm";
 import { airfieldsNear } from "@/lib/airfields";
 import { isCargoJob } from "@/lib/cargo";
+import { isPlaneCheckride } from "@/lib/checkrides";
 import { cliffSitesFrom } from "@/lib/missions";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf, fleetCanFly,
@@ -560,10 +561,12 @@ function MissionsPage() {
   // The company check ride is flown in any company aircraft, and its steps
   // follow the one it's dispatched to, so it belongs on both tabs.
   const onBothTabs = (m: any) => m.role === "rating_ride" && m.scene_name === CHECKOUT_RATING;
+  // A plane check ride is plane work, though it isn't an airport contract.
+  const isPlaneWork = (m: any) => isFixedWingMission(m) || isPlaneCheckride(m);
   const forWing = available.filter((m: any) =>
-    onBothTabs(m) || (wing === "fixed" ? isFixedWingMission(m) : !isFixedWingMission(m)),
+    onBothTabs(m) || (wing === "fixed" ? isPlaneWork(m) : !isPlaneWork(m)),
   );
-  const rotaryCount = available.length - available.filter(isFixedWingMission).length;
+  const rotaryCount = available.length - available.filter(isPlaneWork).length;
   const fixedCount = available.length - rotaryCount;
   const filtered = roleFilter === "all" ? forWing : forWing.filter((m: any) => m.role === roleFilter);
   const roles = [...new Set(forWing.map((m: any) => m.role))];
@@ -894,6 +897,11 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
     // A type rating ride has to be flown in that type.
     .filter((x: { a: { internal_id?: string; sim_title?: string; display_name?: string } }) =>
       !ratingRide || mission.scene_name === CHECKOUT_RATING || ratingOf(x.a).rating === mission.scene_name,
+    )
+    // A certification check ride is flown in its own kind: the plane version in a
+    // plane, the helicopter version in a helicopter.
+    .filter((x: { a: { internal_id?: string } }) =>
+      mission.role !== "checkride" || isFixedWingAircraft(x.a) === isPlaneCheckride(mission),
     );
   const reservedForSomeoneElse = ratingRide && mission.assigned_pilot_id !== me;
   const canFly = certsOk && !reservedForSomeoneElse && (ratingRide || checkedOut);

@@ -15,6 +15,7 @@ import { useCompanyRole } from "@/hooks/use-company";
 import { useLiveFlight } from "@/hooks/use-live-flight";
 import { findIndustrySites } from "@/lib/osm";
 import { LocationPicker } from "@/components/location-picker";
+import { ownsIndustry } from "@/lib/play-mode";
 import {
   siteIndustries, INDUSTRY_DEFS, CHAIN_LABEL, buyPrice, sellPrice,
   type IndustryKind,
@@ -38,6 +39,7 @@ function IndustriesPage() {
   const [tradeDest, setTradeDest] = useState<Record<string, string>>({});
   const [busyTrade, setBusyTrade] = useState<string | null>(null);
   const [busyStaff, setBusyStaff] = useState<string | null>(null);
+  const [busyClaim, setBusyClaim] = useState<string | null>(null);
 
   // Build-a-camp: place a new site anywhere, not just where OSM found one.
   const [buildKind, setBuildKind] = useState<IndustryKind | "">("");
@@ -148,6 +150,17 @@ function IndustriesPage() {
     qc.invalidateQueries({ queryKey: ["missions"] });
   }
 
+  // Industry mode: a site a scan found becomes yours for its build cost.
+  async function claim(industryId: string) {
+    setBusyClaim(industryId);
+    const { error } = await supabase.rpc("claim_industry", { _industry_id: industryId });
+    setBusyClaim(null);
+    if (error) return toast.error(error.message);
+    toast.success("Site claimed — it's yours to staff, invest in and haul from.");
+    qc.invalidateQueries({ queryKey: ["industries"] });
+    qc.invalidateQueries({ queryKey: ["company"] });
+  }
+
   async function build() {
     if (!base) return toast.error("Set a home base first.");
     if (!buildKind) return toast.error("Pick what to build.");
@@ -171,7 +184,10 @@ function IndustriesPage() {
 
   if (!company) return <div className="p-8 text-muted-foreground">Loading…</div>;
 
-  const list = industries ?? [];
+  const allSites = industries ?? [];
+  // In Industry mode only built and claimed sites are yours; the rest are nearby to claim.
+  const list = allSites.filter((i) => ownsIndustry(company, i));
+  const nearby = allSites.filter((i) => !ownsIndustry(company, i));
   const byChain = new Map<string, any[]>();
   for (const ind of list) {
     const def = INDUSTRY_DEFS[ind.kind as IndustryKind];
@@ -210,7 +226,7 @@ function IndustriesPage() {
         </p>
       )}
 
-      {base && list.length === 0 && (
+      {base && allSites.length === 0 && (
         <p className="rounded-lg border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
           No industries sited yet.{" "}
           {canManage ? "Click Scan for industries — this takes a moment the first time." : "Ask a manager to scan."}
@@ -295,7 +311,7 @@ function IndustriesPage() {
             }
             onChange={(lat, lon) => { setBuildLat(String(lat)); setBuildLon(String(lon)); }}
             center={base ? { lat: Number(base.latitude), lon: Number(base.longitude) } : null}
-            markers={list
+            markers={allSites
               .filter((s: any) => s.latitude != null && s.longitude != null)
               .map((s: any) => ({
                 lat: Number(s.latitude), lon: Number(s.longitude),
@@ -489,6 +505,46 @@ function IndustriesPage() {
           </div>
         );
       })}
+
+      {nearby.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-5">
+          <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+            <Compass className="h-4 w-4 text-primary" /> Nearby sites
+          </h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Found by scanning the map around your base. In Industry mode a site is yours to staff,
+            invest in, trade with and haul from once you build it or claim it here — claiming costs
+            the same as building one.
+          </p>
+          <ul className="grid gap-2 md:grid-cols-2">
+            {nearby.map((ind) => {
+              const def = INDUSTRY_DEFS[ind.kind as IndustryKind];
+              if (!def) return null;
+              return (
+                <li key={ind.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                  <div>
+                    <p className="font-medium">{ind.name ?? def.label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {def.label} · {Math.round(Number(ind.stock)).toLocaleString()} units on hand
+                    </p>
+                  </div>
+                  {canManage ? (
+                    <Button
+                      size="sm" variant="secondary"
+                      disabled={busyClaim !== null || Number(company.cash) < def.build_cost}
+                      onClick={() => claim(ind.id)}
+                    >
+                      {busyClaim === ind.id ? "Claiming…" : `Claim · ${money(def.build_cost)}`}
+                    </Button>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">{money(def.build_cost)}</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {!canManage && list.length > 0 && (
         <p className="text-sm text-muted-foreground">

@@ -37,6 +37,21 @@ export function showsInIndustryMode(m: { role?: string | null }) {
 }
 
 /**
+ * Is this site the company's to use? (user chose 2026-09-15: Industry mode only,
+ * claiming a scanned site costs its full build cost.)
+ *
+ * In Career every site a scan finds is usable, as it always was. In Industry a
+ * site is the company's once it built it -- the free camp included -- or
+ * claimed it; the rest are nearby sites it could claim.
+ */
+export function ownsIndustry(
+  company: { play_mode?: string | null } | null | undefined,
+  site: { source?: string | null; claimed_at?: string | null },
+) {
+  return !isIndustryMode(company) || site.source === "built" || !!site.claimed_at;
+}
+
+/**
  * A haul's pay in Industry mode: the goods' value it was generated with, plus
  * the Cargo Hub freight rate for its weight and the whole trip. The weight is
  * read back from min_payload, which a haul sets to 85% of its load.

@@ -50,6 +50,7 @@ export const TXN_TYPES: Record<string, { label: string; group: TxnGroup }> = {
   checkride_fee: { label: "Check ride fees", group: "capital" },
   industry_investment: { label: "Industry investment", group: "capital" },
   industry_construction: { label: "Industry construction", group: "capital" },
+  industry_claim: { label: "Sites claimed", group: "capital" },
   starting_capital: { label: "Starting capital", group: "capital" },
 };
 

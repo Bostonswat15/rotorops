@@ -34,7 +34,7 @@ import { findSites, findIndustrySites, findCliffs } from "@/lib/osm";
 import { airfieldsNear } from "@/lib/airfields";
 import { isCargoJob } from "@/lib/cargo";
 import { isPlaneCheckride } from "@/lib/checkrides";
-import { isIndustryMode, showsInIndustryMode, withFreight, INDUSTRY_MODE_HAULS } from "@/lib/play-mode";
+import { isIndustryMode, showsInIndustryMode, withFreight, ownsIndustry, INDUSTRY_MODE_HAULS } from "@/lib/play-mode";
 import { cliffSitesFrom } from "@/lib/missions";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf, fleetCanFly,
@@ -388,6 +388,8 @@ function MissionsPage() {
         }
       }
 
+      // Industry mode hauls only from sites the company owns.
+      baseIndustries = baseIndustries.filter((i: any) => ownsIndustry(company, i));
       if (baseIndustries.length > 0) {
         const byKind = new Map<string, any>(baseIndustries.map((i: any) => [i.kind, i]));
         // Two hauls for this half of the board, drawn from every candidate.
@@ -468,7 +470,7 @@ function MissionsPage() {
     if (rows.length === 0) {
       return toast.error(
         industryMode
-          ? "No hauls this time. Industry mode only offers goods work: build or scan camps on the Trading Hall, staff them, and give their stock somewhere to go (a mill, or a market airport for finished goods)."
+          ? "No hauls this time. Industry mode only offers goods work: build or claim camps on the Trading Hall, staff them, and give their stock somewhere to go (a mill, or a market airport for finished goods)."
           : !base
           ? heli
             ? "Nothing to generate yet."

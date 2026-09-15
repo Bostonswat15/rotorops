@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
 import { fleetWing, isFixedWingAircraft, type WingType } from "@/lib/game-data";
-import { isIndustryMode, INDUSTRY_MODE_GOODS_JOBS } from "@/lib/play-mode";
+import { isIndustryMode, ownsIndustry, INDUSTRY_MODE_GOODS_JOBS } from "@/lib/play-mode";
 import { ratingOf, CHECKOUT_RATING } from "@/lib/ratings";
 import { distanceNm, parsePlacementSites } from "@/lib/missions";
 import { airfieldsNear } from "@/lib/airfields";
@@ -195,6 +195,8 @@ function CargoPage() {
       } catch {
         // Stale stock only means a job may be refused at dispatch.
       }
+      // Industry mode: goods only from sites the company owns.
+      industries = industries.filter((i) => ownsIndustry(company, i));
       const airports = await airfieldsNear(base, wing === "fixed");
       const sites = parsePlacementSites(base.placement_sites);
       const rows = generateCargoJobs({

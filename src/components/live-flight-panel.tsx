@@ -6,6 +6,7 @@ import { FlightMap } from "@/components/flight-map";
 import { useLiveFlight, useBridgeObjectives, useBridgeScore, useBridgeTrip } from "@/hooks/use-live-flight";
 import { searchAreaOf } from "@/lib/missions";
 import { INDUSTRY_DEFS, type IndustryKind } from "@/lib/industries";
+import { ownsIndustry } from "@/lib/play-mode";
 import { desktop, type BridgeStatus, type TripStatus } from "@/lib/desktop";
 
 /**
@@ -77,13 +78,14 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         supabase.from("bases").select("*").eq("company_id", c.id),
         supabase.from("aircraft").select("id, display_name").eq("company_id", c.id),
         // Industry camps, drawn on the map to fly to.
-        supabase.from("industries").select("id, kind, name, latitude, longitude").eq("company_id", c.id),
+        supabase.from("industries").select("id, kind, name, latitude, longitude, source, claimed_at").eq("company_id", c.id),
       ]);
       return {
         active: active.data ?? [],
         bases: bases.data ?? [],
         fleet: fleet.data ?? [],
-        camps: (camps.data ?? []).filter((i) => i.latitude != null && i.longitude != null),
+        // Your own camps only: in Industry mode, the ones you built or claimed.
+        camps: (camps.data ?? []).filter((i) => i.latitude != null && i.longitude != null && ownsIndustry(c, i)),
       };
     },
   });

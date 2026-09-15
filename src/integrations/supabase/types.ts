@@ -232,6 +232,7 @@ export type Database = {
           workers: number
           last_tick_at: string
           created_at: string
+          claimed_at: string | null
         }
         Insert: {
           id?: string
@@ -1312,6 +1313,11 @@ export type Database = {
         Args: { _industry_id: string; _amount: number }
         Returns: Database["public"]["Tables"]["industries"]["Row"]
       }
+      claim_industry: {
+        Args: { _industry_id: string }
+        Returns: Database["public"]["Tables"]["industries"]["Row"]
+      }
+      industry_is_owned: { Args: { _industry_id: string }; Returns: boolean }
       book_checkride: {
         Args: { _company_id: string; _cert: string; _mission: Json }
         Returns: Database["public"]["Tables"]["missions"]["Row"]

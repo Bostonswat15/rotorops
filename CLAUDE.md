@@ -209,6 +209,15 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   min_payload/0.85 lb over distance_nm, on top of the goods). Cargo Hub goods jobs 2 -> 6. New
   Industry company: no starter aircraft, a free lumber camp/farm/quarry/fishing camp placed later
   on the Trading Hall. Settings has a Game mode select (owners/managers).
+- **Claiming sites in Industry mode (user chose 2026-09-15: Industry only, full build cost):**
+  `20261001000000_claim_industries.sql` adds `industries.claimed_at`, `industry_is_owned(id)`
+  (Career, `source = 'built'`, or claimed) and `claim_industry(id)` (charges
+  `industry_defs.build_cost`, ledger type `industry_claim`). Carried forward with ownership
+  guards: set_industry_workers (staffing > 0), invest_in_industry, dispatch_trade_run (both
+  ends), industry_tick (a mill only draws on an owned camp), bridge_state (only owned camps
+  dressed). App: `ownsIndustry(company, site)` in play-mode.ts; the Trading Hall lists owned
+  sites and a "Nearby sites" section with Claim buttons; Mission Board hauls, Cargo Hub goods
+  jobs and In Flight camps use owned sites only.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

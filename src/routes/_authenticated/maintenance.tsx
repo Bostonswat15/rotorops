@@ -164,7 +164,7 @@ function MaintPage() {
                   <>
                     <dt className="text-muted-foreground">Resale today</dt>
                     <dd className="text-right font-mono">
-                      {money(resaleValue(a.acquisition_cost, a.hours, wear))}
+                      {a.is_starter ? "$0 (free starter)" : money(resaleValue(a.acquisition_cost, a.hours, wear))}
                     </dd>
                   </>
                 )}

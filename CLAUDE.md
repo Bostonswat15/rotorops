@@ -165,6 +165,14 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   Normal $500k / Hard $250k, starter guard, loan limit $250k + half resale, trade run margin x2,
   and reprices owned non-leased aircraft to the new prices. Contracts already on a board keep
   their old payout. Cert costs, lease deposit (2%) and royalties unchanged.
+- **Free starters sell for $0 (user chose option a, 2026-09-14):** `aircraft.is_starter`
+  (`20260927000000_starter_no_sale.sql`, built by `scratchpad/build-starter.mjs`; carries
+  create_company from 20260926 and aircraft_sale_value from 20260914). Backfilled where
+  `aircraft.created_at = companies.created_at`. `aircraft_sale_value` returns 0 for a starter;
+  loan limit, balance sheet and repair costs still use its catalogue price. Not in the client
+  UPDATE grants. Aircraft page says "Free starter · can't be sold for cash"; Maintenance shows
+  "$0 (free starter)". Offered, not built: Dashboard "Profit this week" counting only operating
+  transactions, and rounding cash to whole dollars.
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

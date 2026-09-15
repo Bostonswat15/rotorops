@@ -215,8 +215,11 @@ function Disposal({ aircraft: a, canManage }: { aircraft: any; canManage: boolea
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
-            Paid ${Number(a.acquisition_cost).toLocaleString()}
-            {quote != null && ` · worth $${Number(quote).toLocaleString()} today`}
+            {/* A free starter sells for nothing; the server quotes $0 for it. */}
+            {a.is_starter
+              ? "Free starter · can't be sold for cash"
+              : `Paid $${Number(a.acquisition_cost).toLocaleString()}`}
+            {!a.is_starter && quote != null && ` · worth $${Number(quote).toLocaleString()} today`}
           </p>
           <Button
             size="sm"

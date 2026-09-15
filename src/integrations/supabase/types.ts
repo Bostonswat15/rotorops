@@ -36,6 +36,7 @@ export type Database = {
           internal_id: string
           is_modded: boolean
           is_leased: boolean
+          is_starter: boolean
           retired_at: string | null
           broken_down_at: string | null
           hours_at_inspection: number
@@ -77,6 +78,7 @@ export type Database = {
           internal_id: string
           is_modded?: boolean
           is_leased?: boolean
+          is_starter?: boolean
           retired_at?: string | null
           broken_down_at?: string | null
           hours_at_inspection?: number
@@ -118,6 +120,7 @@ export type Database = {
           internal_id?: string
           is_modded?: boolean
           is_leased?: boolean
+          is_starter?: boolean
           retired_at?: string | null
           broken_down_at?: string | null
           hours_at_inspection?: number

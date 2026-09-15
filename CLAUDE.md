@@ -397,6 +397,17 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   sites stay idle); a mill draws only on a camp of the same ownership. Career Mission Board hauls
   and Cargo Hub goods still use every site (contract work); staffing, investing, trade runs,
   delete, In Flight camps and bridge dressing need an owned site.
+- **Energy work (user approved 2026-09-15):** helicopter boards add `ENERGY_CONTRACTS_PER_BOARD` (2)
+  role `energy` contracts from `findEnergySites` (osm.ts: wind turbine nodes, solar plants and
+  ground arrays by bounds >= 0.08 nm, substations but not minor_distribution; 60 nm, thrown on
+  Overpass failure). `generateEnergyContracts` (missions.ts) picks distinct kinds: Wind Turbine
+  Inspection (fee $11,000; hover beside up to 3 turbines of one farm, 200-450 ft AGL, 60 s,
+  radius 0.12), Turbine Technician Transfer ($6,000; 350 lb aboard at base, land_off 0.15 nm),
+  Solar Farm Thermal Survey ($8,000; 6 overflies below 500 ft in two lanes), Substation
+  Inspection ($5,000; 5-25 nm; overfly + 30 s hover below 400 ft). Pay = (fee + $40/nm of the
+  round trip) x PAY_SCALE x variance x rep. The bridge hover objective takes optional
+  `lat/lon/radius_nm` and `min_agl_ft`; `planFor('energy')` stages nothing; "technician" counts
+  as people aboard. No migration.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;

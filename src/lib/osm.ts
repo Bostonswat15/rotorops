@@ -123,6 +123,70 @@ export async function findPowerTowers(centre: LatLon, radiusNm = 40): Promise<La
     .map((e) => ({ lat: e.lat, lon: e.lon }));
 }
 
+export type EnergySite = { lat: number; lon: number; name: string | null };
+export type SolarFarm = EnergySite & {
+  box: { minLat: number; minLon: number; maxLat: number; maxLon: number };
+};
+export type EnergySites = {
+  turbines: EnergySite[];
+  solar: SolarFarm[];
+  substations: (EnergySite & { voltage: string | null })[];
+};
+
+/** A ground-mounted array is at least this far corner to corner; rooftop panels are mapped too. */
+const SOLAR_MIN_NM = 0.08;
+
+/**
+ * Wind turbines, solar farms and substations within `radiusNm`, from OSM, for
+ * helicopter energy work (user approved 2026-09-15). MSFS builds its wind
+ * turbines from the same data.
+ *
+ * One request, with an `out` budget per kind: a windy region maps turbines in
+ * the thousands, which would starve the other two of a shared budget. Turbines
+ * and substations use plain `out` (body): `out tags` drops a node's position. Thrown
+ * on failure, like findPowerLines, so the session cache asks again next time.
+ */
+export async function findEnergySites(centre: LatLon, radiusNm = 60): Promise<EnergySites> {
+  const b = bbox(centre, radiusNm);
+  const elements = await overpass(
+    `[out:json][timeout:25];` +
+      `node["generator:source"="wind"](${b});out 1500;` +
+      `(way["plant:source"="solar"](${b});relation["plant:source"="solar"](${b});way["generator:source"="solar"](${b}););out tags bb 1500;` +
+      `(way["power"="substation"](${b});node["power"="substation"](${b}););out center 800;`,
+    30_000,
+  );
+  if (!elements) throw new Error("Overpass unavailable for energy sites");
+
+  const out: EnergySites = { turbines: [], solar: [], substations: [] };
+  for (const e of elements) {
+    const t = e.tags ?? {};
+    if (t["generator:source"] === "wind" && typeof e.lat === "number" && typeof e.lon === "number") {
+      out.turbines.push({ lat: e.lat, lon: e.lon, name: t.name ?? null });
+    } else if (t["plant:source"] === "solar" || t["generator:source"] === "solar") {
+      const bd = e.bounds;
+      if (!bd || typeof bd.minlat !== "number") continue;
+      const box = { minLat: bd.minlat, minLon: bd.minlon, maxLat: bd.maxlat, maxLon: bd.maxlon };
+      const across = nmBetween({ lat: box.minLat, lon: box.minLon }, { lat: box.maxLat, lon: box.maxLon });
+      if (across < SOLAR_MIN_NM) continue;
+      out.solar.push({ lat: (box.minLat + box.maxLat) / 2, lon: (box.minLon + box.maxLon) / 2, name: t.name ?? null, box });
+    } else if (t.power === "substation" && t.substation !== "minor_distribution") {
+      const lat = e.lat ?? e.center?.lat;
+      const lon = e.lon ?? e.center?.lon;
+      if (typeof lat !== "number" || typeof lon !== "number") continue;
+      out.substations.push({ lat, lon, name: t.name ?? null, voltage: t.voltage ?? null });
+    }
+  }
+
+  // A plant and the arrays mapped inside it are one farm: keep the outer one.
+  const area = (x: SolarFarm["box"]) => (x.maxLat - x.minLat) * (x.maxLon - x.minLon);
+  const inside = (x: SolarFarm["box"], p: LatLon) =>
+    p.lat >= x.minLat && p.lat <= x.maxLat && p.lon >= x.minLon && p.lon <= x.maxLon;
+  out.solar = out.solar.filter(
+    (s) => !out.solar.some((o) => o !== s && area(o.box) > area(s.box) && inside(o.box, s)),
+  );
+  return out;
+}
+
 export type Aerodrome = {
   icao: string;
   lat: number;

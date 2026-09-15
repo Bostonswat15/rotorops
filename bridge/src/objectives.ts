@@ -41,6 +41,12 @@ export type Objective =
        * without the contract ever naming the spot.
        */
       near_search?: boolean;
+      /** Hold it at a set place -- beside a wind turbine, over a substation -- within `radius_nm`. */
+      lat?: number;
+      lon?: number;
+      radius_nm?: number;
+      /** And no lower than this: a turbine is inspected at hub height. */
+      min_agl_ft?: number;
     }
   | { id: string; kind: 'hoist'; label: string; min_deployed_pct: number }
   | {
@@ -147,7 +153,7 @@ export type ObjectiveProgress = {
 
 /** Whether a payload step boards people (patients, jumpers, guests) rather than freight. */
 export function carriesPeople(label: string): boolean {
-  return /patient|casualt|survivor|jumper|guest|passenger|crew|hiker/i.test(label);
+  return /patient|casualt|survivor|jumper|guest|passenger|crew|hiker|technician/i.test(label);
 }
 
 export class ObjectiveTracker {
@@ -422,7 +428,19 @@ export class ObjectiveTracker {
             break;
           }
         }
-        const steady = !onGround && agl > 0 && agl <= o.max_agl_ft && gs <= o.max_gs_kts;
+        // A hover at a set place has to be there: beside the turbine, not a
+        // mile off it. Drifting out restarts the clock, like any broken hover.
+        if (typeof o.lat === 'number' && typeof o.lon === 'number') {
+          const d = distanceNm(lat, lon, o.lat, o.lon);
+          if (d > zone(o.radius_nm ?? 0.15)) {
+            this.hoverHeldMs = 0;
+            this.hint = `${d.toFixed(1)} nm to the hover point`;
+            break;
+          }
+        }
+        const minAgl = o.min_agl_ft ?? 0;
+        const steady =
+          !onGround && agl > 0 && agl >= minAgl && agl <= o.max_agl_ft && gs <= o.max_gs_kts;
         if (steady) {
           this.hoverHeldMs += dt;
           const held = this.hoverHeldMs / 1000;
@@ -439,7 +457,9 @@ export class ObjectiveTracker {
             ? 'lift into a hover'
             : agl > o.max_agl_ft
               ? `descend below ${o.max_agl_ft} ft AGL`
-              : `slow below ${o.max_gs_kts} kts`;
+              : agl < minAgl
+                ? `climb above ${minAgl} ft AGL`
+                : `slow below ${o.max_gs_kts} kts`;
         }
         break;
       }

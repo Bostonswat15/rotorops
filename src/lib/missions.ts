@@ -24,7 +24,7 @@ import type { AircraftTag, WingType } from "./game-data";
 import { PAY_SCALE } from "./economy";
 import {
   findPowerLines, findPowerTowers, pathLengthNm, samplePath, bearingBetween, type PowerLine,
-  type SiteFeatures,
+  type SiteFeatures, findEnergySites, type EnergySites, type EnergySite,
 } from "./osm";
 
 export type SceneType =
@@ -105,6 +105,12 @@ export type Objective =
       max_agl_ft: number; max_gs_kts: number; hold_seconds: number;
       /** Hold it over the casualty the search turned up, not just anywhere. */
       near_search?: boolean;
+      /** Hold it at a set place -- beside a wind turbine, over a substation -- within `radius_nm`. */
+      lat?: number;
+      lon?: number;
+      radius_nm?: number;
+      /** And no lower than this: a turbine is inspected at hub height, not from the ground. */
+      min_agl_ft?: number;
     }
   /** Winch out and back. */
   | { id: string; kind: "hoist"; label: string; min_deployed_pct: number }
@@ -1493,6 +1499,302 @@ export async function generatePowerlinePatrol(
     nearest_airport_nm: nearest?.distance_nm ?? null,
     objectives: objectives as unknown as Record<string, unknown>[],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Energy work (user approved 2026-09-15)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helicopter work at real wind turbines, solar farms and substations, out of
+ * OSM. The sites sit further from base than scene work, so it pays by distance
+ * like plane contracts: a fee plus ENERGY_PAY_PER_NM for every mile of the
+ * round trip, then the usual scale, variance and reputation.
+ */
+export const ENERGY_FEES = {
+  turbine_inspection: 11000,
+  technician_transfer: 6000,
+  solar_survey: 8000,
+  substation_inspection: 5000,
+} as const;
+export const ENERGY_PAY_PER_NM = 40;
+/** How many energy contracts one Generate adds to the helicopter board. */
+export const ENERGY_CONTRACTS_PER_BOARD = 2;
+
+type EnergyKind = keyof typeof ENERGY_FEES;
+type EnergyBase = { lat: number; lon: number; icao: string | null; airports?: Airport[] };
+
+/** How far out each kind of site is looked for, nm. */
+const ENERGY_RANGE: Record<EnergyKind, [number, number]> = {
+  turbine_inspection: [3, 60],
+  technician_transfer: [3, 60],
+  solar_survey: [3, 60],
+  substation_inspection: [5, 25],
+};
+/** Turbines inspected on one contract, all from the same farm. */
+const TURBINES_PER_INSPECTION = 3;
+/** Turbines this close to the first one count as its farm. */
+const TURBINE_FARM_NM = 1.5;
+const ENERGY_COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+const pickSite = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)];
+
+function energyInRange<T extends { lat: number; lon: number }>(base: EnergyBase, sites: T[], kind: EnergyKind): T[] {
+  const [lo, hi] = ENERGY_RANGE[kind];
+  return sites.filter((s) => {
+    const d = distanceNm(base.lat, base.lon, s.lat, s.lon);
+    return d >= lo && d <= hi;
+  });
+}
+
+/** "39 nm NE": where a site lies from base, for briefings and unnamed sites. */
+function fromBase(base: EnergyBase, p: { lat: number; lon: number }) {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const y = Math.sin(rad(p.lon - base.lon)) * Math.cos(rad(p.lat));
+  const x =
+    Math.cos(rad(base.lat)) * Math.sin(rad(p.lat)) -
+    Math.sin(rad(base.lat)) * Math.cos(rad(p.lat)) * Math.cos(rad(p.lon - base.lon));
+  const brg = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  const nm = Math.max(1, Math.round(distanceNm(base.lat, base.lon, p.lat, p.lon)));
+  return `${nm} nm ${ENERGY_COMPASS[Math.round(brg / 45) % 8]}`;
+}
+
+/** Length of a route through points, nm. */
+function routeNm(points: { lat: number; lon: number }[]) {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    total += distanceNm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+  }
+  return total;
+}
+
+function energyRow(
+  kind: EnergyKind,
+  reputation: number,
+  base: EnergyBase,
+  job: {
+    title: string;
+    description: string;
+    tags: AircraftTag[];
+    min_payload: number;
+    difficulty: number;
+    site: { lat: number; lon: number };
+    scene_name: string;
+    round_trip_nm: number;
+    objectives: Objective[];
+  },
+): Record<string, unknown> {
+  const variance = 0.85 + Math.random() * 0.4;
+  const nearest = nearestAirport(job.site.lat, job.site.lon, base.airports);
+  const objectives: Objective[] = [
+    ...job.objectives,
+    { id: "return", kind: "land", label: "Return to base", icao: base.icao, radius_nm: 1.5 },
+  ];
+  return {
+    // One role for all four, so the board's role filter keeps them together and
+    // the bridge stages nothing (planFor 'energy'): the scenery is the job.
+    role: "energy",
+    title: job.title,
+    description: job.description,
+    required_tags: job.tags,
+    required_certs: [],
+    min_payload: job.min_payload,
+    payout: Math.round(
+      (ENERGY_FEES[kind] + ENERGY_PAY_PER_NM * job.round_trip_nm) * PAY_SCALE * variance * (1 + reputation / 200),
+    ),
+    distance_nm: Math.max(2, Math.round(job.round_trip_nm)),
+    difficulty: job.difficulty,
+    weather_factor: 2,
+    origin: base.icao,
+    destination: base.icao,
+    scene_lat: Number(job.site.lat.toFixed(5)),
+    scene_lon: Number(job.site.lon.toFixed(5)),
+    scene_type: "field" as SceneType,
+    scene_name: job.scene_name,
+    nearest_airport_icao: nearest?.icao ?? null,
+    nearest_airport_nm: nearest?.distance_nm ?? null,
+    objectives: objectives as unknown as Record<string, unknown>[],
+  };
+}
+
+/** Hover beside three turbines of one farm at hub height, a minute each. */
+function turbineInspection(reputation: number, base: EnergyBase, sites: EnergySites) {
+  const candidates = energyInRange(base, sites.turbines, "turbine_inspection");
+  if (candidates.length === 0) return null;
+  const first = pickSite(candidates);
+  const farm = sites.turbines
+    .map((t) => ({ t, d: distanceNm(first.lat, first.lon, t.lat, t.lon) }))
+    .filter((x) => x.d <= TURBINE_FARM_NM)
+    .sort((a, b) => a.d - b.d);
+  const chosen: EnergySite[] = [];
+  for (const { t } of farm) {
+    // Two turbines mapped on top of each other are one turbine.
+    if (chosen.every((c) => distanceNm(c.lat, c.lon, t.lat, t.lon) >= 0.1)) chosen.push(t);
+    if (chosen.length === TURBINES_PER_INSPECTION) break;
+  }
+  const n = chosen.length;
+  const where = fromBase(base, first);
+  const farmName = chosen.find((t) => t.name)?.name ?? null;
+  return energyRow("turbine_inspection", reputation, base, {
+    title: "Wind Turbine Inspection",
+    description:
+      `Blade inspection at ${n === 1 ? "a wind turbine" : `${n} wind turbines`} ${where} of ${base.icao ?? "base"}. ` +
+      `Hold a steady hover beside each at hub height, 200–450 ft AGL, for a minute while the camera operator ` +
+      `works the blades, then home. Keep clear of the rotor disc.`,
+    tags: ["survey", "patrol"],
+    min_payload: 200,
+    difficulty: 3,
+    site: first,
+    scene_name: farmName ?? `Wind turbines ${where}`,
+    round_trip_nm:
+      distanceNm(base.lat, base.lon, first.lat, first.lon) +
+      routeNm(chosen) +
+      distanceNm(chosen[n - 1].lat, chosen[n - 1].lon, base.lat, base.lon),
+    objectives: chosen.map((t, i) => ({
+      id: `turbine${i + 1}`,
+      kind: "hover",
+      label: `Inspect turbine ${i + 1} of ${n}: hover beside it at hub height, 200–450 ft AGL, 60 s`,
+      lat: Number(t.lat.toFixed(5)),
+      lon: Number(t.lon.toFixed(5)),
+      radius_nm: 0.12,
+      min_agl_ft: 200,
+      max_agl_ft: 450,
+      max_gs_kts: 15,
+      hold_seconds: 60,
+    })),
+  });
+}
+
+/** Two technicians from base to a turbine, set down beside it. */
+function technicianTransfer(reputation: number, base: EnergyBase, sites: EnergySites) {
+  const candidates = energyInRange(base, sites.turbines, "technician_transfer");
+  if (candidates.length === 0) return null;
+  const t = pickSite(candidates);
+  const where = fromBase(base, t);
+  return energyRow("technician_transfer", reputation, base, {
+    title: "Turbine Technician Transfer",
+    description:
+      `Two maintenance technicians and their kit out to ${t.name ?? "a wind turbine"} ${where} of ` +
+      `${base.icao ?? "base"}. Take them aboard at base, set down beside the tower, then fly home empty.`,
+    tags: ["light_utility", "medium_utility"],
+    min_payload: 400,
+    difficulty: 2,
+    site: t,
+    scene_name: t.name ?? `Wind turbine ${where}`,
+    round_trip_nm: distanceNm(base.lat, base.lon, t.lat, t.lon) * 2,
+    objectives: [
+      { id: "load", kind: "payload", label: "Take the two technicians aboard at base", min_delta_lb: 350 },
+      {
+        id: "land_site",
+        kind: "land_off",
+        label: "Land beside the turbine and drop the technicians",
+        lat: Number(t.lat.toFixed(5)),
+        lon: Number(t.lon.toFixed(5)),
+        radius_nm: 0.15,
+      },
+    ],
+  });
+}
+
+/** Six thermal-camera passes across a solar farm, below 500 ft. */
+function solarSurvey(reputation: number, base: EnergyBase, sites: EnergySites) {
+  const size = (f: EnergySites["solar"][number]) => (f.box.maxLat - f.box.minLat) * (f.box.maxLon - f.box.minLon);
+  // The bigger farms in range: a thermal survey is for a proper array, not a barn roof.
+  const candidates = energyInRange(base, sites.solar, "solar_survey").sort((a, b) => size(b) - size(a)).slice(0, 6);
+  if (candidates.length === 0) return null;
+  const f = pickSite(candidates);
+  const { minLat, maxLat, minLon, maxLon } = f.box;
+  // Two lanes across the farm, flown there and back like a mower.
+  const points = [0.3, 0.7].flatMap((row, r) =>
+    (r === 0 ? [0.2, 0.5, 0.8] : [0.8, 0.5, 0.2]).map((col) => ({
+      lat: minLat + (maxLat - minLat) * row,
+      lon: minLon + (maxLon - minLon) * col,
+    })),
+  );
+  const where = fromBase(base, f);
+  return energyRow("solar_survey", reputation, base, {
+    title: "Solar Farm Thermal Survey",
+    description:
+      `Thermal camera survey of ${f.name ?? "a solar farm"} ${where} of ${base.icao ?? "base"}: six low passes ` +
+      `over the arrays below 500 ft AGL, looking for panels running hot, then home.`,
+    tags: ["survey", "patrol"],
+    min_payload: 200,
+    difficulty: 2,
+    site: f,
+    scene_name: f.name ?? `Solar farm ${where}`,
+    round_trip_nm:
+      distanceNm(base.lat, base.lon, points[0].lat, points[0].lon) +
+      routeNm(points) +
+      distanceNm(points[5].lat, points[5].lon, base.lat, base.lon),
+    objectives: points.map((p, i) => ({
+      id: `pass${i + 1}`,
+      kind: "overfly",
+      label: `Thermal pass ${i + 1} of 6 over the arrays, below 500 ft AGL`,
+      lat: Number(p.lat.toFixed(5)),
+      lon: Number(p.lon.toFixed(5)),
+      radius_nm: 0.15,
+      max_agl_ft: 500,
+    })),
+  });
+}
+
+/** A low pass over a substation, then a held hover beside it for the camera. */
+function substationInspection(reputation: number, base: EnergyBase, sites: EnergySites) {
+  const candidates = energyInRange(base, sites.substations, "substation_inspection");
+  if (candidates.length === 0) return null;
+  const s = pickSite(candidates);
+  const where = fromBase(base, s);
+  const at = { lat: Number(s.lat.toFixed(5)), lon: Number(s.lon.toFixed(5)) };
+  return energyRow("substation_inspection", reputation, base, {
+    title: "Substation Inspection",
+    description:
+      `Thermal and visual inspection of ${s.name ?? "a substation"}${s.voltage ? ` (${s.voltage} V)` : ""}, ` +
+      `${where} of ${base.icao ?? "base"}. One low pass, then hold beside it for the camera, then home.`,
+    tags: ["survey", "patrol"],
+    min_payload: 200,
+    difficulty: 1,
+    site: s,
+    scene_name: s.name ?? `Substation ${where}`,
+    round_trip_nm: distanceNm(base.lat, base.lon, s.lat, s.lon) * 2,
+    objectives: [
+      { id: "pass", kind: "overfly", label: "Low pass over the substation, below 400 ft AGL", ...at, radius_nm: 0.15, max_agl_ft: 400 },
+      {
+        id: "hold",
+        kind: "hover",
+        label: "Hold a steady hover beside it for the camera, below 400 ft AGL, 30 s",
+        ...at,
+        radius_nm: 0.15,
+        max_agl_ft: 400,
+        max_gs_kts: 15,
+        hold_seconds: 30,
+      },
+    ],
+  });
+}
+
+/**
+ * Up to `count` energy contracts of different kinds, from the sites OSM maps
+ * near a base. A kind with no site in range is skipped; none at all is an
+ * empty list. Throws when Overpass can't be reached.
+ */
+export async function generateEnergyContracts(
+  reputation: number,
+  base: EnergyBase,
+  count = ENERGY_CONTRACTS_PER_BOARD,
+): Promise<Record<string, unknown>[]> {
+  const where = `${base.lat.toFixed(3)},${base.lon.toFixed(3)}`;
+  const sites = await once(`energy:${where}`, () => findEnergySites({ lat: base.lat, lon: base.lon }, 60));
+  const builders = [turbineInspection, technicianTransfer, solarSurvey, substationInspection]
+    .map((b) => ({ b, r: Math.random() }))
+    .sort((x, y) => x.r - y.r)
+    .map((x) => x.b);
+  const rows: Record<string, unknown>[] = [];
+  for (const build of builders) {
+    if (rows.length >= count) break;
+    const row = build(reputation, base, sites);
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 function ordinal(n: number) {

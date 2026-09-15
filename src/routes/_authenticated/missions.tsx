@@ -26,7 +26,7 @@ import {
 } from "@/lib/game-data";
 import { useCompanyRole } from "@/hooks/use-company";
 import {
-  SCENE_TEMPLATES, SCENE_LABELS, generateSceneMission, generatePowerlinePatrol,
+  SCENE_TEMPLATES, SCENE_LABELS, generateSceneMission, generatePowerlinePatrol, generateEnergyContracts,
   siteAvailability, sceneIsFlyable, summariseSites, parsePlacementSites,
   type SceneType, type PlacementSites,
 } from "@/lib/missions";
@@ -311,6 +311,15 @@ function MissionsPage() {
           }
         } catch {
           // Overpass unavailable -- the synthetic contract already in the slot stands.
+        }
+
+        // Energy work (user approved 2026-09-15): two contracts at real wind
+        // turbines, solar farms and substations near base, when OSM maps any.
+        try {
+          const energy = await generateEnergyContracts(company.reputation, site);
+          rows.push(...energy.map((e) => ({ company_id: company.id, ...e })));
+        } catch {
+          // Overpass unavailable -- the rest of the board stands; the next Generate asks again.
         }
       } else {
         // Aeroplane work, built from real airfields. Skipped when the base has

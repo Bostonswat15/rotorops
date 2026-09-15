@@ -624,6 +624,10 @@ export function planFor(role: string, scene: SceneType, title = ''): StagePlan |
       // scenery and traffic. Spawning a lone pickup on the apron adds
       // nothing.
       return null;
+    case 'energy':
+      // Wind turbines, solar farms and substations are scenery the sim already
+      // draws from OSM; anything placed beside them would only be in the way.
+      return null;
     case 'checkride':
       // A graded flight in an open practice area. Props would only be
       // clutter to manoeuvre around, and the examiner is the objectives.

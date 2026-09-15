@@ -765,6 +765,8 @@ export class SceneDirector {
     fx?: FxDrive;
     /** Where a walker should pace, instead of being pinned. */
     walk?: { lat: number; lon: number };
+    /** Props that belong to a camp, removed with it rather than with the contract. */
+    group?: string;
   }[] = [];
   /** The effect data definition is registered once, lazily. */
   private fxDefined = false;
@@ -777,6 +779,14 @@ export class SceneDirector {
   private nextLeash = 0;
   /** What actually made it into the world, for reporting. */
   private placedById = new Map<number, string>();
+  /**
+   * Camp props, by group ("camp:<industry id>"). Kept apart from `spawned` so a
+   * contract restaging -- clear() -- leaves a camp's trucks standing, and flying
+   * away from a camp removes only that camp's.
+   */
+  private groups = new Map<string, number[]>();
+  /** Groups cleared while some of their objects were still on the way. */
+  private dropped = new Set<string>();
 
   constructor(handle: any, log: (m: string) => void) {
     this.handle = handle;
@@ -837,10 +847,25 @@ export class SceneDirector {
     this.handle.on('assignedObjectID', (recv: any) => {
       if (recv.requestID !== REQ_SPAWN) return;
 
-      this.spawned.push(recv.objectID);
       // Objects come back in the order they were requested, so pairing the id
       // with the request makes it obvious which one failed to appear.
       const req = this.pending.shift();
+      if (req?.group) {
+        // A camp flown away from before its props arrived: gone on arrival.
+        if (this.dropped.has(req.group)) {
+          try {
+            this.handle.aIRemoveObject(recv.objectID, REQ_REMOVE);
+          } catch {
+            /* already gone */
+          }
+          return;
+        }
+        const ids = this.groups.get(req.group) ?? [];
+        ids.push(recv.objectID);
+        this.groups.set(req.group, ids);
+      } else {
+        this.spawned.push(recv.objectID);
+      }
       const title = req?.title ?? '(unknown)';
       this.placedById.set(recv.objectID, title);
       this.log(`Placed "${title}" (id ${recv.objectID}).`);
@@ -1129,8 +1154,11 @@ export class SceneDirector {
     only?: 'road' | 'offroad';
     /** The contract's title; an industry job names its site in it. */
     title?: string;
+    /** Track these objects as a group (a camp), apart from the contract's. */
+    group?: string;
   }): number {
     const role = scene.role ?? '';
+    if (scene.group) this.dropped.delete(scene.group);
     const type = (scene.type as SceneType) ?? 'field';
     const industryKind = INDUSTRY_ROLES.has(role) ? industryKindFromTitle(scene.title) : null;
 
@@ -1336,6 +1364,7 @@ export class SceneDirector {
             freeze: layer.freeze !== false,
             fx: layer.fx,
             walk: walksInPlace(title) ? spread : undefined,
+            group: scene.group,
           });
           this.handle.aICreateSimulatedObject(title, pos, REQ_SPAWN);
           requested.push(title);
@@ -1389,6 +1418,20 @@ export class SceneDirector {
       }
     }
     this.spawned = [];
+  }
+
+  /** Remove one camp's props, leaving the contract's and other camps' alone. */
+  clearGroup(group: string) {
+    for (const id of this.groups.get(group) ?? []) {
+      try {
+        this.handle.aIRemoveObject(id, REQ_REMOVE);
+      } catch {
+        /* object may already be gone */
+      }
+    }
+    this.groups.delete(group);
+    // Anything of this group still on its way is removed as it arrives.
+    if (this.pending.some((p) => p.group === group)) this.dropped.add(group);
   }
 
   /** On-screen message in the sim itself. */

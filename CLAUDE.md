@@ -173,6 +173,16 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   UPDATE grants. Aircraft page says "Free starter · can't be sold for cash"; Maintenance shows
   "$0 (free starter)". Offered, not built: Dashboard "Profit this week" counting only operating
   transactions, and rounding cash to whole dollars.
+- **Industry camps on In Flight and in the sim (user asked 2026-09-14; chose industry camps and
+  stock objects, no add-on tent -- stock MSFS has no tent):** In Flight draws the company's
+  industries as square markers (`FlightMap` `places`/`onPlaceClick`); clicking one sets the
+  guide line ("To camp") until clicked again or Clear. `20260928000000_camps_on_bridge.sql`
+  carries bridge_state from 20260923 adding `industries` (id, kind, name, lat/lon). Bridge:
+  `SceneDirector.stage({ group })` tracks props per group apart from `spawned`; `clear()` leaves
+  groups, `clearGroup()` removes one (props still pending are removed on arrival).
+  `runner.ts` `maybeCamps` (every 10 s): stages `industryPlan` props via `campTitle(kind)` at camps
+  within 5 nm, removes past 8 nm, max 3, skips a camp an armed industry contract stages within
+  0.5 nm. **Not yet flown.**
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

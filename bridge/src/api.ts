@@ -70,6 +70,17 @@ export type BridgeState = {
   bases_needing_position: { id: string; icao: string }[];
   /** Open cargo trips. Absent until 20260923000000_cargo_inventory.sql is run. */
   trips?: BridgeTrip[];
+  /** The company's industry sites. Absent until 20260928000000_camps_on_bridge.sql is run. */
+  industries?: BridgeIndustry[];
+};
+
+/** An industry site, for dressing its camp in the sim. */
+export type BridgeIndustry = {
+  id: string;
+  kind: string;
+  name: string | null;
+  latitude: number;
+  longitude: number;
 };
 
 export type DeliverResult = {

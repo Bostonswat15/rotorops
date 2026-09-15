@@ -92,6 +92,9 @@ export type FlightMapProps = {
   next?: { lat: number; lon: number; label?: string } | null;
   /** Breadcrumb of where the aircraft has been this flight. */
   track?: [number, number][];
+  /** The company's industry camps: always shown, and clickable to fly to. */
+  places?: { id: string; lat: number; lon: number; label: string; selected?: boolean }[];
+  onPlaceClick?: (id: string) => void;
   className?: string;
 };
 
@@ -138,7 +141,8 @@ function nmScale() {
 }
 
 export function FlightMap({
-  aircraft, scene, next, search, sighted, base, waypoints = [], track = [], className,
+  aircraft, scene, next, search, sighted, base, waypoints = [], track = [], places = [], onPlaceClick,
+  className,
 }: FlightMapProps) {
   const holder = useRef<HTMLDivElement | null>(null);
   const map = useRef<L.Map | null>(null);
@@ -154,8 +158,12 @@ export function FlightMap({
     legTo?: L.Polyline;
     waypoints?: L.LayerGroup;
     route?: L.Polyline;
+    places?: L.LayerGroup;
   }>({});
   const tiles = useRef<L.TileLayer | null>(null);
+  // The click handler changes every render; markers read the latest through this.
+  const placeClick = useRef(onPlaceClick);
+  placeClick.current = onPlaceClick;
   // Stop recentring once the user has panned somewhere deliberately. Mirrored
   // into state as well so the Follow control can show whether it is currently
   // on, rather than being a button with no visible effect.
@@ -311,6 +319,39 @@ export function FlightMap({
     });
     layers.current.waypoints = group;
   }, [waypoints]);
+
+  // Industry camps: square markers you can click to fly to. Redrawn when the
+  // set or the chosen one changes.
+  const placesKey = places.map((p) => `${p.id}:${p.lat}:${p.lon}:${p.label}:${p.selected ? 1 : 0}`).join("|");
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    layers.current.places?.remove();
+    layers.current.places = undefined;
+    if (places.length === 0) return;
+    const esc = (s: string) =>
+      s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch] ?? ch);
+    const group = L.layerGroup().addTo(m);
+    for (const p of places) {
+      const colour = p.selected ? "#38bdf8" : "#c08a4a";
+      L.marker([p.lat, p.lon], {
+        icon: L.divIcon({
+          className: "rotorops-camp",
+          html: `<div style="width:18px;height:18px;box-sizing:border-box;border-radius:3px;background:${colour};border:2px solid rgba(0,0,0,.6);box-shadow:0 0 5px rgba(0,0,0,.7);cursor:pointer"></div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        }),
+        // Under the aircraft and the objectives, which matter more mid-job.
+        zIndexOffset: -200,
+      })
+        .addTo(group)
+        .bindTooltip(`${esc(p.label)}${p.selected ? " · flying here" : " · click to fly here"}`, { direction: "top" })
+        .on("click", () => placeClick.current?.(p.id));
+    }
+    layers.current.places = group;
+    // Keyed on the content, not the array, which is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placesKey]);
 
   // Scene and base are fixed for the duration of a contract.
   useEffect(() => {

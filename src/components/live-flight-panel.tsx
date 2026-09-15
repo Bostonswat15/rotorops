@@ -5,6 +5,7 @@ import { fetchCurrentCompany } from "@/lib/company";
 import { FlightMap } from "@/components/flight-map";
 import { useLiveFlight, useBridgeObjectives, useBridgeScore, useBridgeTrip } from "@/hooks/use-live-flight";
 import { searchAreaOf } from "@/lib/missions";
+import { INDUSTRY_DEFS, type IndustryKind } from "@/lib/industries";
 import { desktop, type BridgeStatus, type TripStatus } from "@/lib/desktop";
 
 /**
@@ -27,6 +28,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
     null,
   );
   const simAircraft = bridge?.simAircraft ?? null;
+  // A camp picked on the map; the guide line points there until cleared.
+  const [flyTo, setFlyTo] = useState<string | null>(null);
 
   // Only needed to explain why objectives are not arming, or why there is no
   // map at all, so it rides along with the status stream rather than getting
@@ -59,7 +62,7 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
       if (!c) return null;
       const { data: u } = await supabase.auth.getUser();
       if (!u.user) return null;
-      const [active, bases, fleet] = await Promise.all([
+      const [active, bases, fleet, camps] = await Promise.all([
         // Only your own contracts. Another pilot's flight is theirs to watch
         // on their own In Flight -- dispatch stamps assigned_pilot_id with
         // whoever dispatched it. Cargo jobs fly as a trip, shown from the
@@ -73,8 +76,15 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
           .is("trip_id", null),
         supabase.from("bases").select("*").eq("company_id", c.id),
         supabase.from("aircraft").select("id, display_name").eq("company_id", c.id),
+        // Industry camps, drawn on the map to fly to.
+        supabase.from("industries").select("id, kind, name, latitude, longitude").eq("company_id", c.id),
       ]);
-      return { active: active.data ?? [], bases: bases.data ?? [], fleet: fleet.data ?? [] };
+      return {
+        active: active.data ?? [],
+        bases: bases.data ?? [],
+        fleet: fleet.data ?? [],
+        camps: (camps.data ?? []).filter((i) => i.latitude != null && i.longitude != null),
+      };
     },
   });
 
@@ -95,6 +105,14 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
     data?.fleet.find((a) => a.id === id)?.display_name ?? "another aircraft";
   const homeBase =
     data?.bases.find((b: any) => b.latitude != null && b.longitude != null) ?? null;
+  const campPlaces = (data?.camps ?? []).map((c) => ({
+    id: c.id,
+    lat: Number(c.latitude),
+    lon: Number(c.longitude),
+    label: c.name ?? INDUSTRY_DEFS[c.kind as IndustryKind]?.label ?? "Camp",
+    selected: c.id === flyTo,
+  }));
+  const flyToCamp = campPlaces.find((p) => p.selected) ?? null;
 
   if (!flight) {
     // On the dashboard this panel simply is not there when nothing is flying.
@@ -133,8 +151,10 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   // Once everything is done there is nowhere left to point.
   const live = objectives?.missionId === activeMission?.id ? objectives : null;
   const allDone = !!live && live.items.length > 0 && live.items.every((o) => o.done);
-  const legTarget: { lat: number; lon: number; label: string; kind: "next" | "base" | "scene" } | null =
+  const legTarget: { lat: number; lon: number; label: string; kind: "next" | "base" | "scene" | "camp" } | null =
     (() => {
+      // A camp you picked on the map wins until you clear it.
+      if (flyToCamp) return { lat: flyToCamp.lat, lon: flyToCamp.lon, label: flyToCamp.label, kind: "camp" };
       if (!activeMission) return tripTarget(trip, flight);
       if (allDone) return null;
       const raw = (Array.isArray(activeMission.objectives) ? activeMission.objectives : []) as Record<
@@ -182,7 +202,14 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         : null;
     })();
   const legRange = legTarget ? nmBetween(flight.lat, flight.lon, legTarget.lat, legTarget.lon) : null;
-  const legLabel = legTarget?.kind === "base" ? "To base" : legTarget?.kind === "next" ? "To next" : "To scene";
+  const legLabel =
+    legTarget?.kind === "camp"
+      ? "To camp"
+      : legTarget?.kind === "base"
+        ? "To base"
+        : legTarget?.kind === "next"
+          ? "To next"
+          : "To scene";
 
   // Every objective that has a place on the map, married up with whether the
   // bridge has ticked it.
@@ -297,6 +324,17 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         </p>
       )}
 
+      {flyToCamp && (
+        <p className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2 text-sm">
+          <span>
+            Flying to <span className="font-medium">{flyToCamp.label}</span> — the guide line points there.
+          </span>
+          <button type="button" className="text-xs text-muted-foreground underline" onClick={() => setFlyTo(null)}>
+            Clear
+          </button>
+        </p>
+      )}
+
       <FlightMap
         aircraft={{ lat: flight.lat, lon: flight.lon, heading: flight.heading }}
         scene={
@@ -320,6 +358,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
             : null
         }
         track={track}
+        places={campPlaces}
+        onPlaceClick={(id) => setFlyTo((cur) => (cur === id ? null : id))}
         // Filling the screen means the map takes whatever is left after the
         // readouts and the objective list, rather than a fixed 384 px. min-h-0
         // matters: without it a flex child refuses to shrink below its content

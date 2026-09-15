@@ -6,6 +6,7 @@
  * console.log, so the same logic can render as a log line or a status pill.
  */
 
+import { campTitle, INDUSTRY_ROLES } from './industry-kind.ts';
 import { SimSession, distanceNm } from './telemetry.ts';
 import { FlightTracker, type Telemetry } from './flight.ts';
 import type { ScoreItem } from './score.ts';
@@ -213,6 +214,12 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
    * the old scene lands on top of the new one.
    */
   let stageGen = 0;
+  // Industry camps are dressed whenever the aircraft is near one, contract or not.
+  const CAMP_STAGE_NM = 5;
+  const CAMP_CLEAR_NM = 8;
+  const CAMP_MAX = 3;
+  const campsStaged = new Set<string>();
+  let campsCheckedAt = 0;
   /** Where the SAR casualty really is. Derived here; never sent to the server. */
   let searchTarget: LatLon | null = null;
   /** Most recent telemetry, for capability checks when a contract arms. */
@@ -1036,6 +1043,64 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     emit({ type: 'score', score: now.score, grade: now.grade, items: now.items });
   }
 
+  /**
+   * Stand stock plant at the company's industry camps as the aircraft nears
+   * them (user asked 2026-09-14: stock objects, no add-on tent). Inside
+   * CAMP_STAGE_NM a camp gets its kind's industry props; past CAMP_CLEAR_NM
+   * they go; at most CAMP_MAX at once. A camp an armed industry contract is
+   * already staging is left to the contract.
+   */
+  function maybeCamps(s: Record<string, number | string>) {
+    const now = Date.now();
+    if (now - campsCheckedAt < 10_000) return;
+    campsCheckedAt = now;
+    if (!director) return;
+    const lat = n(s.lat);
+    const lon = n(s.lon);
+    if (lat === 0 && lon === 0) return;
+    const camps = state?.industries ?? [];
+    const byId = new Map(camps.map((c) => [c.id, c]));
+
+    for (const id of [...campsStaged]) {
+      const c = byId.get(id);
+      if (!c || distanceNm(lat, lon, Number(c.latitude), Number(c.longitude)) > CAMP_CLEAR_NM) {
+        director.clearGroup(`camp:${id}`);
+        campsStaged.delete(id);
+      }
+    }
+
+    // Where an armed industry job is already putting its props.
+    const m = objectiveMission;
+    let armedSite: { lat: number; lon: number } | null = null;
+    if (m && INDUSTRY_ROLES.has(m.role)) {
+      const reach = (m.objectives as Objective[]).find((o) => o.kind === 'reach') as
+        | { lat?: number; lon?: number }
+        | undefined;
+      if (reach && Number.isFinite(reach.lat) && Number.isFinite(reach.lon)) {
+        armedSite = { lat: Number(reach.lat), lon: Number(reach.lon) };
+      } else if (m.scene_lat != null && m.scene_lon != null) {
+        armedSite = { lat: Number(m.scene_lat), lon: Number(m.scene_lon) };
+      }
+    }
+
+    const near = camps
+      .filter((c) => !campsStaged.has(c.id))
+      .map((c) => ({ c, d: distanceNm(lat, lon, Number(c.latitude), Number(c.longitude)) }))
+      .filter((x) => x.d <= CAMP_STAGE_NM)
+      .sort((a, b) => a.d - b.d);
+    for (const { c } of near) {
+      if (campsStaged.size >= CAMP_MAX) break;
+      const clat = Number(c.latitude);
+      const clon = Number(c.longitude);
+      if (armedSite && distanceNm(armedSite.lat, armedSite.lon, clat, clon) < 0.5) continue;
+      const title = campTitle(c.kind);
+      if (!title) continue;
+      const placed = director.stage({ lat: clat, lon: clon, type: 'field', role: 'industry', title, group: `camp:${c.id}` });
+      campsStaged.add(c.id);
+      if (placed > 0) log(`Dressed ${c.name ?? title} with ${placed} object(s).`);
+    }
+  }
+
   /** Position on every sample, so the map has something to draw immediately. */
   function reportPosition(s: Record<string, number | string>) {
     const lat = n(s.lat);
@@ -1256,6 +1321,8 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       // Learn what this install can place at a scene, then re-arm so a contract
       // accepted before the sim connected still gets staged.
       director = new SceneDirector(sim!.connection, log);
+      // A new session has none of the last one's camp props.
+      campsStaged.clear();
       // A new session starts with nothing written aboard.
       cargoKey = null;
       tripHint = null;
@@ -1294,6 +1361,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       trackObjectives(s);
       maybeResolve(s);
       maybeTrip(s);
+      maybeCamps(s);
     });
     sim.on('touchdown', (fpm, g) => {
       tracker!.onTouchdown(fpm, g);

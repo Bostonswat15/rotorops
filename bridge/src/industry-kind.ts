@@ -34,6 +34,15 @@ const BY_LABEL: [string, IndustryKind][] = [
   ['cannery', 'cannery'],
 ];
 
+/**
+ * A title naming a site of this kind, for staging its props away from any
+ * contract: "Camp — lumber camp" reads back as forest in industryKindFromTitle.
+ */
+export function campTitle(kind: string): string | null {
+  const hit = BY_LABEL.find(([, k]) => k === kind);
+  return hit ? `Camp — ${hit[0]}` : null;
+}
+
 /** Goods by name and by id, and the site that produces them. Longer names first. */
 const BY_GOOD: [string, IndustryKind][] = [
   ['milled lumber', 'sawmill'], ['lumber', 'sawmill'], ['timber', 'forest'],

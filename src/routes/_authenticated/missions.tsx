@@ -34,6 +34,7 @@ import { findSites, findIndustrySites, findCliffs } from "@/lib/osm";
 import { airfieldsNear } from "@/lib/airfields";
 import { isCargoJob } from "@/lib/cargo";
 import { isPlaneCheckride } from "@/lib/checkrides";
+import { isIndustryMode, showsInIndustryMode, withFreight, INDUSTRY_MODE_HAULS } from "@/lib/play-mode";
 import { cliffSitesFrom } from "@/lib/missions";
 import {
   FIXED_WING_TEMPLATES, generateFixedWingMission, isFixedWingMission, stripOf, fleetCanFly,
@@ -160,6 +161,8 @@ function MissionsPage() {
   async function generateFor(heli: boolean) {
     if (!company) return;
     const base = locatedBase;
+    // Industry mode: only goods work for the company's own sites.
+    const industryMode = isIndustryMode(company);
 
     let rows: any[] = [];
     // Where the patrols already on the board start, so a new one follows another line.
@@ -195,7 +198,7 @@ function MissionsPage() {
       let sites: PlacementSites | null = base.sites_scanned_at
         ? parsePlacementSites(base.placement_sites)
         : null;
-      if (heli && !sites) {
+      if (heli && !sites && !industryMode) {
         const scanning = toast.loading("Scanning the area — roads, water, cliffs and hospitals. This takes a moment.");
         try {
           const raw = await findSites(centre, 50);
@@ -222,7 +225,7 @@ function MissionsPage() {
       // lookup is a fraction of a full rescan, and it leaves the roads, water
       // and hospitals already cached alone. A failure stays unknown and is
       // tried again on the next batch.
-      if (heli && sites && sites.cliff === undefined) {
+      if (heli && sites && sites.cliff === undefined && !industryMode) {
         const finding = toast.loading("Finding cliffs for rescue scenes…");
         try {
           const cliffs = await findCliffs(centre, 50);
@@ -253,7 +256,9 @@ function MissionsPage() {
         sites,
       };
 
-      if (heli) {
+      if (industryMode) {
+        // No scene, charter, patrol or aeroplane contracts -- only the goods work below.
+      } else if (heli) {
         // Certification or siting coming up short for scene work skips only
         // the scenes and records why; charters, the line patrol and hauls
         // still generate.
@@ -390,7 +395,9 @@ function MissionsPage() {
         const add = (haul: Record<string, unknown> | null) => {
           if (haul) hauls.push({ company_id: company.id, ...haul });
         };
-        for (const ind of baseIndustries) {
+        // Industry mode goes round the sites a few times, so there are enough
+        // candidates for its larger batch. Dispatch still checks each against stock.
+        for (let round = 0; round < (industryMode ? 3 : 1); round++) for (const ind of baseIndustries) {
           const def = INDUSTRY_DEFS[ind.kind as keyof typeof INDUSTRY_DEFS];
           if (!def) continue;
           const from: IndustryRow = {
@@ -436,9 +443,14 @@ function MissionsPage() {
           const j = Math.floor(Math.random() * (i + 1));
           [hauls[i], hauls[j]] = [hauls[j], hauls[i]];
         }
-        rows.push(...hauls.slice(0, 2));
+        rows.push(
+          ...hauls
+            .slice(0, industryMode ? INDUSTRY_MODE_HAULS : 2)
+            // Goods alone paid a few hundred dollars a flight; Industry mode adds freight.
+            .map((h) => (industryMode ? withFreight(h, heli ? "rotary" : "fixed", Number(company.reputation) || 0) : h)),
+        );
       }
-    } else if (heli) {
+    } else if (heli && !industryMode) {
       const pool = MISSION_TEMPLATES.filter((t) =>
         companyHasCerts(company.certifications, t.required_certs),
       );
@@ -455,7 +467,9 @@ function MissionsPage() {
     // them do is this actually a failed Generate.
     if (rows.length === 0) {
       return toast.error(
-        !base
+        industryMode
+          ? "No hauls this time. Industry mode only offers goods work: build or scan camps on the Trading Hall, staff them, and give their stock somewhere to go (a mill, or a market airport for finished goods)."
+          : !base
           ? heli
             ? "Nothing to generate yet."
             : "Plane work needs a home base with a position. Set one in Settings, or run the sim bridge once."
@@ -552,7 +566,9 @@ function MissionsPage() {
   }
 
   // Cargo and passenger jobs live on the Cargo Hub.
-  const contracts = missions?.filter((m) => !isCargoJob(m)) ?? [];
+  // Industry mode shows only goods work and the check rides that gate aircraft.
+  const contracts =
+    missions?.filter((m) => !isCargoJob(m) && (!isIndustryMode(company) || showsInIndustryMode(m))) ?? [];
   const available = contracts.filter((m: any) => m.status === "available");
   const inProgress = contracts.filter((m: any) => m.status === "in_progress");
   const completed = contracts.filter((m: any) => m.status === "completed" || m.status === "failed").slice(0, 10);

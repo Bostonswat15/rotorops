@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCompany, useCompanyRole } from "@/hooks/use-company";
 import { fleetWing, isFixedWingAircraft, type WingType } from "@/lib/game-data";
+import { isIndustryMode, INDUSTRY_MODE_GOODS_JOBS } from "@/lib/play-mode";
 import { ratingOf, CHECKOUT_RATING } from "@/lib/ratings";
 import { distanceNm, parsePlacementSites } from "@/lib/missions";
 import { airfieldsNear } from "@/lib/airfields";
@@ -216,6 +217,7 @@ function CargoPage() {
           name: i.name,
           stock: Number(i.stock),
         })),
+        goodsJobs: isIndustryMode(company) ? INDUSTRY_MODE_GOODS_JOBS : undefined,
         // Plane jobs sized to the biggest plane: a Savage Cub gets Cub-sized work.
         planeLimits: (() => {
           const planes = fleet.filter(isFixedWingAircraft);

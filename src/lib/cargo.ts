@@ -158,6 +158,8 @@ export type CargoContext = {
    * among the fleet's planes. Absent keeps the full JOB_LB and MAX_PAX.
    */
   planeLimits?: { payloadLb: number; seats: number } | null;
+  /** Goods jobs from the company's industries. Absent keeps GOODS_JOBS; Industry mode asks for more. */
+  goodsJobs?: number;
   now?: number;
   random?: () => number;
 };
@@ -389,7 +391,7 @@ export function generateCargoJobs(ctx: CargoContext): Record<string, unknown>[] 
     }
     let goods = 0;
     for (const ind of stocked) {
-      if (goods >= GOODS_JOBS) break;
+      if (goods >= (ctx.goodsJobs ?? GOODS_JOBS)) break;
       const def = INDUSTRY_DEFS[ind.kind as IndustryKind];
       const good = def ? goodById(def.output) : null;
       const pickup = sites.find((s) => s.industryId === ind.id);

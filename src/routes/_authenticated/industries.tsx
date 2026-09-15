@@ -227,6 +227,17 @@ function IndustriesPage() {
             your choosing wherever you like -- it costs real capital and starts from nothing, same as
             buying an aircraft, but nothing stops you putting a fishing camp anywhere you want it.
           </p>
+          {company.free_camp_kind && INDUSTRY_DEFS[company.free_camp_kind as IndustryKind] && (
+            <p className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-success/40 bg-background px-3 py-2 text-sm">
+              <span>
+                Your free <span className="font-medium">{INDUSTRY_DEFS[company.free_camp_kind as IndustryKind].label}</span>{" "}
+                is ready to place — anywhere you like, fully staffed, at no cost.
+              </span>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setBuildKind(company.free_camp_kind as IndustryKind)}>
+                Choose it
+              </Button>
+            </p>
+          )}
           <div className="flex flex-wrap items-end gap-2">
             <div>
               <Label className="text-xs">Kind</Label>
@@ -235,7 +246,7 @@ function IndustriesPage() {
                 <SelectContent>
                   {Object.values(INDUSTRY_DEFS).map((d) => (
                     <SelectItem key={d.kind} value={d.kind}>
-                      {d.label} — {money(d.build_cost)}
+                      {d.label} — {company.free_camp_kind === d.kind ? "free" : money(d.build_cost)}
                     </SelectItem>
                   ))}
                 </SelectContent>

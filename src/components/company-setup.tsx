@@ -8,6 +8,8 @@ import { ArrowLeft, Helicopter, Plane } from "lucide-react";
 import { toast } from "sonner";
 import { AIRCRAFT_ARCHETYPES, type AircraftArchetype, type WingType } from "@/lib/game-data";
 import { STARTER_MAX_COST } from "@/lib/economy";
+import { FREE_CAMP_KINDS, type PlayMode } from "@/lib/play-mode";
+import { INDUSTRY_DEFS } from "@/lib/industries";
 
 // What a new company can start with: anything up to STARTER_MAX_COST, cheapest
 // first. Planes used to offer every airframe, a $28.5M Citation included, free.
@@ -39,6 +41,8 @@ export function CompanySetup({
   const [difficulty, setDifficulty] = useState("normal");
   const [realism, setRealism] = useState("balanced");
   const [starter, setStarter] = useState(STARTERS.rotary[0].internal_id);
+  const [playMode, setPlayMode] = useState<PlayMode>("career");
+  const [freeCamp, setFreeCamp] = useState<string>(FREE_CAMP_KINDS[0]);
   const [loading, setLoading] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
@@ -57,6 +61,7 @@ export function CompanySetup({
     e.preventDefault();
     setLoading(true);
     try {
+      const industry = playMode === "industry";
       const arch = STARTERS[wing].find((a) => a.internal_id === starter)!;
       const { error } = await supabase.rpc("create_company", {
         _name: name,
@@ -64,7 +69,10 @@ export function CompanySetup({
         _realism: realism,
         _base_name: baseName,
         _icao: icao,
-        _starter: arch as any,
+        // Industry mode starts with a free camp instead of a free aircraft.
+        _starter: industry ? null : (arch as any),
+        _play_mode: playMode,
+        _free_camp: industry ? freeCamp : null,
       });
       if (error) throw error;
       toast.success("Operation launched.");
@@ -181,6 +189,34 @@ export function CompanySetup({
             </p>
           </div>
 
+          <div>
+            <Label className="mb-2 block">Game mode</Label>
+            <RadioGroup
+              value={playMode}
+              onValueChange={(v) => setPlayMode(v as PlayMode)}
+              className="grid grid-cols-2 gap-2"
+            >
+              {(
+                [
+                  ["career", "Career", "Every kind of contract: rescues, charters, freight, goods"],
+                  ["industry", "Industry", "No missions: run camps and mills and fly their goods"],
+                ] as const
+              ).map(([v, l, sub]) => (
+                <label
+                  key={v}
+                  className="flex cursor-pointer flex-col rounded-md border border-border bg-background p-3 has-[:checked]:border-primary has-[:checked]:bg-accent"
+                >
+                  <RadioGroupItem value={v} className="sr-only" />
+                  <span className="font-medium">{l}</span>
+                  <span className="text-xs text-muted-foreground">{sub}</span>
+                </label>
+              ))}
+            </RadioGroup>
+            <p className="mt-2 text-xs text-muted-foreground">
+              You can switch later on Settings.
+            </p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <Label>Company name</Label>
@@ -230,7 +266,29 @@ export function CompanySetup({
             </RadioGroup>
           </div>
 
-          <div>
+          {playMode === "industry" && (
+            <div>
+              <Label className="mb-2 block">Your free camp</Label>
+              <RadioGroup value={freeCamp} onValueChange={setFreeCamp} className="grid gap-2 md:grid-cols-2">
+                {FREE_CAMP_KINDS.map((k) => (
+                  <label key={k} className="flex cursor-pointer flex-col rounded-md border border-border bg-background p-3 has-[:checked]:border-primary has-[:checked]:bg-accent">
+                    <RadioGroupItem value={k} className="sr-only" />
+                    <span className="font-medium">{INDUSTRY_DEFS[k].label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      Normally ${INDUSTRY_DEFS[k].build_cost.toLocaleString()} · {INDUSTRY_DEFS[k].max_workers} workers
+                    </span>
+                  </label>
+                ))}
+              </RadioGroup>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Place it anywhere on the Trading Hall once your base has a position, fully staffed and
+                at no cost. There's no free aircraft in Industry mode: buy or lease one from the
+                Market (a Savage Cub is $75,000).
+              </p>
+            </div>
+          )}
+
+          <div className={playMode === "industry" ? "hidden" : undefined}>
             <Label className="mb-2 block">
               Starter {wing === "fixed" ? "plane" : "helicopter"}
             </Label>

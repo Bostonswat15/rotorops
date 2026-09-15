@@ -417,6 +417,8 @@ export type Database = {
           realism_mode: string
           reputation: number
           user_id: string
+          play_mode: string
+          free_camp_kind: string | null
         }
         Insert: {
           cash?: number
@@ -429,6 +431,8 @@ export type Database = {
           realism_mode?: string
           reputation?: number
           user_id: string
+          play_mode?: string
+          free_camp_kind?: string | null
         }
         Update: {
           cash?: number
@@ -441,6 +445,8 @@ export type Database = {
           realism_mode?: string
           reputation?: number
           user_id?: string
+          play_mode?: string
+          free_camp_kind?: string | null
         }
         Relationships: []
       }
@@ -1356,6 +1362,8 @@ export type Database = {
           _base_name?: string
           _icao?: string | null
           _starter?: Json
+          _play_mode?: string
+          _free_camp?: string | null
         }
         Returns: Database["public"]["Tables"]["companies"]["Row"]
       }

@@ -199,6 +199,16 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   fleet, "helicopter only" note); plane rides show on the plane tab and dispatch only to planes,
   helicopter rides only to helicopters. **Not yet flown:** a plane sighting a search casualty,
   payload boarding on a plane.
+- **Industry game mode (user approved 2026-09-15, planes included):** `companies.play_mode`
+  'career' | 'industry' and `free_camp_kind` (`20260930000000_industry_mode.sql`; drops the
+  6-arg create_company and recreates it with `_play_mode`, `_free_camp`; carries place_industry
+  from 20260904 with the free, fully staffed first camp). `src/lib/play-mode.ts`: Industry mode
+  Mission Board shows only industry/trade/fuel_run/checkride/rating_ride rows; Generate skips
+  scans, scenes, charters, patrols and plane templates, loops the sites 3x and keeps 6 hauls
+  (helicopter hauls or plane hauls per tab), each `withFreight` (Cargo Hub `jobPay` for
+  min_payload/0.85 lb over distance_nm, on top of the goods). Cargo Hub goods jobs 2 -> 6. New
+  Industry company: no starter aircraft, a free lumber camp/farm/quarry/fishing camp placed later
+  on the Trading Hall. Settings has a Game mode select (owners/managers).
 - **Cargo Hub, OnAir-style (user approved all three stages, 2026-09-14):** jobs are `missions`
   rows with a `manifest` ({wing, items[{name,qty,unit_lb}], pax}), `pickup_*`/`drop_*` places,
   `expires_at` (48 h), `scene_type = 'cargo'`; the Mission Board, Dashboard and In Flight's

@@ -162,6 +162,14 @@ function SettingsPage() {
               <SelectItem value="hard">Hard</SelectItem>
             </SelectContent>
           </Select>
+          <Label className="mt-4 block">Game mode</Label>
+          <Select value={company.play_mode ?? "career"} disabled={!canManage} onValueChange={(v) => updateField({ play_mode: v })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="career">Career — every kind of contract</SelectItem>
+              <SelectItem value="industry">Industry — only moving goods for your sites</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="rounded-lg border border-border bg-card p-5">

@@ -318,12 +318,18 @@ function MissionsPage() {
         const certified = FIXED_WING_TEMPLATES.filter((t) =>
           companyHasCerts(company.certifications, t.required_certs),
         );
-        // Only work a plane in the fleet can take -- a Savage Cub was offered
-        // 1,500 lb freight runs. With no plane that fits any, offer them all.
-        const planes = (aircraft ?? []).filter(
-          (a) => isFixedWingAircraft(a) && !["sold", "returned", "destroyed"].includes(a.status),
+        // Only work something in the fleet can take -- a Savage Cub was offered
+        // 1,500 lb freight runs. A helicopter can fly plane work too: it lands
+        // anywhere, so a plane's type tags (short field, floats) don't apply
+        // to it, only payload and range. With nothing that fits any, offer them all.
+        const live = (aircraft ?? []).filter(
+          (a) => !["sold", "returned", "destroyed"].includes(a.status),
         );
-        const flyable = certified.filter((t) => fleetCanFly(t, planes));
+        const planes = live.filter((a) => isFixedWingAircraft(a));
+        const helis = live.filter((a) => !isFixedWingAircraft(a));
+        const flyable = certified.filter(
+          (t) => fleetCanFly(t, planes) || fleetCanFly({ ...t, required_tags: [] }, helis),
+        );
         const fwPool = flyable.length > 0 ? flyable : certified;
         let fwCount = 0;
         if (fwPool.length > 0 && airports.length > 0) {
@@ -689,7 +695,7 @@ function MissionsPage() {
                         {ac ? ac.display_name : "aircraft unassigned"}
                         {ac?.sim_title ? ` · fly "${ac.sim_title}" in MSFS` : ""}
                       </p>
-                      {m.nearest_airport_icao && (
+                      {m.nearest_airport_icao && !isFixedWingMission(m) && (
                         <p className="mt-1 text-xs text-muted-foreground">
                           Diversion field: <span className="font-mono text-foreground">{m.nearest_airport_icao}</span> · {Number(m.nearest_airport_nm).toFixed(1)}nm from scene
                         </p>
@@ -910,7 +916,18 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
     !ratings || ratings.some((r) => r.rating === rating && r.passed_at);
   const checkedOut = passed(CHECKOUT_RATING);
   const eligibleAircraft = aircraft
-    .map((a: any) => ({ a, e: isAircraftEligible(a, mission), rated: passed(ratingOf(a).rating) }))
+    // A helicopter may fly plane work: payload and range still apply, the
+    // plane's type tags don't.
+    .map((a: any) => ({
+      a,
+      e: isAircraftEligible(
+        a,
+        isFixedWingMission(mission) && !isFixedWingAircraft(a)
+          ? { ...mission, required_tags: [] }
+          : mission,
+      ),
+      rated: passed(ratingOf(a).rating),
+    }))
     .filter((x: any) => x.e.eligible)
     // A type rating ride has to be flown in that type.
     .filter((x: { a: { internal_id?: string; sim_title?: string; display_name?: string } }) =>
@@ -963,7 +980,13 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
         <S l="Payload" v={`${mission.min_payload}lb`} />
         <S l="Difficulty" v={"●".repeat(mission.difficulty)} />
       </dl>
-      {mission.scene_name && !ratingRide && (
+      {mission.scene_name && !ratingRide && isFixedWingMission(mission) && (
+        <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+          <MapPin className="h-3 w-3 text-primary" />
+          Field: <span className="font-mono text-foreground">{mission.scene_name}</span>
+        </p>
+      )}
+      {mission.scene_name && !ratingRide && !isFixedWingMission(mission) && (
         <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
           <MapPin className="h-3 w-3 text-primary" />
           Scene: <span className="text-foreground">{mission.scene_name}</span>
@@ -982,7 +1005,10 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
         </p>
       )}
       {mission.required_tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1">
+        <div className="mt-3 flex flex-wrap items-center gap-1">
+          {isFixedWingMission(mission) && (
+            <span className="text-[11px] text-muted-foreground">Planes:</span>
+          )}
           {mission.required_tags.map((t: string) => (
             <span key={t} className="rounded bg-secondary px-2 py-0.5 text-[11px]">{TAG_LABELS[t as keyof typeof TAG_LABELS] ?? t}</span>
           ))}

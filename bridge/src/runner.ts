@@ -10,7 +10,7 @@ import { campTitle, INDUSTRY_ROLES } from './industry-kind.ts';
 import { SimSession, distanceNm } from './telemetry.ts';
 import { FlightTracker, type Telemetry } from './flight.ts';
 import type { ScoreItem } from './score.ts';
-import { ObjectiveTracker, type Objective, type ObjectiveProgress } from './objectives.ts';
+import { ObjectiveTracker, carriesPeople, type Objective, type ObjectiveProgress } from './objectives.ts';
 import { SceneDirector, setSceneOverrides, type SceneType, type SceneOverrides } from './scene-actors.ts';
 import { bearingTo, clockPosition, resolveSearchTarget, type LatLon } from './search.ts';
 import {
@@ -564,7 +564,7 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
   const BOARD_MS = 8000;
   function maybeBoard(s: Record<string, number | string>) {
     if (!director || casualtyLb > 0) return;
-    const o = objectives.current as { kind?: string; min_delta_lb?: number } | null;
+    const o = objectives.current as { kind?: string; label?: string; min_delta_lb?: number } | null;
     if (o?.kind !== 'payload') {
       boardSince = null;
       return;
@@ -579,7 +579,10 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     const now = Date.now();
     if (boardSince === null) {
       boardSince = now;
-      director.say(hoisted ? 'Bringing them in…' : 'Hold still — taking them aboard…', 6);
+      director.say(
+        hoisted ? 'Bringing them in…' : carriesPeople(o.label ?? '') ? 'Hold still — taking them aboard…' : 'Hold still — loading…',
+        6,
+      );
       return;
     }
     if (now - boardSince < BOARD_MS) return;
@@ -589,7 +592,12 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
     const lb = Math.max(220, (o.min_delta_lb ?? 0) + 20);
     if (director.setCasualtyWeight(lb)) {
       casualtyLb = lb;
-      director.say(`Aboard — ${lb} lb. Get them to the receiving field.`, 10);
+      director.say(
+        carriesPeople(o.label ?? '')
+          ? `Aboard — ${lb} lb. Get them to the receiving field.`
+          : `Loaded — ${lb} lb aboard.`,
+        10,
+      );
       log(`Loaded aboard: +${lb} lb on the airframe.`);
     } else {
       // Do not retry every sample; the log already says why.

@@ -145,6 +145,11 @@ export type ObjectiveProgress = {
   hint: string | null;
 };
 
+/** Whether a payload step boards people (patients, jumpers, guests) rather than freight. */
+export function carriesPeople(label: string): boolean {
+  return /patient|casualt|survivor|jumper|guest|passenger|crew|hiker/i.test(label);
+}
+
 export class ObjectiveTracker {
   private objectives: Objective[] = [];
   private done = new Set<string>();
@@ -563,13 +568,21 @@ export class ObjectiveTracker {
           this.basePayload = null;
         } else if (delta < 20) {
           // Say what to do, not a number that sits at zero. The bridge puts
-          // them aboard once the hoist is done or the skids are down and
-          // still, so the useful hint is which of those is missing.
+          // the load aboard once the hoist is done or the aircraft is down
+          // and stopped, so the useful hint is which of those is missing.
+          // Only a rescue has a casualty to land beside; freight, jumpers and
+          // guests are waiting wherever the aircraft stops.
           const hoisted = this.objectives.some((x) => x.kind === 'hoist' && this.done.has(x.id));
+          const rescue = this.objectives.some((x) => x.kind === 'search' || x.kind === 'hoist' || x.kind === 'land_off');
+          const people = carriesPeople(o.label);
           this.hint =
             hoisted || (onGround && gs < 5)
-              ? 'hold still — taking them aboard'
-              : 'land by the casualty to take them aboard';
+              ? people ? 'hold still — taking them aboard' : 'hold still — loading'
+              : rescue && people
+                ? 'land by the casualty to take them aboard'
+                : people
+                  ? 'land and stop to take them aboard'
+                  : 'land and stop to load';
         } else {
           this.hint = `${Math.max(0, Math.round(delta))}/${o.min_delta_lb} lb aboard`;
         }

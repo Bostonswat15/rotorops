@@ -193,6 +193,10 @@ export class FlightTracker extends EventEmitter {
     if (num(s.engineOnFire) === 1) this.incidents.add('engine fire');
     // Percent of total damage to the engine; the sim exposes no overtorque var.
     if (num(s.engineDamagePct) > 0) this.incidents.add('engine damage');
+    // Rotor and sling faults are helicopter faults. An aeroplane answers ROTOR
+    // RPM PCT as well, with a reading that means nothing of the sort, and was
+    // being docked 15 points for "Rotor RPM low in flight".
+    if (this.scorer?.kind !== 'rotary') return;
     if (num(s.slingCableBroken) === 1) this.incidents.add('sling cable parted');
     if (num(s.rotorRpmPct) > 0 && num(s.rotorRpmPct) < 80 && !num(s.onGround))
       this.incidents.add('rotor RPM low in flight');

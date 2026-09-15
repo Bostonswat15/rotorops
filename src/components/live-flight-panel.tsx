@@ -211,7 +211,9 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
         ? "To base"
         : legTarget?.kind === "next"
           ? "To next"
-          : "To scene";
+          : activeMission?.scene_type === "airport"
+            ? "To field"
+            : "To scene";
 
   // Every objective that has a place on the map, married up with whether the
   // bridge has ticked it.
@@ -375,7 +377,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
                 lon: Number(activeMission.scene_lon),
                 label: searchArea
                   ? `Datum — ${activeMission.scene_name ?? "search"}`
-                  : (activeMission.scene_name ?? "Scene"),
+                  : (activeMission.scene_name ??
+                    (activeMission.scene_type === "airport" ? "Field" : "Scene")),
               }
             : null
         }

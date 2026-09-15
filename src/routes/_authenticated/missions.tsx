@@ -318,18 +318,12 @@ function MissionsPage() {
         const certified = FIXED_WING_TEMPLATES.filter((t) =>
           companyHasCerts(company.certifications, t.required_certs),
         );
-        // Only work something in the fleet can take -- a Savage Cub was offered
-        // 1,500 lb freight runs. A helicopter can fly plane work too: it lands
-        // anywhere, so a plane's type tags (short field, floats) don't apply
-        // to it, only payload and range. With nothing that fits any, offer them all.
-        const live = (aircraft ?? []).filter(
-          (a) => !["sold", "returned", "destroyed"].includes(a.status),
+        // Only work a plane in the fleet can take -- a Savage Cub was offered
+        // 1,500 lb freight runs. With no plane that fits any, offer them all.
+        const planes = (aircraft ?? []).filter(
+          (a) => isFixedWingAircraft(a) && !["sold", "returned", "destroyed"].includes(a.status),
         );
-        const planes = live.filter((a) => isFixedWingAircraft(a));
-        const helis = live.filter((a) => !isFixedWingAircraft(a));
-        const flyable = certified.filter(
-          (t) => fleetCanFly(t, planes) || fleetCanFly({ ...t, required_tags: [] }, helis),
-        );
+        const flyable = certified.filter((t) => fleetCanFly(t, planes));
         const fwPool = flyable.length > 0 ? flyable : certified;
         let fwCount = 0;
         if (fwPool.length > 0 && airports.length > 0) {
@@ -916,19 +910,13 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
     !ratings || ratings.some((r) => r.rating === rating && r.passed_at);
   const checkedOut = passed(CHECKOUT_RATING);
   const eligibleAircraft = aircraft
-    // A helicopter may fly plane work: payload and range still apply, the
-    // plane's type tags don't.
-    .map((a: any) => ({
-      a,
-      e: isAircraftEligible(
-        a,
-        isFixedWingMission(mission) && !isFixedWingAircraft(a)
-          ? { ...mission, required_tags: [] }
-          : mission,
-      ),
-      rated: passed(ratingOf(a).rating),
-    }))
+    .map((a: any) => ({ a, e: isAircraftEligible(a, mission), rated: passed(ratingOf(a).rating) }))
     .filter((x: any) => x.e.eligible)
+    // Plane contracts are flown in planes. Some helicopters carry the same role
+    // tags (an EC130 is "light utility"), which offered them on ferry flights.
+    .filter((x: { a: { internal_id?: string } }) =>
+      !isFixedWingMission(mission) || isFixedWingAircraft(x.a),
+    )
     // A type rating ride has to be flown in that type.
     .filter((x: { a: { internal_id?: string; sim_title?: string; display_name?: string } }) =>
       !ratingRide || mission.scene_name === CHECKOUT_RATING || ratingOf(x.a).rating === mission.scene_name,
@@ -1005,10 +993,7 @@ function MissionCard({ mission, aircraft, certs, onDispatch, me, ratings: rating
         </p>
       )}
       {mission.required_tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-1">
-          {isFixedWingMission(mission) && (
-            <span className="text-[11px] text-muted-foreground">Planes:</span>
-          )}
+        <div className="mt-3 flex flex-wrap gap-1">
           {mission.required_tags.map((t: string) => (
             <span key={t} className="rounded bg-secondary px-2 py-0.5 text-[11px]">{TAG_LABELS[t as keyof typeof TAG_LABELS] ?? t}</span>
           ))}

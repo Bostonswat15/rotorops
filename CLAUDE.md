@@ -361,15 +361,15 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   `reach` (the pickup), not the scene point (their delivery end). Plane hauls place nothing.
   `scene-objects.json` can override one kind via `roles["industry:<kind>"]`. Fishing skiffs spawn
   at the site point, which may be on land; not yet seen in the sim.
-- **Planes are not helicopters, helicopters may fly plane work (2026-09-15):** rotor-RPM and
+- **Planes are not helicopters (2026-09-15):** rotor-RPM and
   sling-cable incidents are only collected when the scorer is `rotary` (`flight.ts`); a plane
   reports ROTOR RPM PCT too and was losing 15 points. Payload steps say people or freight by
   label (`carriesPeople` in `objectives.ts`): "land by the casualty" only on rescues, "land and
   stop to load" for freight and hauls, and the bridge says "Loaded" rather than "Get them to the
   receiving field". Plane cards show `Field:` instead of Scene/nearest field/Diversion field, and
-  In Flight says "To field". A helicopter can dispatch on any plane contract its payload and
-  range fit; plane type tags (bush, float) only bind planes, in the card and in `fleetCanFly`
-  generation. Plane check rides stay plane-only. No migration (the server never checked tags).
+  In Flight says "To field". Plane contracts (`isFixedWingMission`) only offer planes at
+  dispatch (user chose plane-only 2026-09-15): an EC130 shares the "light utility" tag and was
+  offered ferry flights. Client-side only, like plane check rides; `dispatch_mission` does not check.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;

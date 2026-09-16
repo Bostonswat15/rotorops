@@ -417,6 +417,19 @@ use the project skill **`rotorops-sim`** (`.claude/skills/rotorops-sim/SKILL.md`
   or a typed/aircraft position more than 5 nm from the old one, also clears `placement_sites`,
   `sites_scanned_at`, `nearby_airports` and `airports_updated_at`; the bridge skips its hourly
   airport-report throttle while any located base has none. Camps keep their positions.
+- **Finish somewhere else (user asked 2026-09-16, both wings):** every contract ends with a
+  land/land_off step, and In Flight now offers "Land at nearest airport" while that step is the
+  one being flown (a one-leg delivery qualifies from the start, since the landing is the whole
+  job). `divert_mission` (migration 20261005000000_divert_mission.sql) moves just that last
+  objective to the chosen field and sets `destination` to match; refused for goods work
+  (industry/trade/fuel_run) and check/rating rides. The bridge notices on its next poll --
+  `destination` changing is the signal -- and calls `ObjectiveTracker.retarget()`, which moves
+  only that objective's icao/lat/lon/label and never re-stages the scene or resets progress.
+  Pay is unaffected: payout is fixed at dispatch and `onFlight` already counts a contract whose
+  objectives are all done as having arrived. Up to 30 s for the sim side to catch up. **Not yet
+  flown.** Plane `delivery` templates were already one-way (they end at the destination and are
+  paid for the flight home anyway); round trips, surveys, multi-stops and all rotary scene work
+  still come home unless diverted.
 - **Not yet flown in the sim:** simulated winch, walker leash/AGL waypoints, terrain casualty
   candidates, roadside road placement after cache fix, auto-logging on a clean full flight.
 - **Offered, not done:** road fire engines instead of airport crash tenders on highway scenes;

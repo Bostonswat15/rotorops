@@ -1215,6 +1215,17 @@ export type Database = {
         Args: { _mission_id: string }
         Returns: Database["public"]["Tables"]["missions"]["Row"]
       }
+      divert_mission: {
+        Args: {
+          _mission_id: string
+          _icao: string
+          _lat: number
+          _lon: number
+          _runway_ft?: number | null
+          _surface?: string | null
+        }
+        Returns: Database["public"]["Tables"]["missions"]["Row"]
+      }
       complete_mission_manual: {
         Args: { _mission_id: string; _aircraft_id: string; _telemetry?: Json }
         Returns: Json

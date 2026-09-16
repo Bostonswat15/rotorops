@@ -216,6 +216,36 @@ export class ObjectiveTracker {
     if (spec && this.done.has(spec.id)) this.foundAt = this.searchTarget;
   }
 
+  /**
+   * Move the objective with this id to a new landing target, in place -- for
+   * a mid-flight divert to a real field the pilot picked instead of the one
+   * the contract was booked for (user asked 2026-09-16). Only "land" and
+   * "land_off": the shape of the job never changes, only where it ends.
+   * Leaves every other objective, and this one's own done state, untouched --
+   * a divert only moves the target, it never completes anything by itself.
+   */
+  retarget(
+    id: string,
+    to: { icao: string | null; lat: number; lon: number; label?: string },
+  ): boolean {
+    const i = this.objectives.findIndex((o) => o.id === id);
+    const o = this.objectives[i];
+    if (!o) return false;
+    // The label travels with the target: the objective list on screen reads
+    // from here, so leaving the old wording behind would have it still saying
+    // "Return to base" while the map pointed at the field you diverted to.
+    const label = to.label ?? o.label;
+    if (o.kind === 'land') {
+      this.objectives[i] = { ...o, label, icao: to.icao, lat: to.lat, lon: to.lon };
+      return true;
+    }
+    if (o.kind === 'land_off') {
+      this.objectives[i] = { ...o, label, lat: to.lat, lon: to.lon };
+      return true;
+    }
+    return false;
+  }
+
   /** The casualty's position, once sighted. Null while the search is still on. */
   get sighted(): LatLon | null {
     return this.foundAt;

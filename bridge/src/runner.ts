@@ -287,7 +287,35 @@ export function createBridge(token: string, emit: (e: BridgeEvent) => void): Bri
       return;
     }
     warnedNoArm = false;
-    if (objectiveMission?.id === m.id) return;
+    if (objectiveMission?.id === m.id) {
+      // Same contract already armed -- pick up a divert (user asked
+      // 2026-09-16) without disturbing the rest of the flight: only the last
+      // land/land_off objective ever moves, and nothing here re-stages the
+      // scene or resets progress. divert_mission (server) always changes
+      // destination alongside the objective it moves, so that is the cheap
+      // signal a divert happened, rather than deep-comparing the objectives
+      // array on every poll.
+      if (objectiveMission.destination !== m.destination) {
+        const objs = (m.objectives as Objective[]) ?? [];
+        const last = objs[objs.length - 1] as
+          | { id: string; kind: string; label?: string; icao?: string | null; lat?: number; lon?: number }
+          | undefined;
+        if (last && (last.kind === 'land' || last.kind === 'land_off')) {
+          const moved = objectives.retarget(last.id, {
+            icao: last.icao ?? null,
+            lat: Number(last.lat),
+            lon: Number(last.lon),
+            label: last.label,
+          });
+          if (moved) {
+            log(`"${m.title}" diverted -- land at ${m.destination ?? "the new field"} to finish it now.`);
+            director?.say(`New plan -- land at ${m.destination ?? "the nearest field"} to finish this one.`, 10);
+          }
+        }
+        objectiveMission = m;
+      }
+      return;
+    }
     objectiveMission = m;
     signalled = false;
     const alreadyDone = Object.entries(m.objectives_state ?? {})

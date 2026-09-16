@@ -1,10 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCurrentCompany } from "@/lib/company";
 import { FlightMap } from "@/components/flight-map";
 import { useLiveFlight, useBridgeObjectives, useBridgeScore, useBridgeTrip } from "@/hooks/use-live-flight";
-import { searchAreaOf } from "@/lib/missions";
+import { searchAreaOf, nearestAirport } from "@/lib/missions";
+import { airfieldsNear } from "@/lib/airfields";
 import { INDUSTRY_DEFS, type IndustryKind } from "@/lib/industries";
 import { ownsIndustry } from "@/lib/play-mode";
 import { desktop, type BridgeStatus, type TripStatus } from "@/lib/desktop";
@@ -31,6 +33,8 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
   const simAircraft = bridge?.simAircraft ?? null;
   // A camp picked on the map; the guide line points there until cleared.
   const [flyTo, setFlyTo] = useState<string | null>(null);
+  const [diverting, setDiverting] = useState(false);
+  const qc = useQueryClient();
 
   // Only needed to explain why objectives are not arming, or why there is no
   // map at all, so it rides along with the status stream rather than getting
@@ -215,6 +219,78 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
             ? "To field"
             : "To scene";
 
+  /*
+    Finishing somewhere else (user asked 2026-09-16).
+
+    Every contract ends with a landing -- home, the delivery field, the
+    receiving hospital. Flying the last leg all the way back to base when a
+    perfectly good airfield is under the nose is the part that reads as busy
+    work, so the final landing can be moved to whichever field is nearest
+    right now. divert_mission does the move server-side; the bridge picks it
+    up on its next poll and retargets that one objective.
+
+    Offered only while that landing is the step actually being flown, so it
+    cannot be clicked halfway through a rescue by mistake -- except on a
+    one-leg delivery, where the landing IS the whole job and choosing where
+    to put it down is the point. Goods work and check rides are refused by
+    the server: a haul has to reach the site it is billed to, and a check
+    ride is graded on landing where it was booked.
+  */
+  const NO_DIVERT_ROLES = ["checkride", "rating_ride", "industry", "trade", "fuel_run"];
+  const finalObjective = (() => {
+    const raw = Array.isArray(activeMission?.objectives) ? activeMission.objectives : [];
+    const last = raw[raw.length - 1] as { id?: string; kind?: string; label?: string } | undefined;
+    return last?.id && (last.kind === "land" || last.kind === "land_off") ? last : null;
+  })();
+  const lastLegLabel = String(finalObjective?.label ?? "a landing");
+  const canDivert =
+    !!activeMission &&
+    !!finalObjective &&
+    !NO_DIVERT_ROLES.includes(String(activeMission.role ?? "")) &&
+    live?.items.find((o) => !o.done)?.id === finalObjective.id;
+
+  async function divertToNearest() {
+    // Re-checked rather than relied on: narrowing from the early return above
+    // does not reach inside a nested function.
+    if (!flight || !activeMission || !finalObjective) return;
+    setDiverting(true);
+    try {
+      // Looked up from where the aircraft is now, not from the base: the
+      // whole point is that base may be a long way behind you.
+      const fields = await airfieldsNear(
+        { latitude: flight.lat, longitude: flight.lon, nearby_airports: [] },
+        true,
+      );
+      const near = nearestAirport(flight.lat, flight.lon, fields);
+      if (!near) {
+        toast.error("No airfield found nearby. Fly closer to one and try again.");
+        return;
+      }
+      const field = fields.find((f) => f.icao === near.icao);
+      const { error } = await supabase.rpc("divert_mission", {
+        _mission_id: activeMission.id,
+        _icao: near.icao,
+        _lat: field?.lat ?? flight.lat,
+        _lon: field?.lon ?? flight.lon,
+        _runway_ft: field?.runway_ft ?? null,
+        _surface: field?.surface ?? null,
+      });
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success(
+        `Diverted to ${near.icao}, ${near.distance_nm.toFixed(1)} nm away. Land there to finish the job ` +
+          "-- the sim bridge picks this up within 30 seconds.",
+      );
+      qc.invalidateQueries();
+    } catch {
+      toast.error("Could not reach the airfield lookup. Try again in a moment.");
+    } finally {
+      setDiverting(false);
+    }
+  }
+
   // Every objective that has a place on the map, married up with whether the
   // bridge has ticked it.
   const mapWaypoints = (() => {
@@ -326,6 +402,22 @@ export function LiveFlightPanel({ fill = false }: { fill?: boolean }) {
           logged. If the contract is still on the board after that, use{" "}
           <span className="font-medium">Log manually</span> on the Mission Board.
         </p>
+      )}
+
+      {canDivert && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2 text-sm">
+          <span className="text-muted-foreground">
+            Last leg: <span className="text-foreground">{lastLegLabel}</span>
+          </span>
+          <button
+            type="button"
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+            disabled={diverting}
+            onClick={divertToNearest}
+          >
+            {diverting ? "Finding the nearest field…" : "Land at nearest airport"}
+          </button>
+        </div>
       )}
 
       {/*
